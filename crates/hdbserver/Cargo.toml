@@ -1,0 +1,38 @@
+[package]
+name = "hdbserver"
+version = { workspace = true }
+publish = { workspace = true }
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.75"
+bytes = "1.5.0"
+clap = { version = "4.5.0", features = ["cargo", "derive", "env"] }
+form_urlencoded = "1.2.0"
+futures = "0.3.28"
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+pin-project = "1.1.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0.47"
+tokio = { version = "1.36.0", features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+yubico = { version = "0.11.0" }
+
+certificates = { path = "../certificates" }
+doprf = { path = "../doprf" }
+hdb = { path = "../hdb" }
+minhttp = { path = "../minhttp" }
+persistence = { path = "../persistence" }
+scep = { path = "../scep" }
+scep_server_helpers = { path = "../scep_server_helpers" }
+securedna_versioning = { path = "../securedna_versioning" }
+shared_types = { path = "../shared_types", features = ["http"] }
+streamed_ristretto = { path = "../streamed_ristretto", features = ["hyper"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+scep_client_helpers = { path = "../scep_client_helpers" }

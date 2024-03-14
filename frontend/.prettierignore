@@ -1,0 +1,6 @@
+**/*.js
+**/*.cjs
+common/lib
+**/dist
+all_bindings.ts
+pnpm-lock.yaml

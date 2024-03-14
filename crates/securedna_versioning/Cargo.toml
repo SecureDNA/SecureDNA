@@ -1,0 +1,12 @@
+[package]
+name = "securedna_versioning"
+version = { workspace = true }
+publish = { workspace = true }
+license = { workspace = true }
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+
+[build-dependencies]
+vergen = { version = "8.3.1", features = ["git", "git2"] }

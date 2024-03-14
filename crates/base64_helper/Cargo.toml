@@ -1,0 +1,16 @@
+[package]
+name = "base64_helper"
+edition = "2021"
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+base64 = "0.22.0"
+serde.workspace = true
+
+[dev-dependencies]
+serde_json = "1.0"
+quickcheck = "1.0"

@@ -1,0 +1,5 @@
+# Active security for the database membership protocol (screening)
+
+The responses received from the keyservers during screening might be incorrect due to data corruption or malicious behaviour. In order to be confident that we have not missed any hazards in screening, it is useful to have a method of validating that the keyserver query responses form a true evaluation of the DOPRF. We achieve this by creating a validation target which the client can use as a checksum for the keyserver responses as follows:
+
+The client receives active security keys from keyservers on startup, during the server selection protocol (SSP). SSP chooses the most commonly provided active security key value. If a unique majority is not present, SSP proceeds to the next generation. Each time screening runs the client will use the `ActiveSecurityKey` to calculate a new randomly modified `RandomizedTarget`. When keyserver query responses are received, the resulting hashes are summed and checked against the `RandomizedTarget`. If the validation fails, keyserver's individual hash contributions can be used to identify which keyserver(s) are responsible.

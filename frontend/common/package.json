@@ -1,0 +1,27 @@
+{
+  "name": "@securedna/frontend_common",
+  "author": "SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>",
+  "license": "MIT OR Apache-2.0",
+  "version": "0.4.0",
+  "description": "Shared frontend components",
+  "scripts": {
+    "postinstall": "node ../tsgen/main.js",
+    "build": "tsc"
+  },
+  "peerDependencies": {
+    "@fortawesome/free-solid-svg-icons": "^6.4.0",
+    "@fortawesome/react-fontawesome": "^0.2.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hot-toast": "^2.4.1",
+    "reactjs-popup": "^2.0.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.6",
+    "@types/react-dom": "^18.2.4",
+    "typescript": "^5.4.2"
+  },
+  "dependencies": {
+    "bottleneck": "^2.19.5"
+  }
+}

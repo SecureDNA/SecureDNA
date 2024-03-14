@@ -1,0 +1,25 @@
+# The logic is to exclude everything and only copy files we know we will need
+#
+# NOTE: comments in this file should be on a separate line, same-line comments seem to break things!
+
+# Ignore everything by default
+*
+*/
+
+# Then selectively allow with ! what we need for the build
+!Cargo.lock
+!Cargo.toml
+!rust-toolchain.toml
+!/crates/
+!/frontend/
+!/test/certs
+
+# We need .git/ for vergen, but don't want LFS
+!/.git/
+/.git/lfs/
+
+# Re-ignore large directories
+**/target_wasm/
+**/node_modules/
+**/bindings/
+frontend/common/lib/

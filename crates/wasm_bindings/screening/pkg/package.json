@@ -1,0 +1,16 @@
+{
+  "name": "screening_wasm",
+  "description": "WebAssembly bindings for screening",
+  "version": "1.0.5-dev",
+  "license": "MIT OR Apache-2.0",
+  "files": [
+    "screening_wasm_bg.wasm",
+    "screening_wasm.js",
+    "screening_wasm.d.ts"
+  ],
+  "module": "screening_wasm.js",
+  "types": "screening_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "url1": "http://localhost:7000",
+  "url2": "http://localhost:7001",
+  "keyservers": {
+    "keyserver_port": 7000,
+    "keyserver_keyshare": "",
+    "keyserver_id": 1,
+    "keyserver_active_security_key:""
+  }
+}

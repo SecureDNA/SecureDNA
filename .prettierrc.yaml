@@ -1,0 +1,9 @@
+# These equal the default prettier settings:
+# https://prettier.io/docs/en/options.html
+
+printWidth: 80
+tabWidth: 2
+useTabs: false
+semi: true
+singleQuote: false
+trailingComma: "es5"

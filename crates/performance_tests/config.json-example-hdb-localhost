@@ -1,0 +1,8 @@
+{
+  "url1": "http://localhost:7000",
+  "url2": "http://localhost:7001",
+  "hdbservers": {
+    "hdb_port": 7000,
+    "hdb_vol": "/tmp/test/data/hdb:/hdb/hdb"
+  }
+}

@@ -1,0 +1,41 @@
+/**
+ * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Inter Variable", Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+
+  color-scheme: light;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  font-feature-settings:
+    "kern" 1,
+    "ss02" 1;
+  -webkit-font-feature-settings:
+    "kern" 1,
+    "ss02" 1;
+}
+
+@layer base {
+  h1 {
+    @apply text-3xl font-bold my-8;
+  }
+  h2 {
+    @apply text-xl font-bold my-4;
+  }
+  a {
+    @apply text-blue-500 hover:underline;
+  }
+}

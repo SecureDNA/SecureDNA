@@ -1,0 +1,26 @@
+[package]
+name = "scep_server_helpers"
+edition = "2021"
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+certificates = { path = "../certificates" }
+minhttp = { path = "../minhttp" }
+scep = { path = "../scep" }
+shared_types = { path = "../shared_types" }
+
+anyhow = "1.0.75"
+bytes = "1.5.0"
+cookie = "0.18.0"
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+serde_json = "1"
+tokio = { version = "1", features = ["sync"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
