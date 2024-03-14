@@ -1,0 +1,3 @@
+disallowed-types = [
+    "std::time::Instant", # panics at runtime under WASM—use doprf_client::instant::* instead
+]

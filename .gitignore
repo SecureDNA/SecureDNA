@@ -1,0 +1,39 @@
+# cargo artifact dir
+/target
+
+# our data, as dir or symlink
+/data
+
+# python detritus
+__pycache__
+*.py[cod]
+venv
+
+# editor and os detritus
+.DS_Store
+*.swp
+*~
+.vscode
+.cargo
+.idea/
+out/
+
+# We want the audit and config file
+!.cargo/audit.toml
+!.cargo/config.toml
+
+# can get created by running prettier in top-level
+/node_modules
+
+# AHA results
+/summary*.csv
+/debug-output*
+
+# Performance test results
+/results
+
+.direnv
+.envrc
+
+# tsgen results
+**/all_bindings.ts

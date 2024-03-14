@@ -1,0 +1,21 @@
+{
+    "url1": "http://localhost:5300",
+    "url2": "http://localhost:5301",
+    "clients": {
+      "client_port": 5300,
+      "client_hdbservers": ["<hdbserver>"],
+      "client_keyservers": ["<keyserver>"],
+      "client_cpu_limit": "1.0"
+    },
+    "keyservers": {
+      "keyserver_port": 5400,
+      "keyserver_keyshare": "",
+      "keyserver_id": 1,
+      "keyserver_cpu_limit": "1.0"
+    },
+    "hdbservers": {
+      "hdb_port": 5500,
+      "hdb_vol": "/tmp/test/data/hdb:/hdb/hdb",
+      "hdb_cpu_limit": "1.0"
+    }
+}

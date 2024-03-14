@@ -1,0 +1,34 @@
+---
+source: crates/hdb/src/response.rs
+expression: "HdbResponse::with_hlt(metadata, Some(Region::Us), &Default::default(),\n        &hlt).unwrap()"
+---
+synthesis_permission: granted
+most_likely_organism:
+  name: Nastyitis
+  organism_type: Virus
+  ans:
+    - NC_00000.0
+    - NC_00000.1
+  tags:
+    - HumanToHuman
+organisms:
+  - name: Nastyitis
+    organism_type: Virus
+    ans:
+      - NC_00000.0
+      - NC_00000.1
+    tags:
+      - HumanToHuman
+  - name: Nastyitis variant
+    organism_type: Virus
+    ans:
+      - NC_00001
+    tags:
+      - ArthropodToHuman
+      - HumanToHuman
+an_likelihood: 0.5
+provenance: AAWildType
+reverse_screened: false
+window_gap: 3
+exempt: false
+

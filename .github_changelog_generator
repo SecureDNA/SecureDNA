@@ -1,0 +1,4 @@
+future-release=0.4.0
+since-tag=0.1.0
+exclude-labels=meta,duplicate,question,invalid,wontfix,documentation,dependencies
+exclude-tags=alpha

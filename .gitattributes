@@ -1,0 +1,7 @@
+* text eol=lf
+*.dat filter=lfs diff=lfs merge=lfs -text
+*.fragset.json filter=lfs diff=lfs merge=lfs -text
+test/data/hdb/?? binary
+test/data/hdb/index/??.i binary
+test/data/hdb/hlt.json -text
+*.wasm binary

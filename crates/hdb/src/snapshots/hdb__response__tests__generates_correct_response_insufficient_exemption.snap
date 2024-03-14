@@ -1,0 +1,25 @@
+---
+source: crates/hdb/src/response.rs
+expression: "HdbResponse::with_hlt(metadata, Some(Region::Us),\n        &make_exemptions(vec![exemption]), &hlt).unwrap()"
+---
+synthesis_permission: denied
+most_likely_organism:
+  name: Nastytoxin
+  organism_type: Toxin
+  ans:
+    - NC_00002
+  tags:
+    - SelectAgentHhs
+organisms:
+  - name: Nastytoxin
+    organism_type: Toxin
+    ans:
+      - NC_00002
+    tags:
+      - SelectAgentHhs
+an_likelihood: 0.5
+provenance: AAWildType
+reverse_screened: false
+window_gap: 3
+exempt: false
+

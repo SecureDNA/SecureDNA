@@ -1,0 +1,32 @@
+[package]
+name = "performance_tests"
+version = { workspace = true }
+publish = { workspace = true }
+license = { workspace = true }
+edition = "2021"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = []
+run_system_tests = []
+
+[dependencies]
+anyhow = "1.0.75"
+bytes = "1.5.0"
+csv = "1.3.0"
+curve25519-dalek = {workspace = true, features = ["rand_core"]}
+goose = "0.17.1"
+itertools = "0.12.0"
+kiss_docker = { git = "https://github.com/Nomadic-Workplace/kiss-docker-rust/" }
+prometheus = { version = "0.13.3", features = ["push"] }
+rand = "0.8.5"
+regex = "1.10.1"
+reqwest = { version = "0.11.20", features = ["json"] }
+serde = { version = "1.0.188", features = ["derive"] }
+serde_json = "1.0.91"
+tokio = "^1.36.0"
+
+doprf = { path = "../doprf" }
+packed_ristretto = { path = "../packed_ristretto" }
+shared_types = { path = "../shared_types" }
+streamed_ristretto = { path = "../streamed_ristretto" }

@@ -1,0 +1,33 @@
+[package]
+name = "scep_integration_tests"
+edition = "2021"
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.75"
+bytes = "1.5.0"
+futures = "0.3.29"
+http-body-util = { workspace = true }
+hyper = { workspace = true, features = ["http1", "server"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing.workspace = true
+
+certificates = { path = "../certificates" }
+doprf = { path = "../doprf" }
+minhttp = { path = "../minhttp" }
+scep = { path = "../scep" }
+scep_server_helpers = { path = "../scep_server_helpers" }
+shared_types = { path = "../shared_types", features = ["http"] }
+streamed_ristretto = { path = "../streamed_ristretto", features = ["hyper"] }
+
+[dev-dependencies]
+tracing-test = "0.2.4"
+
+doprf_client = { path = "../doprf_client" }
+http_client = { path = "../http_client" }
+scep_client_helpers = { path = "../scep_client_helpers" }

@@ -1,0 +1,10 @@
+[package]
+name = "wasm_bindings"
+description = "Build tool for SecureDNA WebAssembly bindings"
+version = { workspace = true }
+publish = { workspace = true }
+license = { workspace = true }
+edition = "2021"
+
+[features]
+wasm = []

@@ -1,0 +1,255 @@
+*** ./synthesizer-token.st ***
+
+V1 Synthesizer Token
+  Issuance ID:
+    37f9d37acb17f675e479358c89b08379
+  Request ID:
+    946648d2fda716665777a5b99493cd10
+  Public Key:
+    094af9af0b7c2f237393fd5d57597766875fdb26e068162eb8713f42793bed18
+  Manufacturer Domain:
+    securedna.org
+  Model:
+    demo
+  Serial Number:
+    1
+  Rate Limit:
+    300000 base pairs per day
+  Issued by:
+    test-leaf, test-leaf@example.com (public key: 53c3941e8161828992e0fbdfd089b32b6754abe05496bc605eba0526aa7d618d)
+  Issued on:
+    Thu, 07 Mar 2024 00:10:18 +0000
+  Expires:
+    Sun, 05 Mar 2034 00:10:18 +0000
+  Signature:
+    8695c7d2292dd5adf1a852cb4dff1244bf4995ba5a319b2ebc2b1cd9723d8888b61f9ac3271849ab30e27a003d496e0c73d75deb836eddc7eb5c1f90cc26d101
+
+*** ./manufacturer-root.cert ***
+
+Root V1 Manufacturer Certificate
+  Issuance ID:
+    ced217fc12a2495be3a36a9f6383cf4a
+  Request ID:
+    6ab0598e5b9e8fc028035399a486a0c3
+  Issued to:
+    test-root, test-root@example.com (public key: 1d948387dcb94a6bd6edb9cbc5514a04d299dd8d20c2969a52e5a5f6ea081f3c)
+  Issued by:
+    test-root, test-root@example.com (public key: 1d948387dcb94a6bd6edb9cbc5514a04d299dd8d20c2969a52e5a5f6ea081f3c)
+  Issued on:
+    Wed, 17 Jan 2024 00:17:14 +0000
+  Expires:
+    Sat, 14 Jan 2034 00:17:14 +0000
+  Signature:
+    820a72e35eec93ccac1c0cc9a66cbe81837992ba467a48a6ab60ed8d5d1b769cb03e0815663216e0044e16e88bcf9734590e6d4b9878c843bf9b0f0c71a72409
+
+*** ./manufacturer-leaf.cert ***
+
+Leaf V1 Manufacturer Certificate
+  Issuance ID:
+    7771901a04fdde423eca71b3108b7b0c
+  Request ID:
+    faa6b8f394f0e4b401cf2227d73225c8
+  Issued to:
+    test-leaf, test-leaf@example.com (public key: 53c3941e8161828992e0fbdfd089b32b6754abe05496bc605eba0526aa7d618d)
+  Issued by:
+    test-intermediate, test-intermediate@example.com (public key: 258d8561cd9a77dc9c0914bb55b1acdd92068dc6bc79ae55d608e8867720c1d8)
+  Issued on:
+    Wed, 17 Jan 2024 00:17:14 +0000
+  Expires:
+    Sat, 14 Jan 2034 00:17:14 +0000
+  Signature:
+    75430ae6393315f3cee5c1b956980e25d17eb5d2e45864d16e95bd9ad59a9f5abe87f7135c1e14de7fb9b6244cdc38f7258b4b57168e9d9cdb80fa780525c901
+
+*** ./manufacturer-intermediate.cert ***
+
+Intermediate V1 Manufacturer Certificate
+  Issuance ID:
+    215a11eee354ae7131a30611941e9a7f
+  Request ID:
+    1f452af9c8d3964727103825d3a5daec
+  Issued to:
+    test-intermediate, test-intermediate@example.com (public key: 258d8561cd9a77dc9c0914bb55b1acdd92068dc6bc79ae55d608e8867720c1d8)
+  Issued by:
+    test-root, test-root@example.com (public key: 1d948387dcb94a6bd6edb9cbc5514a04d299dd8d20c2969a52e5a5f6ea081f3c)
+  Issued on:
+    Wed, 17 Jan 2024 00:17:14 +0000
+  Expires:
+    Sat, 14 Jan 2034 00:17:14 +0000
+  Signature:
+    32839d3c61111bce9c6c0b113e6074919bf46135b1020d457df4e58af6d94e8bb8e2d6663696ac5c042152d06afbecf68cffbcf9969602117a2251793cdede05
+
+*** ./keyserver-token-1.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    661ab7b38191098ea0186e37128fd04b
+  Request ID:
+    51657d3d9b512a9be8aa0bf6428d47a1
+  Public Key:
+    03aa085148d0d9e1f57e980eae0c9b728f7e30df0a656ffc015cc694e9dc45bf
+  Keyserver ID:
+    1
+  Issued by:
+    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
+  Issued on:
+    Wed, 17 Jan 2024 00:17:14 +0000
+  Expires:
+    Sat, 14 Jan 2034 00:17:14 +0000
+  Signature:
+    1581f3c20bd7c64046d99731422360088e445768ac2ab4286e6aae16427750f90d1bdbe3ae5533f399a1bbc7a464b01c2d41c9e57135d502e58a32089fd81d02
+
+*** ./infrastructure-root.cert ***
+
+Root V1 Infrastructure Certificate
+  Issuance ID:
+    fe25d730f78d7e00c736c512b89efaf0
+  Request ID:
+    31f9a552f87da3453065732461bfa296
+  Issued to:
+    test-root, test-root@example.com (public key: a5c4aecf79eb043ad714aef9ce2a03672d602080b15c6dff7c26a48382696abe)
+  Issued by:
+    test-root, test-root@example.com (public key: a5c4aecf79eb043ad714aef9ce2a03672d602080b15c6dff7c26a48382696abe)
+  Issued on:
+    Wed, 17 Jan 2024 00:17:14 +0000
+  Expires:
+    Sat, 14 Jan 2034 00:17:14 +0000
+  Signature:
+    bafb15a8157ba53683479e3a922612e9de861ee847f20a7b6e41cff7d76e2f774eaccf67b77751a9d8beb4ffb0c1033a58a2777d4fdf9ab3f19ee0adbd241007
+
+*** ./infrastructure-leaf.cert ***
+
+Leaf V1 Infrastructure Certificate
+  Issuance ID:
+    ce0bb2f73a4a3155eed4a8dbcbb25cd4
+  Request ID:
+    ab698df0ab1bd5f038059f57c227ed6b
+  Issued to:
+    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
+  Issued by:
+    test-intermediate, test-intermediate@example.com (public key: e895d1d486afc3f11f6ae3bcbe4850ca7c18bfbf2f5b9c671a3f8e1fc5299f6e)
+  Issued on:
+    Wed, 17 Jan 2024 00:17:14 +0000
+  Expires:
+    Sat, 14 Jan 2034 00:17:14 +0000
+  Signature:
+    a3fabcd6108307f51ccab9d52c8a4ce263a747e394f8e31174ddf856808f80aa4f1fad41198d30c8b1a1b14fab185450d19a1883eb94254b0a55980190884804
+
+*** ./infrastructure-intermediate.cert ***
+
+Intermediate V1 Infrastructure Certificate
+  Issuance ID:
+    5a7202c287aa4883f86a510bced1039c
+  Request ID:
+    1a759e3206b56e9d48c64b737e9f453d
+  Issued to:
+    test-intermediate, test-intermediate@example.com (public key: e895d1d486afc3f11f6ae3bcbe4850ca7c18bfbf2f5b9c671a3f8e1fc5299f6e)
+  Issued by:
+    test-root, test-root@example.com (public key: a5c4aecf79eb043ad714aef9ce2a03672d602080b15c6dff7c26a48382696abe)
+  Issued on:
+    Wed, 17 Jan 2024 00:17:14 +0000
+  Expires:
+    Sat, 14 Jan 2034 00:17:14 +0000
+  Signature:
+    78a28e0f9960a1f7cc3c832f35b3ce82b1ceefbe8f98f819c9e102642dde5796fe775c17c8a48ad8b7fcca71f75839859a02b45754f51970f48cb37a612da80e
+
+*** ./database-token.dt ***
+
+V1 Database Token
+  Issuance ID:
+    5556f0eba68df37b636643cf8defdc04
+  Request ID:
+    1f6245189ad915d9b21af51cfaf04825
+  Public Key:
+    f2f87668713ae40eff19df2faa2fe4b8c66914300e7ad37225fd787c9caaa7d5
+  Issued by:
+    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
+  Issued on:
+    Wed, 17 Jan 2024 00:17:14 +0000
+  Expires:
+    Sat, 14 Jan 2034 00:17:14 +0000
+  Signature:
+    0f5025f3a739c45ca13b960af53c900c623472ae7dcaed014d7ed75ac33da8e0ba90d78b6f18498f7d67c9fcb7f131969a68f961c0785147c7b369cf8a25fa00
+
+*** ./keyserver-token-5.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    c7ea5c42533a18de75e6c3da13e08313
+  Request ID:
+    853b812c55f12d661e398a97dc3b7f63
+  Public Key:
+    7cd4d376b0e4bbd6b29d5d501419c7ac589a65794bbc41d28e1a6c3af1a23991
+  Keyserver ID:
+    5
+  Issued by:
+    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
+  Issued on:
+    Wed, 17 Jan 2024 00:17:15 +0000
+  Expires:
+    Sat, 14 Jan 2034 00:17:15 +0000
+  Signature:
+    68f808828450e78af283b8ec34c18dc944edf9da0724ab3416203d96700b31086d1e0abbe7389f752f02a9c4c09bd59bb4a93305f173f1a27d9881bc61f45500
+
+*** ./keyserver-token-4.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    3b51053d45a4346aff9b5ca8c9b22c06
+  Request ID:
+    b833ea317d8b875742ca526457cefc7b
+  Public Key:
+    839400dee8ea33f2949c6b428eb3621a0841680234dca00593248aafb8eb5226
+  Keyserver ID:
+    4
+  Issued by:
+    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
+  Issued on:
+    Wed, 17 Jan 2024 00:17:15 +0000
+  Expires:
+    Sat, 14 Jan 2034 00:17:15 +0000
+  Signature:
+    03245a0c65c6448444fc13772adb9f530ea8b308003c487dba048691d0bdd42a4d8f7c61238752138942be5f47c076454f96babce113aaf765493fc5f2f8f600
+
+*** ./keyserver-token-3.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    a3b722a9b110fc5a38add17ed90a3919
+  Request ID:
+    a0e3e283b35fac10b107f4a4fd530448
+  Public Key:
+    864c1b8cac804d3693f67ad1a2f3df2d9dbf611b017fc8c0d708f444d557605b
+  Keyserver ID:
+    3
+  Issued by:
+    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
+  Issued on:
+    Wed, 17 Jan 2024 00:17:15 +0000
+  Expires:
+    Sat, 14 Jan 2034 00:17:15 +0000
+  Signature:
+    638b8a4520eeacba505b689739c6f602de2d71aae165dab3822888fe192ae9d4f37062e00b91b77c46a2d5a0c08125d6d0fd2d5fb0315f9487713c946570d907
+
+*** ./keyserver-token-2.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    32579b177817e4b8d5400383089f16a4
+  Request ID:
+    598d767d6a8aba793d25aefd4f575142
+  Public Key:
+    1ef6e6535fc6659d504ff0683098b6e1bb71fa8d2daee609ebdce9cf228dbd12
+  Keyserver ID:
+    2
+  Issued by:
+    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
+  Issued on:
+    Wed, 17 Jan 2024 00:17:15 +0000
+  Expires:
+    Sat, 14 Jan 2034 00:17:15 +0000
+  Signature:
+    6ab37c3b1d7d1d64cfbd08de57fe30e0b1b0adf9834cbd1614b2b6d69b7bdcd79393bfa1e91ff3d137fff61da8d40e5884c879256a9ec541d8e35e8516601d08
+
+*** ./INSPECT-OUTPUT ***
+[skipped]
+

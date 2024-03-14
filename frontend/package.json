@@ -1,0 +1,14 @@
+{
+  "name": "@securedna/frontend",
+  "author": "SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>",
+  "license": "MIT OR Apache-2.0",
+  "version": "0.4.0",
+  "description": "npm workspace for SecureDNA frontend",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test --passWithNoTests"
+  },
+  "devDependencies": {
+    "prettier": "^3.2.2"
+  }
+}
