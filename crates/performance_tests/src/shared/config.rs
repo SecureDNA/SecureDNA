@@ -10,7 +10,6 @@ use std::io::Read;
 
 use crate::shared::types::HashCount;
 use serde::{Deserialize, Serialize};
-use serde_json;
 
 fn get_default_hash_count() -> HashCount {
     HashCount::get_default()

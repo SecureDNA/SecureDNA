@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use tokio::time::sleep;
 
-use minhttp::signal::{fast_shutdown_requested, graceful_shutdown_requested};
+use minhttp::signal::{
+    fast_shutdown_requested, graceful_shutdown_requested, reload_config_requested,
+};
 
 // Prints repeating messages until a graceful shutdown (CTRL-C) is requested.
 // Graceful shutdowns only take effect right before "Beep".
@@ -31,6 +33,13 @@ async fn main() {
         println!("Graceful shutdown complete.");
     };
 
+    let reload_config = async {
+        loop {
+            reload_config_requested().await;
+            println!("Config reload requested...");
+        }
+    };
+
     let graceful_shutdown = async {
         graceful_shutdown_requested().await;
         println!("Graceful shutdown requested...");
@@ -40,6 +49,7 @@ async fn main() {
     let run_until_gracefully_shutdown = async { tokio::join!(run, graceful_shutdown) };
 
     tokio::select! {
+        _ = reload_config => {}
         _ = run_until_gracefully_shutdown => {}
         _ = fast_shutdown_requested() => println!("Fast shutdown requested..."),
     };

@@ -12,7 +12,7 @@ use http_body_util::{BodyExt, StreamBody};
 use hyper::body::{Body, Frame, Incoming};
 use hyper::header::{HeaderValue, CONTENT_TYPE};
 use hyper::{Request, Response};
-use tracing::info;
+use tracing::{error, info};
 
 use doprf::prf::{HashPart, Query};
 use minhttp::response::GenericResponse;
@@ -24,6 +24,7 @@ use streamed_ristretto::stream::{
 use streamed_ristretto::util::chunked;
 use streamed_ristretto::HasContentType;
 
+use crate::event_store;
 use crate::state::KeyserverState;
 
 // Given a stream of `Bytes`/errors, interprets them as `Queries` and applies `f` to them
@@ -152,6 +153,8 @@ pub async fn scep_endpoint_keyserve(
         .ok_or_else(|| {
             scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
         })?;
+    let client_mid = client_state.client_mid();
+    let nucleotide_total_count = client_state.open_request().nucleotide_total_count;
 
     let hash_count_from_content_len =
         check_content_length(request.body().size_hint().exact(), HASH_SIZE)
@@ -162,6 +165,16 @@ pub async fn scep_endpoint_keyserve(
         scep::steps::server_keyserve_client(hash_count_from_content_len, client_state)?;
 
     info!("{request_id}: Processing request of size {hash_count_from_content_len}");
+
+    if let Err(e) = event_store::insert_keyserve_event(
+        &server_state.persistence_connection,
+        client_mid,
+        nucleotide_total_count,
+    )
+    .await
+    {
+        error!("Failed to persist keyserve event for {client_mid}: {e}");
+    }
 
     let server_state2 = server_state.clone();
     let keyshare = server_state.keyshare;

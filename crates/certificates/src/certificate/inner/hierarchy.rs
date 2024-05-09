@@ -15,7 +15,9 @@ use crate::{
 };
 
 /// This trait represents the level of a certificate in the issuing hierarchy.
-pub trait HierarchyLevel: Clone + PartialEq + Eq + AsnCompatible {}
+pub trait HierarchyLevel: Clone + PartialEq + Eq + AsnCompatible {
+    fn new() -> Self;
+}
 
 /// Represents the topmost level of the hierarchy.
 pub trait Root: HierarchyLevel {}
@@ -34,13 +36,6 @@ pub struct Root1 {
     guard: ComponentVersionGuard<Self>,
 }
 
-impl Root1 {
-    pub fn new() -> Root1 {
-        let guard = ComponentVersionGuard::new();
-        Self { guard }
-    }
-}
-
 impl VersionedComponent for Root1 {
     const COMPONENT_NAME: &'static str = "ROOT";
     const ITERATION: u16 = 1;
@@ -53,7 +48,12 @@ impl Default for Root1 {
 }
 
 impl Root for Root1 {}
-impl HierarchyLevel for Root1 {}
+impl HierarchyLevel for Root1 {
+    fn new() -> Root1 {
+        let guard = ComponentVersionGuard::new();
+        Self { guard }
+    }
+}
 
 #[derive(
     AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize,
@@ -61,13 +61,6 @@ impl HierarchyLevel for Root1 {}
 #[rasn(automatic_tags)]
 pub struct Intermediate1 {
     guard: ComponentVersionGuard<Self>,
-}
-
-impl Intermediate1 {
-    pub fn new() -> Intermediate1 {
-        let guard = ComponentVersionGuard::new();
-        Self { guard }
-    }
 }
 
 impl VersionedComponent for Intermediate1 {
@@ -82,7 +75,12 @@ impl Default for Intermediate1 {
 }
 
 impl Intermediate for Intermediate1 {}
-impl HierarchyLevel for Intermediate1 {}
+impl HierarchyLevel for Intermediate1 {
+    fn new() -> Intermediate1 {
+        let guard = ComponentVersionGuard::new();
+        Self { guard }
+    }
+}
 
 #[derive(
     AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize,
@@ -90,13 +88,6 @@ impl HierarchyLevel for Intermediate1 {}
 #[rasn(automatic_tags)]
 pub struct Leaf1 {
     guard: ComponentVersionGuard<Self>,
-}
-
-impl Leaf1 {
-    pub fn new() -> Leaf1 {
-        let guard = ComponentVersionGuard::new();
-        Self { guard }
-    }
 }
 
 impl VersionedComponent for Leaf1 {
@@ -111,7 +102,12 @@ impl Default for Leaf1 {
 }
 
 impl Leaf for Leaf1 {}
-impl HierarchyLevel for Leaf1 {}
+impl HierarchyLevel for Leaf1 {
+    fn new() -> Leaf1 {
+        let guard = ComponentVersionGuard::new();
+        Self { guard }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HierarchyKind {
@@ -180,6 +176,7 @@ impl FromStr for HierarchyKind {
 #[cfg(test)]
 mod test {
     use crate::asn::{FromASN1DerBytes, ToASN1DerBytes};
+    use crate::certificate::inner::HierarchyLevel;
 
     use super::{Leaf1, Root1};
 

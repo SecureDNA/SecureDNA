@@ -13,7 +13,7 @@ use crate::keypair::{KeyPair, PublicKey};
 
 /// Key state for unavailable private key.
 /// This is the default state for Certificates on being deserialised.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct KeyUnavailable;
 impl KeyUnavailable {
     pub fn load_key(

@@ -1,0 +1,35 @@
+[main]
+address = "0.0.0.0:5302"
+
+# The id of the keyserver. Corresponds to the x coordinate of its keyshare
+id = 2
+
+# The number of keyholders required to hash a value
+keyholders_required = 3
+
+# The keyshare, as a hexadecimal string.
+keyshare = "00e09ef87135dc07e8446b2eda59694b18c4baf252fac28828a691d1d5982f08"
+
+# List of commitments comprising the active security key
+active_security_key = [
+    "3ec06d4dd53cda99961a28931dbec75d5b771ee38d624b99fb23a3ccc6043751",
+    "804291d2d5ac384af2b2b136427122335c690272a00bbba4aa54467efb78ba7e",
+    "129e28870a0e67afb89e2a7519a3bcb32b4db1f6c6aca504b7d641057f24806d",
+]
+
+# Directory containing manufacturer root certs for SCEP client cert verification
+manufacturer_roots = "../certs/manufacturer_roots"
+
+# Path to the server's token and certificate chain bundle file, used for SCEP
+token_file = "../certs/keyserver-token-2.kt"
+
+# Path to the server's .priv keypair file, used for SCEP
+keypair_file = "../certs/keyserver-token-2.priv"
+
+# The file containing the passphrase to decrypt the server's .priv keypair file
+# (keypair_file setting)
+keypair_passphrase_file = "../certs/keyserver-passphrase.txt"
+
+# (optional) Do not set the `secure` flag on session cookies, allowing them to be transported
+# over http://. This is useful for local testing.
+allow_insecure_cookie = true

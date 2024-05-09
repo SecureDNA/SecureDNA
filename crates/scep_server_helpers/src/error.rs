@@ -34,7 +34,9 @@ where
             "server is overloaded. try again later.",
         ),
         ScepError::RateLimitExceeded { limit_bp } => response::text(
-            StatusCode::TOO_MANY_REQUESTS,
+            // we don't want to use 429 TOO MANY REQUESTS because we don't want the client to auto-retry,
+            // on average it will take 12 hours for this error to resolve.
+            StatusCode::PAYLOAD_TOO_LARGE,
             format!("client exceeded daily limit of {limit_bp}bp"),
         ),
         ScepError::Inner(e) => response::text(StatusCode::BAD_REQUEST, e.to_string()),

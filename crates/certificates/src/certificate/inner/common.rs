@@ -81,6 +81,76 @@ impl From<Subject1> for CompatibleIdentity {
     }
 }
 
+#[derive(
+    AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize,
+)]
+#[rasn(automatic_tags)]
+pub struct ExemptionSubject1 {
+    guard: ComponentVersionGuard<Self>,
+    /// unique for each certificate request
+    pub request_id: Id,
+    pub pk: PublicKey,
+    pub requestor_desc: Description,
+    /// emails to be notified when ELTs issued by this cert are used.
+    pub emails_to_notify: Vec<String>,
+    pub allow_blinding: bool,
+}
+
+impl VersionedComponent for ExemptionSubject1 {
+    const COMPONENT_NAME: &'static str = "EXEMPTIONSUBJECT";
+    const ITERATION: u16 = 1;
+}
+
+impl ExemptionSubject1 {
+    pub fn new(
+        requestor_desc: Description,
+        pk: PublicKey,
+        emails_to_notify: Vec<String>,
+        allow_blinding: bool,
+    ) -> Self {
+        let guard = ComponentVersionGuard::new();
+        let request_id = Id::new_random();
+        Self {
+            guard,
+            request_id,
+            requestor_desc,
+            pk,
+            emails_to_notify,
+            allow_blinding,
+        }
+    }
+}
+
+impl Identity for ExemptionSubject1 {
+    fn to_compatible_identity(&self) -> CompatibleIdentity {
+        CompatibleIdentity {
+            pk: self.pk,
+            desc: self.requestor_desc.to_string(),
+        }
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        &self.pk
+    }
+}
+
+impl Subject for ExemptionSubject1 {
+    fn request_id(&self) -> &Id {
+        &self.request_id
+    }
+
+    fn emails_to_notify(&self) -> &[String] {
+        &self.emails_to_notify
+    }
+}
+
+impl From<ExemptionSubject1> for CompatibleIdentity {
+    fn from(value: ExemptionSubject1) -> Self {
+        let desc = value.requestor_desc.to_string();
+        CompatibleIdentity { pk: value.pk, desc }
+    }
+}
+
 /// fields set by certificate issuer
 #[derive(
     AsnType,

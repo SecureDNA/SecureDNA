@@ -9,16 +9,17 @@ use crate::{
     error::EncodeError,
     keypair::{KeyPair, PublicKey},
     shared_components::{
-        common::{Description, Id, Signed},
+        common::{Id, Signed},
         role::{Role, RoleGuard},
     },
+    Exemption,
 };
 use rasn::{types::*, Decode, Encode};
 
 use super::{
-    common::{Common, Issuer1, IssuerAdditionalFields, Subject, Subject1},
+    common::{Common, Issuer1, IssuerAdditionalFields, Subject},
     hierarchy::{HierarchyLevel, Root},
-    CertificateData, CertificateInner,
+    CertificateData, CertificateInner, ExemptionSubject1,
 };
 
 /// Certificate request, only contains certificate fields that are provided by the certificate subject.
@@ -41,6 +42,13 @@ where
     R: Role,
     S: Subject,
 {
+    pub fn new(subject: S) -> Self {
+        Self {
+            hierarchy_level: T::new(),
+            role: RoleGuard(PhantomData::<R>),
+            subject,
+        }
+    }
     pub fn request_id(&self) -> &Id {
         self.subject.request_id()
     }
@@ -74,55 +82,8 @@ where
     }
 }
 
-pub struct RequestBuilderInner<T, R>
-where
-    T: HierarchyLevel,
-{
-    public_key: PublicKey,
-    description: Option<Description>,
-    emails_to_notify: Vec<String>,
-    hierarchy: T,
-    role: PhantomData<R>,
-}
-
-impl<T, R> RequestBuilderInner<T, R>
-where
-    T: HierarchyLevel,
-{
-    pub fn new(hierarchy: T, public_key: PublicKey) -> Self {
-        RequestBuilderInner {
-            public_key,
-            description: None,
-            hierarchy,
-            role: PhantomData::<R>,
-            emails_to_notify: vec![],
-        }
-    }
-
-    pub fn with_description(mut self, desc: Description) -> Self {
-        self.description = Some(desc);
-        self
-    }
-
-    pub fn with_emails_to_notify<S: Into<String>>(
-        mut self,
-        emails: impl IntoIterator<Item = S>,
-    ) -> Self {
-        self.emails_to_notify = emails.into_iter().map(|x| x.into()).collect();
-        self
-    }
-
-    pub fn build(self) -> RequestInner<T, R, Subject1>
-    where
-        R: Role,
-    {
-        let desc = self.description.unwrap_or_default();
-        let identity = Subject1::new(desc, self.public_key, self.emails_to_notify);
-
-        RequestInner {
-            hierarchy_level: self.hierarchy,
-            role: RoleGuard(PhantomData::<R>),
-            subject: identity,
-        }
+impl<T: HierarchyLevel> RequestInner<T, Exemption, ExemptionSubject1> {
+    pub(crate) fn blinding_allowed(&self) -> bool {
+        self.subject.allow_blinding
     }
 }

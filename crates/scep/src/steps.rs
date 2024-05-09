@@ -1,28 +1,39 @@
 // Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{cmp::Ordering, future::Future};
+use std::{cmp::Ordering, collections::HashSet, future::Future};
 
 use anyhow::Context;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use shared_types::hash::HashSpec;
-use tracing::trace;
+use tracing::{info, trace};
 
 use super::mutual_authentication;
 use crate::{
     error::{self, ScepError},
     nonce::{ClientNonce, ServerNonce},
     states::{
-        InitializedClientState, OpenedClientState, ServerStateForAuthenticatedClient,
+        EltState, InitializedClientState, OpenedClientState, ServerStateForAuthenticatedClient,
         ServerStateForClient, ServerStateForOpenedClient,
     },
-    types::{AuthenticateRequest, ClientRequestType, OpenRequest, OpenResponse, ScreenCommon},
+    types::{
+        AuthenticateRequest, ClientRequestType, OpenRequest, OpenResponse, ScreenCommon,
+        ScreenWithElParams,
+    },
 };
 use certificates::{
-    CanLoadKey, ChainTraversal, DatabaseTokenGroup, HasAssociatedKey, KeyLoaded, KeyPair,
-    KeyserverTokenGroup, PublicKey, SynthesizerTokenGroup, TokenBundle, TokenGroup,
+    key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded},
+    ExemptionListTokenGroup,
 };
-use doprf::party::{KeyserverId, KeyserverIdSet};
+use certificates::{
+    ChainTraversal, DatabaseTokenGroup, Issued, KeyPair, KeyserverTokenGroup, PublicKey,
+    SynthesizerTokenGroup, TokenBundle, TokenGroup,
+};
+use doprf::{
+    party::{KeyserverId, KeyserverIdSet},
+    prf::CompletedHashValue,
+};
 
 pub fn client_initialize(
     request_type: ClientRequestType,
@@ -72,6 +83,7 @@ where
     ServerTokenKind: TokenGroup + std::fmt::Debug,
     ServerTokenKind::Token: CanLoadKey + Clone + std::fmt::Debug,
     ServerTokenKind::AssociatedRole: std::fmt::Debug,
+    ServerTokenKind::ChainType: std::fmt::Debug,
     GetLastClientVersion: FnOnce(certificates::Id) -> GetLastClientVersionFut,
     GetLastClientVersionFut: Future<Output = Option<u64>>,
 {
@@ -101,7 +113,7 @@ where
     // DO NOT check if cert is revoked yet!
     if request
         .cert_chain
-        .validate_path_to_issuers(issuer_pks)
+        .validate_path_to_issuers(issuer_pks, None)
         .is_err()
     {
         return Err(error::ServerPrevalidation::InvalidCert.into());
@@ -168,6 +180,7 @@ where
     ServerTokenKind: TokenGroup + std::fmt::Debug,
     ServerTokenKind::Token: CanLoadKey + std::fmt::Debug,
     ServerTokenKind::AssociatedRole: std::fmt::Debug,
+    ServerTokenKind::ChainType: std::fmt::Debug,
 {
     // check version *before* we try to parse as something specific
     let server_version = open_response
@@ -196,7 +209,7 @@ where
     // DO NOT check if cert is revoked yet!
     if open_response
         .cert_chain
-        .validate_path_to_issuers(issuer_pks)
+        .validate_path_to_issuers(issuer_pks, None)
         .is_err()
     {
         return Err(error::ClientPrevalidation::InvalidCert.into());
@@ -249,6 +262,7 @@ where
     Ok(OpenedClientState {
         client_mutual_auth_sig,
         hash_spec: open_response.hash_spec,
+        server_version: open_response.server_version,
     })
 }
 
@@ -317,7 +331,7 @@ pub async fn server_authenticate_client<
 where
     GetScreenedLastDay: FnOnce(certificates::Id) -> GetScreenedLastDayFut,
     GetScreenedLastDayFut: Future<Output = Result<u64, anyhow::Error>>,
-    RecordExceedance: FnOnce(TokenBundle<SynthesizerTokenGroup>, u64) -> RecordExceedanceFut,
+    RecordExceedance: FnOnce(certificates::Id, u64) -> RecordExceedanceFut,
     RecordExceedanceFut: Future<Output = ()>,
 {
     let client_state = match client_state {
@@ -372,32 +386,38 @@ where
         .cert_chain
         .token
         .max_dna_base_pairs_per_day();
-
-    let screened_last_day = get_client_screened_last_day(client_mid)
+    let screened_last_day_bp = get_client_screened_last_day(client_mid)
         .await
         .map_err(|e| {
             ScepError::InternalError(
                 e.context(format!("getting bp screened in last day for {client_mid}")),
             )
         })?;
+    let attempted_bp = client_state.open_request.nucleotide_total_count;
 
-    if screened_last_day.saturating_add(client_state.open_request.nucleotide_total_count)
-        >= limit_bp
-    {
-        record_rate_limit_exceedance(
-            // would like to avoid clone here but async closures don't play nice with references
-            client_state.open_request.cert_chain.clone(),
-            client_state.open_request.nucleotide_total_count,
-        )
-        .await;
+    if screened_last_day_bp.saturating_add(attempted_bp) >= limit_bp {
+        info!(
+            message = "rate_limit_exceedance",
+            %client_mid,
+            issued_to=client_state.open_request.cert_chain.token.issuer_description(),
+            limit_bp,
+            screened_last_day_bp,
+            attempted_bp
+        );
+        record_rate_limit_exceedance(client_mid, attempted_bp).await;
         Err(ScepError::RateLimitExceeded { limit_bp })
     } else {
+        let elt_state = match &client_state.open_request.request_type {
+            ClientRequestType::ScreenWithEl(_) => EltState::AwaitingEltSize,
+            _ => EltState::NoElt,
+        };
         Ok(ServerStateForClient::Authenticated(
             ServerStateForAuthenticatedClient {
                 cookie: client_state.cookie,
                 open_request: client_state.open_request,
                 server_nonce: client_state.server_nonce,
                 hash_total_count: authenticate_request.hash_total_count,
+                elt_state,
             },
         ))
     }
@@ -443,6 +463,7 @@ pub fn server_keyserve_client(
     Ok(client_state.open_request.keyserver_id_set)
 }
 
+/// Code for the `screen` and `ELT-screen-hashes` endpoints.
 pub fn server_screen_client(
     hash_count_from_content_len: u64,
     client_state: ServerStateForClient,
@@ -454,9 +475,21 @@ pub fn server_screen_client(
         ServerStateForClient::Authenticated(state) => state,
     };
 
-    let params = match client_state.open_request.request_type {
-        ClientRequestType::Screen(ref params) => params.clone(),
-        t => return Err(error::Screen::WrongRequestType(t).into()),
+    let params = match (
+        &client_state.open_request.request_type,
+        &client_state.elt_state,
+    ) {
+        (ClientRequestType::Screen(params), EltState::NoElt) => params.clone(),
+        (ClientRequestType::ScreenWithEl(params), EltState::EltReady { .. }) => params.clone(),
+        (ClientRequestType::ScreenWithEl(_), EltState::EltNeedsHashes { .. }) => {
+            return Err(error::Screen::ScreenBeforeEltHashes.into())
+        }
+        (ClientRequestType::ScreenWithEl(_), _) => {
+            return Err(error::Screen::ScreenBeforeElt.into())
+        }
+        (request_type, _) => {
+            return Err(error::Screen::WrongRequestType(request_type.clone()).into())
+        }
     };
 
     if hash_count_from_content_len > client_state.hash_total_count {
@@ -468,6 +501,103 @@ pub fn server_screen_client(
     }
 
     Ok((params, client_state))
+}
+
+/// Code for the `screen-with-EL` endpoint.
+pub fn server_screen_with_el_client(
+    params: ScreenWithElParams,
+    client_state: ServerStateForClient,
+) -> Result<ServerStateForAuthenticatedClient, ScepError<error::ScreenWithEL>> {
+    let ServerStateForClient::Authenticated(mut client_state) = client_state else {
+        return Err(error::ScreenWithEL::ClientNotAuthenticated.into());
+    };
+
+    if !matches!(
+        &client_state.open_request.request_type,
+        ClientRequestType::ScreenWithEl { .. }
+    ) {
+        return Err(
+            error::ScreenWithEL::WrongRequestType(client_state.open_request.request_type).into(),
+        );
+    }
+
+    match &client_state.elt_state {
+        EltState::AwaitingEltSize => {
+            client_state.elt_state = EltState::PromisedElt {
+                elt_size: params.elt_size,
+                otp: params.otp,
+            };
+        }
+        EltState::NoElt
+        | EltState::PromisedElt { .. }
+        | EltState::EltNeedsHashes { .. }
+        | EltState::EltReady { .. } => return Err(error::ScreenWithEL::WrongEltState.into()),
+    };
+
+    Ok(client_state)
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct EltEndpointResponse {
+    pub needs_hashes: bool,
+}
+
+/// Code for the `ELT` endpoint.
+pub fn server_elt_client(
+    elt_body: bytes::Bytes,
+    client_state: ServerStateForClient,
+) -> Result<(ServerStateForAuthenticatedClient, EltEndpointResponse), ScepError<error::ELT>> {
+    let ServerStateForClient::Authenticated(mut client) = client_state else {
+        return Err(error::ELT::ClientNotAuthenticated.into());
+    };
+
+    let EltState::PromisedElt { elt_size, otp } = client.elt_state else {
+        return Err(error::ELT::WrongEltState.into());
+    };
+
+    if Ok(elt_size) != elt_body.len().try_into() {
+        return Err(error::ELT::SizeMismatch.into());
+    }
+
+    let elt = TokenBundle::<ExemptionListTokenGroup>::from_wire_format(elt_body)
+        .map_err(error::ELT::DecodeError)?;
+
+    let needs_hashes = elt.token.has_dna_sequences();
+    client.elt_state = if needs_hashes {
+        EltState::EltNeedsHashes {
+            elt: elt.into(),
+            otp,
+        }
+    } else {
+        EltState::EltReady {
+            elt: elt.into(),
+            otp,
+            hashes: Default::default(),
+        }
+    };
+
+    let response = EltEndpointResponse { needs_hashes };
+    Ok((client, response))
+}
+
+/// Code for the `ELT-seq-hashes` endpoint.
+pub fn server_elt_seq_hashes_client(
+    hashes: impl IntoIterator<Item = CompletedHashValue>,
+    client_state: ServerStateForClient,
+) -> Result<ServerStateForAuthenticatedClient, ScepError<error::EltSeqHashes>> {
+    let ServerStateForClient::Authenticated(mut client) = client_state else {
+        return Err(error::EltSeqHashes::ClientNotAuthenticated.into());
+    };
+
+    let EltState::EltNeedsHashes { elt, otp } = client.elt_state else {
+        return Err(error::EltSeqHashes::WrongEltState.into());
+    };
+
+    let hashes: HashSet<[u8; 32]> = hashes.into_iter().map(Into::into).collect();
+
+    client.elt_state = EltState::EltReady { elt, otp, hashes };
+
+    Ok(client)
 }
 
 fn client_htc_unreasonable(_hash_total_count: u64, _nucleotide_total_count: u64) -> bool {

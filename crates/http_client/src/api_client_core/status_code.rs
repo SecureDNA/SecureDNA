@@ -5,6 +5,10 @@
 /// backoff and retry?
 pub fn is_retriable(code: u16) -> bool {
     match code {
+        // This can happen if there's an error reading the body of a successful request,
+        // we definitely want to retry in that scenario.
+        200 => true,
+
         // Too Many Requests: Well, we might be part of the problem... but
         // hopefully backoff will help.
         429 => true,

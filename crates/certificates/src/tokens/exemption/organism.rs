@@ -9,11 +9,25 @@ use rasn::de::Error;
 use rasn::types::{Constraints, OctetString, Utf8String};
 use rasn::{AsnType, Decode, Encode, Encoder, Tag};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 use thiserror::Error;
 
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    Serialize,
+)]
 // tsgen
 #[rasn(automatic_tags)]
 pub struct GenbankId(String);
@@ -91,6 +105,18 @@ impl Hash for Sequence {
     }
 }
 
+impl PartialOrd for Sequence {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Sequence {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.to_string().cmp(&other.0.to_string())
+    }
+}
+
 impl AsnType for Sequence {
     const TAG: Tag = Tag::OCTET_STRING;
 }
@@ -122,7 +148,20 @@ impl Decode for Sequence {
     }
 }
 
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    Serialize,
+)]
 // tsgen
 #[rasn(automatic_tags)]
 #[rasn(choice)]
@@ -131,7 +170,20 @@ pub enum SequenceIdentifier {
     Id(GenbankId),
 }
 
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    Serialize,
+)]
 // tsgen
 #[rasn(automatic_tags)]
 pub struct Organism {
@@ -145,6 +197,22 @@ impl Organism {
             name: name.into(),
             sequences,
         }
+    }
+
+    pub fn has_dna_sequences(&self) -> bool {
+        self.sequences
+            .iter()
+            .any(|sequence| matches!(sequence, SequenceIdentifier::Dna(_)))
+    }
+
+    pub fn dna_sequences(&self) -> impl Iterator<Item = &DnaSequence<NucleotideAmbiguous>> {
+        self.sequences
+            .iter()
+            .flat_map(|sequence| match sequence {
+                SequenceIdentifier::Dna(fasta) => &*fasta.0.records,
+                SequenceIdentifier::Id(_) => &[],
+            })
+            .map(|record| &record.contents)
     }
 }
 

@@ -7,17 +7,21 @@ use rasn::{AsnType, Decode, Encode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::chain::Chain;
+use crate::pem::PemTaggable;
 use crate::{
     asn::AsnCompatible,
     chain_item::ChainItem,
     issued::Issued,
     pem::{PemDecodable, PemEncodable},
     shared_components::{common::Id, role::Role},
-    Formattable, KeyMismatchError, KeyPair, PublicKey, Signature, SignatureVerificationError,
+    CertificateChain, Formattable,
 };
 
 /// Groups related types for each token
-pub trait TokenGroup: AsnCompatible {
+pub trait TokenGroup: AsnCompatible // where
+//     Chain<Self::ChainType>: PemTaggable,
+{
     /// Role of token's issuing certificate chain
     type AssociatedRole: Role + AsnCompatible;
     type TokenRequest: Request + PemEncodable + PemDecodable + Formattable;
@@ -28,31 +32,16 @@ pub trait TokenGroup: AsnCompatible {
         + AsnCompatible
         + Clone
         + Into<ChainItem<Self::AssociatedRole>>;
+
+    type ChainType: AsnCompatible
+        + PemTaggable
+        + Clone
+        + From<CertificateChain<Self::AssociatedRole>>
+        + Into<Chain<Self::AssociatedRole>>;
 }
 
 pub trait Request {
     fn request_id(&self) -> &Id;
-}
-
-pub trait HasAssociatedKey {
-    fn public_key(&self) -> &PublicKey;
-    fn verify(
-        &self,
-        message: &[u8],
-        signature: &Signature,
-    ) -> Result<(), SignatureVerificationError>;
-}
-
-pub trait CanLoadKey: HasAssociatedKey {
-    type KeyAvailableType: KeyLoaded;
-    fn load_key(self, keypair: KeyPair) -> Result<Self::KeyAvailableType, KeyMismatchError>;
-}
-
-pub trait KeyLoaded: HasAssociatedKey {
-    type KeyUnavailableType: CanLoadKey;
-
-    fn sign(&self, message: &[u8]) -> Signature;
-    fn into_key_unavailable(self) -> Self::KeyUnavailableType;
 }
 
 /// Tokens which can be issued by leaf certificates.
@@ -95,7 +84,20 @@ impl FromStr for TokenKind {
     }
 }
 
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 //tsgen
 pub struct TokenData<Q, I> {
     pub(crate) request: Q,
@@ -234,6 +236,7 @@ macro_rules! impl_boilerplate_for_token {
             fn issuance_id(&self) -> &Id {
                 self.version.issuance_id()
             }
+
         }
 
         impl $(<$generic>)? std::hash::Hash for $name $(<$generic>)? {
@@ -243,6 +246,7 @@ macro_rules! impl_boilerplate_for_token {
         }
     };
 }
+
 /// Implements encoding functionality which is needed by both tokens and token requests.
 #[macro_export]
 macro_rules! impl_encoding_boilerplate {
@@ -278,7 +282,7 @@ macro_rules! impl_encoding_boilerplate {
 #[macro_export]
 macro_rules! impl_key_boilerplate_for_token {
     ($name:ident) => {
-        impl<K> $crate::tokens::HasAssociatedKey for $name<K> {
+        impl<K> $crate::key_traits::HasAssociatedKey for $name<K> {
             fn public_key(&self) -> &PublicKey {
                 self.version.public_key()
             }
@@ -292,7 +296,7 @@ macro_rules! impl_key_boilerplate_for_token {
                 self.public_key().verify(message, signature)
             }
         }
-        impl $crate::tokens::CanLoadKey for $name<KeyUnavailable> {
+        impl $crate::key_traits::CanLoadKey for $name<KeyUnavailable> {
             type KeyAvailableType = $name<KeyAvailable>;
 
             /// Expects PEM encoded keypair bytes
@@ -308,7 +312,7 @@ macro_rules! impl_key_boilerplate_for_token {
                 })
             }
         }
-        impl $crate::tokens::KeyLoaded for $name<KeyAvailable> {
+        impl $crate::key_traits::KeyLoaded for $name<KeyAvailable> {
             type KeyUnavailableType = $name<KeyUnavailable>;
             fn into_key_unavailable(self) -> Self::KeyUnavailableType {
                 $name {

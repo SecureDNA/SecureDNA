@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::types::ClientRequestType;
-use certificates::SignatureVerificationError;
+use certificates::{DecodeError, SignatureVerificationError};
 use doprf::party::KeyserverId;
 
 #[derive(Debug, thiserror::Error)]
@@ -34,7 +34,6 @@ pub enum ServerPrevalidation {
     #[error("nucleotide count is invalid")]
     InvalidNTC,
 }
-pub type ScepServerPrevalidationError = ScepError<ServerPrevalidation>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientPrevalidation {
@@ -50,7 +49,6 @@ pub enum ClientPrevalidation {
         in_cert: KeyserverId,
     },
 }
-pub type ScepClientPrevalidationError = ScepError<ClientPrevalidation>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerAuthentication {
@@ -64,7 +62,6 @@ pub enum ServerAuthentication {
         nucleotide_total_count: u64,
     },
 }
-pub type ScepServerAuthenticationError = ScepError<ServerAuthentication>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Keyserve {
@@ -75,7 +72,6 @@ pub enum Keyserve {
     #[error("client provided too many hashes: asked for {requested}, provided {provided}")]
     TooManyHashes { requested: u64, provided: u64 },
 }
-pub type ScepKeyserveError = ScepError<Keyserve>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Screen {
@@ -85,8 +81,45 @@ pub enum Screen {
     WrongRequestType(ClientRequestType),
     #[error("client provided too many hashes: asked for {requested}, provided {provided}")]
     TooManyHashes { requested: u64, provided: u64 },
+    #[error("client tried ELT-screen-hashes before sending ELT")]
+    ScreenBeforeElt,
+    #[error("client tried ELT-screen-hashes before sending ELT-seq-hashes")]
+    ScreenBeforeEltHashes,
+    #[error("ELT validation error: {0}")]
+    EltValidation(String),
 }
-pub type ScepScreenError = ScepError<Screen>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum ScreenWithEL {
+    #[error("this client has not finished authenticating")]
+    ClientNotAuthenticated,
+    #[error("client opened with request type {0:?} but tried to screen-with-EL")]
+    WrongRequestType(ClientRequestType),
+    #[error("client ELT_size too big {actual}, configured server maximum is {maximum}")]
+    EltSizeTooBig { actual: u64, maximum: u64 },
+    #[error("client tried screen-with-EL in wrong state")]
+    WrongEltState,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ELT {
+    #[error("this client has not finished authenticating")]
+    ClientNotAuthenticated,
+    #[error("client tried to send ELT in wrong state")]
+    WrongEltState,
+    #[error("client ELT did not match promised size")]
+    SizeMismatch,
+    #[error("client ELT could not be decoded")]
+    DecodeError(#[from] DecodeError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum EltSeqHashes {
+    #[error("this client has not finished authenticating")]
+    ClientNotAuthenticated,
+    #[error("client tried to send ELT-seq-hashes in wrong state")]
+    WrongEltState,
+}
 
 macro_rules! impl_signature_error {
     ($t:ty) => {

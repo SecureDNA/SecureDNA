@@ -195,6 +195,9 @@ pub async fn screen(sequence: JsValue, config: IScreenConfig) -> Result<IApiResp
         certs: Arc::new(certs),
         provider_reference: Some(format!("wasm_bindings {request_id}")),
         synthclient_version_hint: &format!("wasm_bindings {version}"),
+        elt: None, // TODO: support using ELT for wasm screening?
+        otp: None,
+        server_version_handler: Default::default(), // don't check server versions in wasm
     };
 
     let result = match sequence.as_string() {

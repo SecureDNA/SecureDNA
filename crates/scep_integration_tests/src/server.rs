@@ -10,15 +10,18 @@ use anyhow::Context;
 use bytes::{Buf, Bytes, BytesMut};
 use futures::stream::iter as to_stream;
 use futures::{StreamExt, TryStream, TryStreamExt};
+use hdb::Exemptions;
 use http_body_util::{BodyExt, StreamBody};
 use hyper::body::{Body, Frame, Incoming};
 use hyper::header::{HeaderValue, CONTENT_TYPE, SET_COOKIE};
 use hyper::{Method, Request, Response, StatusCode};
+use scep::steps::{server_elt_client, server_elt_seq_hashes_client};
+use scep::types::ScreenWithElParams;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
-use certificates::{CanLoadKey, KeyPair, PublicKey, TokenBundle, TokenGroup};
-use doprf::prf::{HashPart, Query};
+use certificates::{key_traits::CanLoadKey, KeyPair, PublicKey, TokenBundle, TokenGroup};
+use doprf::prf::{CompletedHashValue, HashPart, Query};
 use doprf::tagged::TaggedHash;
 use minhttp::nursery::Nursery;
 use minhttp::response::{self, GenericResponse};
@@ -26,14 +29,15 @@ use minhttp::server::Server;
 use minhttp::signal::{fast_shutdown_requested, graceful_shutdown_requested};
 use scep::states::{ServerSessions, ServerStateForClient};
 use shared_types::hash::HashSpec;
-use shared_types::hdb::HdbScreeningResult;
 use shared_types::requests::RequestId;
-use streamed_ristretto::hyper::{check_content_length, BodyStream};
+use streamed_ristretto::hyper::{check_content_length, from_request, BodyStream};
 use streamed_ristretto::stream::{
     check_content_type, ConversionError, HasShortErrorMsg, RistrettoError, HASH_SIZE,
 };
 use streamed_ristretto::util::chunked;
 use streamed_ristretto::HasContentType;
+
+use crate::mock_screening::mock_screen;
 
 const SERVER_VERSION: u64 = 1;
 
@@ -67,6 +71,7 @@ impl TestServer {
         T: TokenGroup + Clone + Debug + Send + Sync + 'static,
         T::Token: CanLoadKey + Clone + Debug + Send + Sync,
         T::AssociatedRole: Debug + Send + Sync,
+        T::ChainType: Debug + Send + Sync,
     {
         let (listener, server_port) = make_listener_on_free_port([0, 0, 0, 0]).await;
 
@@ -138,6 +143,7 @@ where
     T: TokenGroup + Clone + Debug + Send + Sync + 'static,
     T::Token: CanLoadKey + Clone + Debug + Send + Sync,
     T::AssociatedRole: Debug + Send + Sync,
+    T::ChainType: Debug + Send + Sync,
 {
     let server_state = Arc::new(ServerState {
         clients: RwLock::new(ServerSessions::new()),
@@ -191,6 +197,7 @@ where
     T: TokenGroup + Clone + Debug,
     T::Token: CanLoadKey + Clone + Debug,
     T::AssociatedRole: Debug,
+    T::ChainType: Debug,
 {
     info!("{request_id}: got request");
 
@@ -226,12 +233,32 @@ where
             peer,
         ),
         (&Method::OPTIONS, scep::KEYSERVE_ENDPOINT) => response::empty(),
-        (&Method::POST, scep::SCREEN_ENDPOINT) => ok_or_err(
+        (&Method::POST, scep::SCREEN_ENDPOINT | scep::ELT_SCREEN_HASHES_ENDPOINT) => ok_or_err(
             endpoint_screen(request_id, &server_state, request).await,
             request_id,
             peer,
         ),
-        (&Method::OPTIONS, scep::SCREEN_ENDPOINT) => response::empty(),
+        (&Method::OPTIONS, scep::SCREEN_ENDPOINT | scep::ELT_SCREEN_HASHES_ENDPOINT) => {
+            response::empty()
+        }
+        (&Method::POST, scep::SCREEN_WITH_EL_ENDPOINT) => ok_or_err(
+            endpoint_screen_with_el(request_id, &server_state, request).await,
+            request_id,
+            peer,
+        ),
+        (&Method::OPTIONS, scep::SCREEN_WITH_EL_ENDPOINT) => response::empty(),
+        (&Method::POST, scep::ELT_ENDPOINT) => ok_or_err(
+            endpoint_elt(request_id, &server_state, request).await,
+            request_id,
+            peer,
+        ),
+        (&Method::OPTIONS, scep::ELT_ENDPOINT) => response::empty(),
+        (&Method::POST, scep::ELT_SEQ_HASHES_ENDPOINT) => ok_or_err(
+            endpoint_elt_seq_hashes(request_id, &server_state, request).await,
+            request_id,
+            peer,
+        ),
+        (&Method::OPTIONS, scep::ELT_SEQ_HASHES_ENDPOINT) => response::empty(),
         _ => response::not_found(),
     }
 }
@@ -244,7 +271,8 @@ async fn endpoint_open<T>(
 where
     T: TokenGroup + Clone + Debug,
     T::Token: CanLoadKey + Clone + Debug,
-    T::AssociatedRole: Debug,
+    T::AssociatedRole: Clone + Debug,
+    T::ChainType: Clone + Debug,
 {
     let body = scep_server_helpers::request::check_and_extract_json_body(100_000, request).await?;
     let open_request = scep_server_helpers::request::parse_json_body(&body)?;
@@ -402,18 +430,163 @@ async fn endpoint_screen<T: TokenGroup>(
 
     info!("{request_id}: Screening request of size {hash_count_from_content_len}");
 
-    scep::steps::server_screen_client(hash_count_from_content_len, client_state)?;
+    let (_common, client) =
+        scep::steps::server_screen_client(hash_count_from_content_len, client_state)?;
 
-    // For the tests, just return a "no hazards" response no matter what is being screened.
+    let hashes: Vec<TaggedHash> = from_request(request).unwrap().try_collect().await.unwrap();
+    let exemptions = match client.elt_state {
+        scep::states::EltState::NoElt => Default::default(),
+        scep::states::EltState::EltReady { elt, hashes, .. } => {
+            Exemptions::new_unchecked(vec![*elt], hashes)
+        }
+        _ => panic!("bad ELT state in SCEP integration test"),
+    };
+
+    info!("Got hashes: {hashes:?}");
+
     Ok(response::json(
         StatusCode::OK,
-        serde_json::to_string_pretty(&HdbScreeningResult {
-            results: vec![],
-            debug_hdb_responses: None,
-            provider_reference: None,
-        })
-        .unwrap(),
+        serde_json::to_string_pretty(&mock_screen(&hashes, &exemptions)).unwrap(),
     ))
+}
+
+async fn endpoint_screen_with_el<T: TokenGroup>(
+    request_id: &RequestId,
+    server_state: &ServerState<T>,
+    request: Request<Incoming>,
+) -> Result<GenericResponse, scep::error::ScepError<scep::error::ScreenWithEL>> {
+    let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
+
+    let client_state = server_state
+        .clients
+        .write()
+        .unwrap()
+        .take_session(&cookie)
+        .ok_or_else(|| {
+            scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
+        })?;
+
+    let bytes = request
+        .into_body()
+        .collect()
+        .await
+        .map_err(|e| scep::error::ScepError::InvalidMessage(e.into()))?
+        .to_bytes();
+
+    let params: ScreenWithElParams = serde_json::from_slice(&bytes)
+        .map_err(|e| scep::error::ScepError::InvalidMessage(e.into()))?;
+
+    info!("{request_id}: screen-with-EL, params {params:?}");
+
+    let new_client_state = scep::steps::server_screen_with_el_client(params, client_state)?;
+
+    server_state
+        .clients
+        .write()
+        .unwrap()
+        .add_session(
+            cookie,
+            ServerStateForClient::Authenticated(new_client_state),
+        )
+        .map_err(|_| {
+            scep::error::ScepError::InternalError(anyhow::anyhow!(
+                "failed to update state for cookie {cookie}"
+            ))
+        })?;
+
+    Ok(response::json(StatusCode::OK, "{}"))
+}
+
+async fn endpoint_elt<T: TokenGroup>(
+    request_id: &RequestId,
+    server_state: &ServerState<T>,
+    request: Request<Incoming>,
+) -> Result<GenericResponse, scep::error::ScepError<scep::error::ELT>> {
+    let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
+
+    let client_state = server_state
+        .clients
+        .write()
+        .unwrap()
+        .take_session(&cookie)
+        .ok_or_else(|| {
+            scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
+        })?;
+
+    let elt_body = request
+        .into_body()
+        .collect()
+        .await
+        .map_err(|e| scep::error::ScepError::InvalidMessage(e.into()))?
+        .to_bytes();
+
+    info!("{request_id}: ELT, body {} bytes", elt_body.len());
+
+    let (client, response) = server_elt_client(elt_body, client_state)?;
+
+    server_state
+        .clients
+        .write()
+        .unwrap()
+        .add_session(cookie, ServerStateForClient::Authenticated(client))
+        .map_err(|_| {
+            scep::error::ScepError::InternalError(anyhow::anyhow!(
+                "failed to update state for cookie {cookie}"
+            ))
+        })?;
+
+    // Give them the OK to hit /ELT-seq-hashes or /ELT-screen-hashes next.
+    Ok(response::json(
+        StatusCode::OK,
+        serde_json::to_string(&response).map_err(|_| {
+            scep::error::ScepError::InternalError(anyhow::anyhow!("failed to encode response JSON"))
+        })?,
+    ))
+}
+
+async fn endpoint_elt_seq_hashes<T: TokenGroup>(
+    request_id: &RequestId,
+    server_state: &ServerState<T>,
+    request: Request<Incoming>,
+) -> Result<GenericResponse, scep::error::ScepError<scep::error::EltSeqHashes>> {
+    let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
+
+    let client_state = server_state
+        .clients
+        .write()
+        .unwrap()
+        .take_session(&cookie)
+        .ok_or_else(|| {
+            scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
+        })?;
+
+    let hashes: Vec<_> = from_request::<_, CompletedHashValue>(request)
+        .context("in ELT-seq-hashes")
+        .map_err(scep::error::ScepError::InvalidMessage)?
+        .try_collect()
+        .await
+        .context("in ELT-seq-hashes")
+        .map_err(scep::error::ScepError::InvalidMessage)?;
+
+    info!(
+        "{request_id}: ELT-seq-hashes, parsed {} hashes",
+        hashes.len()
+    );
+    let client = server_elt_seq_hashes_client(hashes, client_state)?;
+
+    server_state
+        .clients
+        .write()
+        .unwrap()
+        .add_session(cookie, ServerStateForClient::Authenticated(client))
+        .map_err(|_| {
+            scep::error::ScepError::InternalError(anyhow::anyhow!(
+                "failed to update state for cookie {cookie}"
+            ))
+        })?;
+
+    // Give them the OK to hit /ELT-screen-hashes next.
+    Ok(response::json(StatusCode::OK, "{}"))
 }
 
 // Given a stream of `Bytes`/errors, interprets them as `Queries` and applies `f` to them

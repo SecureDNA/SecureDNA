@@ -39,7 +39,8 @@ pub async fn not_json() {
         .await
         .unwrap_err();
 
-    let http_client::error::HTTPError::RequestError {
+    let http_client::error::HttpError::RequestError {
+        status,
         retriable,
         source: error,
         ..
@@ -49,7 +50,7 @@ pub async fn not_json() {
     };
 
     assert!(!retriable);
-    assert!(error.to_string().contains("400 Bad Request"));
+    assert_eq!(status.unwrap(), 400);
     assert!(error.to_string().contains("bad protocol"));
 
     server.stop().await;

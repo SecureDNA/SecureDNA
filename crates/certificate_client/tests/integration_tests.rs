@@ -16,9 +16,9 @@ mod tests {
         expected_cert_plaintext_display, expected_cert_request_plaintext_display,
     };
     use certificates::{
-        concat_with_newline, CertificateBundle, DatabaseTokenGroup, Exemption, ExpirationError,
-        FormatMethod, Formattable, HierarchyKindParseError, Infrastructure, Issued,
-        IssuerAdditionalFields, KeyPair, Manufacturer, RequestBuilder, RoleKindParseError,
+        concat_with_newline, Builder, CertificateBundle, DatabaseTokenGroup, Exemption,
+        ExpirationError, FormatMethod, Formattable, HierarchyKindParseError, Infrastructure,
+        Issued, IssuerAdditionalFields, KeyPair, Manufacturer, RequestBuilder, RoleKindParseError,
     };
 
     use certificate_client::common::NO_PATH_FOUND_TEXT;

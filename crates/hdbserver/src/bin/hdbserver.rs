@@ -3,10 +3,12 @@
 
 use clap::Parser;
 
+use minhttp::mpserver::common::run_server;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let opts = hdbserver::Opts::parse();
-    hdbserver::run(opts, async {}).await
+    run_server(opts.cfg_path, hdbserver::server_setup()).await
 }

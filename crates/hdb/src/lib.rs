@@ -16,7 +16,7 @@ pub use consolidate_windows::{ConsolidatedHazardResult, DebugSeqHdbResponse, Hit
 pub use database::Database;
 pub use entry::Entry;
 pub use exemption::Exemptions;
-pub use hlt::{HLTEntry, HLTId, HLTLookupError, HazardLookupTable};
+pub use hlt::{HazardLookupTable, HltEntry, HltId, HltLookupError};
 pub use metadata::{Metadata, MetadataDecodeError, Provenance};
 pub use response::{HdbOrganism, HdbResponse, HdbResponseError};
 
@@ -91,7 +91,7 @@ pub enum QueryError {
     #[error("decoding metadata for {1:x?}: {0}")]
     MetadataFormat(#[source] MetadataDecodeError, Entry),
     #[error("constructing response from {1:?}: {0}")]
-    HdbResponse(#[source] HLTLookupError, Metadata),
+    HdbResponse(#[source] HltLookupError, Metadata),
 }
 
 #[cfg(test)]

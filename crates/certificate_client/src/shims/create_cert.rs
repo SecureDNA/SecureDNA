@@ -17,8 +17,8 @@ use crate::{
 };
 use certificates::file::CERT_REQUEST_EXT;
 use certificates::{
-    file::save_cert_request_to_file, Description, Exemption, HierarchyKind, Infrastructure,
-    Manufacturer, RequestBuilder, Role, RoleKind,
+    file::save_cert_request_to_file, Builder, CertificateRequest, Description, Exemption,
+    HierarchyKind, Infrastructure, KeyUnavailable, Manufacturer, RequestBuilder, Role, RoleKind,
 };
 
 #[derive(Debug, Parser)]
@@ -43,9 +43,15 @@ pub struct CreateCertOpts {
     pub email: Option<String>,
     #[clap(
         long,
-        help = "Email(s) to be notified when an ELT issued by this cert is used (optional, only for leaf certs)"
+        help = "Email(s) to be notified when an ELT issued by this cert is used (optional, only for exemption leaf certs)"
     )]
     pub notify: Vec<String>,
+    #[clap(
+        long,
+        action,
+        help = "Determines whether the certificate is able to issue blinded certificates/ELTs (optional, only for exemption certs)"
+    )]
+    pub allow_blinding: bool,
     #[clap(
         long,
         help = "Filepath where the certificate request will be saved (optional). If this is not provided ~/SecureDNA will be used"
@@ -90,29 +96,68 @@ where
     }
 }
 
+type BuilderFn<R> = fn(RequestBuilder<R>) -> RequestBuilder<R>;
+
 fn run<P: PassphraseReader>(
     opts: &CreateCertOpts,
     passphrase_reader: &P,
     default_directory: &Path,
 ) -> Result<(PathBuf, KeySource), CertCliError> {
+    if !opts.notify.is_empty()
+        && (opts.role != RoleKind::Exemption || opts.hierarchy != HierarchyKind::Leaf)
+    {
+        return Err(CertCliError::EmailsToNotifyNotAllowed);
+    }
+    if opts.allow_blinding && opts.role != RoleKind::Exemption {
+        return Err(CertCliError::AllowBlindingNotAllowed);
+    }
+
     match opts.role {
         RoleKind::Exemption => {
-            create_cert_request::<_, Exemption>(opts, passphrase_reader, default_directory)
+            let role_specific_opts = |builder: RequestBuilder<Exemption>| {
+                let builder = if !opts.notify.is_empty() {
+                    builder.with_emails_to_notify(&opts.notify)
+                } else {
+                    builder
+                };
+                if opts.allow_blinding {
+                    builder.allow_blinding(true)
+                } else {
+                    builder
+                }
+            };
+            create_cert_request::<_, Exemption, _>(
+                opts,
+                passphrase_reader,
+                default_directory,
+                Some(role_specific_opts),
+            )
         }
-        RoleKind::Infrastructure => {
-            create_cert_request::<_, Infrastructure>(opts, passphrase_reader, default_directory)
-        }
-        RoleKind::Manufacturer => {
-            create_cert_request::<_, Manufacturer>(opts, passphrase_reader, default_directory)
-        }
+        RoleKind::Infrastructure => create_cert_request::<_, Infrastructure, BuilderFn<_>>(
+            opts,
+            passphrase_reader,
+            default_directory,
+            None,
+        ),
+        RoleKind::Manufacturer => create_cert_request::<_, Manufacturer, BuilderFn<_>>(
+            opts,
+            passphrase_reader,
+            default_directory,
+            None,
+        ),
     }
 }
 
-fn create_cert_request<P: PassphraseReader, R: Role>(
+fn create_cert_request<P: PassphraseReader, R: Role, F>(
     opts: &CreateCertOpts,
     passphrase_reader: &P,
     default_directory: &Path,
-) -> Result<(PathBuf, KeySource), CertCliError> {
+    role_specific_builder_opts_fn: Option<F>,
+) -> Result<(PathBuf, KeySource), CertCliError>
+where
+    RequestBuilder<R>: Builder<Item = CertificateRequest<R, KeyUnavailable>>,
+    F: Fn(RequestBuilder<R>) -> RequestBuilder<R>,
+{
     let key_opts: AssociatedKey = opts.key.clone().try_into()?;
 
     // If a file destination has been specified for the certificate request but not for the key
@@ -141,10 +186,13 @@ fn create_cert_request<P: PassphraseReader, R: Role>(
         desc = desc.with_email(email);
     }
 
-    let req = builder
-        .with_description(desc)
-        .with_emails_to_notify(&opts.notify)
-        .build();
+    let mut builder = builder.with_description(desc);
+
+    if let Some(extra_fn) = role_specific_builder_opts_fn {
+        builder = extra_fn(builder);
+    }
+
+    let req = builder.build();
 
     // If the request destination has not been provided then we will use the default directory and a default filename.
     let request_path: PathBuf = set_appropriate_filepath_and_create_default_dir_if_required(
@@ -195,6 +243,7 @@ mod tests {
             output: Some(request_path.clone()),
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
             notify: vec![],
+            allow_blinding: false,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -223,6 +272,7 @@ mod tests {
             email: None,
             output: Some(request_path.clone()),
             notify: vec![],
+            allow_blinding: false,
             key: AssociatedKeyArgs::default(),
         };
 
@@ -251,6 +301,7 @@ mod tests {
             email: None,
             output: Some(request_path.clone()),
             notify: vec![],
+            allow_blinding: false,
             key: AssociatedKeyArgs::default(),
         };
 
@@ -276,6 +327,7 @@ mod tests {
             email: None,
             output: None,
             notify: vec![],
+            allow_blinding: false,
             key: AssociatedKeyArgs::default(),
         };
 
@@ -329,6 +381,7 @@ mod tests {
             email: None,
             output: Some(request_path.clone()),
             notify: vec![],
+            allow_blinding: false,
             key: AssociatedKeyArgs::key_from_file(pub_key_path),
         };
 
@@ -361,6 +414,7 @@ mod tests {
             email: None,
             output: Some(request_path.clone()),
             notify: vec![],
+            allow_blinding: false,
             key: AssociatedKeyArgs::key_from_hex(hex),
         };
 
@@ -393,6 +447,7 @@ mod tests {
             email: Some(email.into()),
             output: Some(request_path.clone()),
             notify: vec![],
+            allow_blinding: false,
             key: AssociatedKeyArgs::default(),
         };
 
@@ -424,6 +479,7 @@ mod tests {
             email: None,
             output: Some(request_path.clone()),
             notify: vec![],
+            allow_blinding: false,
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
         };
 
@@ -464,6 +520,7 @@ mod tests {
             email: None,
             output: Some(request_path),
             notify: vec![],
+            allow_blinding: false,
             key: AssociatedKeyArgs::create_key_at_path(key_path),
         };
 
@@ -507,6 +564,7 @@ mod tests {
             email: None,
             output: Some(request_path.clone()),
             notify: vec![],
+            allow_blinding: false,
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
         };
 
@@ -538,6 +596,7 @@ mod tests {
             output: None,
             key: AssociatedKeyArgs::default(),
             notify: vec![],
+            allow_blinding: false,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -561,6 +620,7 @@ mod tests {
             output: None,
             key: AssociatedKeyArgs::create_key_at_path(key_path),
             notify: vec![],
+            allow_blinding: false,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -586,6 +646,7 @@ mod tests {
             output: Some(request_path),
             key: AssociatedKeyArgs::create_key_at_path(key_path),
             notify: vec![],
+            allow_blinding: false,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -611,6 +672,7 @@ mod tests {
             output: Some(request_path.clone()),
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
             notify: vec![],
+            allow_blinding: false,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -644,6 +706,7 @@ mod tests {
             output: Some(request_path.clone()),
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
             notify: vec![],
+            allow_blinding: false,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -683,11 +746,93 @@ mod tests {
             output: Some(request_path),
             key: AssociatedKeyArgs::key_from_file(key_path),
             notify: vec![],
+            allow_blinding: false,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
         create_cert::run(&opts, &passphrase_reader, &default_dir)
             .expect("should have inferred .pub key extension");
+    }
+
+    #[test]
+    fn can_set_blinding_allowed_on_exemption_cert() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let request_path = temp_path.join("leaf.certr");
+        let default_dir = temp_path.join("default/");
+
+        let opts = CreateCertOpts {
+            hierarchy: HierarchyKind::Leaf,
+            role: RoleKind::Exemption,
+            name: None,
+            email: None,
+            output: Some(request_path.clone()),
+            notify: vec![],
+            allow_blinding: true,
+            key: AssociatedKeyArgs::default(),
+        };
+
+        let passphrase_reader = MemoryPassphraseReader::default();
+
+        create_cert::run(&opts, &passphrase_reader, &default_dir)
+            .expect("could not create leaf exemption certificate request");
+
+        assert!(request_path.exists());
+
+        let cert = load_cert_request_from_file::<Exemption>(&request_path).unwrap();
+        assert!(cert.blinding_allowed())
+    }
+
+    #[test]
+    fn cannot_set_blinding_allowed_on_infrastructure_cert() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let request_path = temp_path.join("leaf.certr");
+        let default_dir = temp_path.join("default/");
+
+        let opts = CreateCertOpts {
+            hierarchy: HierarchyKind::Leaf,
+            role: RoleKind::Infrastructure,
+            name: None,
+            email: None,
+            output: Some(request_path.clone()),
+            notify: vec![],
+            allow_blinding: true,
+            key: AssociatedKeyArgs::default(),
+        };
+
+        let passphrase_reader = MemoryPassphraseReader::default();
+
+        let err = create_cert::run(&opts, &passphrase_reader, &default_dir)
+            .expect_err("shouldn't be possible to set 'allow blinding' on an infrastructure cert");
+
+        assert_eq!(err, CertCliError::AllowBlindingNotAllowed);
+    }
+
+    #[test]
+    fn cannot_set_blinding_allowed_on_manufacturer_cert() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let request_path = temp_path.join("leaf.certr");
+        let default_dir = temp_path.join("default/");
+
+        let opts = CreateCertOpts {
+            hierarchy: HierarchyKind::Leaf,
+            role: RoleKind::Manufacturer,
+            name: None,
+            email: None,
+            output: Some(request_path.clone()),
+            notify: vec![],
+            allow_blinding: true,
+            key: AssociatedKeyArgs::default(),
+        };
+
+        let passphrase_reader = MemoryPassphraseReader::default();
+
+        let err = create_cert::run(&opts, &passphrase_reader, &default_dir)
+            .expect_err("shouldn't be possible to set 'allow blinding' on a manufacturer cert");
+
+        assert_eq!(err, CertCliError::AllowBlindingNotAllowed);
     }
 }

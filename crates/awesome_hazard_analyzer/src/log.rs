@@ -8,7 +8,7 @@
 use anyhow::{bail, Result};
 use tracing::{info, Level};
 use tracing_subscriber::{
-    self, filter,
+    filter,
     fmt::{format::FmtSpan, time::OffsetTime, Layer},
     prelude::*,
 };

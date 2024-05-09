@@ -125,7 +125,7 @@ mod tests {
         save_cert_request_to_file, save_certificate_bundle_to_file, CERT_EXT, CERT_REQUEST_EXT,
     };
     use certificates::{
-        test_helpers, CertificateBundle, Exemption, FormatMethod, Formattable,
+        test_helpers, Builder, CertificateBundle, Exemption, FormatMethod, Formattable,
         IssuerAdditionalFields, KeyPair, RequestBuilder, RoleKind,
     };
     use tempfile::TempDir;
@@ -149,7 +149,8 @@ mod tests {
             .load_key(int_kp)
             .unwrap();
         let leaf_request =
-            RequestBuilder::leaf_v1_builder(KeyPair::new_random().public_key()).build();
+            RequestBuilder::<Exemption>::leaf_v1_builder(KeyPair::new_random().public_key())
+                .build();
 
         let leaf_cert = issuing_cert
             .issue_cert(leaf_request, IssuerAdditionalFields::default())

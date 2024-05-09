@@ -186,16 +186,16 @@ where
 #[cfg(test)]
 mod test {
     use certificates::file::{TokenExtension, CERT_EXT, KEYSERVER_TOKEN_EXT, KEY_PRIV_EXT};
+    use certificates::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
     use certificates::{
         file::{
             load_token_bundle_from_file, save_certificate_bundle_to_file, save_keypair_to_file,
             save_token_request_to_file,
         },
         test_helpers::create_leaf_bundle,
-        CanLoadKey, ChainTraversal, DatabaseTokenGroup, DatabaseTokenRequest, Exemption,
-        HasAssociatedKey, HltTokenGroup, HltTokenRequest, Infrastructure, KeyLoaded, KeyPair,
-        KeyserverTokenGroup, KeyserverTokenRequest, Manufacturer, SynthesizerTokenGroup,
-        SynthesizerTokenRequest, TokenKind,
+        ChainTraversal, DatabaseTokenGroup, DatabaseTokenRequest, Exemption, HltTokenGroup,
+        HltTokenRequest, Infrastructure, KeyPair, KeyserverTokenGroup, KeyserverTokenRequest,
+        Manufacturer, SynthesizerTokenGroup, SynthesizerTokenRequest, TokenKind,
     };
     use doprf::party::KeyserverId;
     use tempfile::TempDir;
@@ -702,10 +702,10 @@ mod test {
         let incorrect_root = KeyPair::new_random().public_key();
 
         token_bundle
-            .validate_path_to_issuers(&[root_public_key])
+            .validate_path_to_issuers(&[root_public_key], None)
             .expect("should find path to correct root");
         token_bundle
-            .validate_path_to_issuers(&[incorrect_root])
+            .validate_path_to_issuers(&[incorrect_root], None)
             .expect_err("should not find path to incorrect root");
     }
 
@@ -921,10 +921,10 @@ mod test {
         let incorrect_root = KeyPair::new_random().public_key();
 
         token_bundle
-            .validate_path_to_issuers(&[root_public_key])
+            .validate_path_to_issuers(&[root_public_key], None)
             .expect("should find path to correct root");
         token_bundle
-            .validate_path_to_issuers(&[incorrect_root])
+            .validate_path_to_issuers(&[incorrect_root], None)
             .expect_err("should not find path to incorrect root");
     }
 
@@ -1140,10 +1140,10 @@ mod test {
         let incorrect_root = KeyPair::new_random().public_key();
 
         token_bundle
-            .validate_path_to_issuers(&[root_public_key])
+            .validate_path_to_issuers(&[root_public_key], None)
             .expect("should find path to correct root");
         token_bundle
-            .validate_path_to_issuers(&[incorrect_root])
+            .validate_path_to_issuers(&[incorrect_root], None)
             .expect_err("should not find path to incorrect root");
     }
 
@@ -1417,10 +1417,10 @@ mod test {
         let incorrect_root = KeyPair::new_random().public_key();
 
         token_bundle
-            .validate_path_to_issuers(&[root_public_key])
+            .validate_path_to_issuers(&[root_public_key], None)
             .expect("should find path to correct root");
         token_bundle
-            .validate_path_to_issuers(&[incorrect_root])
+            .validate_path_to_issuers(&[incorrect_root], None)
             .expect_err("should not find path to incorrect root");
     }
 

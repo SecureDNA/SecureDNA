@@ -117,7 +117,7 @@ const GenericInput = (props: GenericInputProps) => {
         </div>
       )}
       {props.variant === "select" ? (
-        <select className={classes} {...field} placeholder={props.placeholder}>
+        <select className={classes} {...field}>
           {props.children}
         </select>
       ) : props.variant === "textarea" ? (
@@ -125,7 +125,6 @@ const GenericInput = (props: GenericInputProps) => {
           className={classes}
           rows={"rows" in props ? props.rows : 20}
           {...field}
-          placeholder={props.placeholder}
           onChange={onChange}
           value={props.parse ? rawValue : field.value}
         >
@@ -135,10 +134,9 @@ const GenericInput = (props: GenericInputProps) => {
         <ReactPhoneNumberInput
           className={classes}
           value={field.value}
-          onChange={(e) => {
+          onChange={(e: any) => {
             helpers.setValue(e ?? "");
           }}
-          placeholder={props.placeholder}
         >
           {props.children}
         </ReactPhoneNumberInput>
@@ -157,7 +155,7 @@ const GenericInput = (props: GenericInputProps) => {
           className={classes}
           {...field}
           maxLength={(props as InputHTMLAttributes<any>)?.maxLength}
-          placeholder={props.placeholder}
+          placeholder={(props as InputHTMLAttributes<any>)?.placeholder}
           type={props.type}
           onChange={onChange}
           value={props.parse ? rawValue : field.value}

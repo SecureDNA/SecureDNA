@@ -11,7 +11,7 @@ pub struct KeyserverVersion {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// Type returned from the HDB /version endpoint.
-pub struct HDBVersion {
+pub struct HdbVersion {
     /// A string containing the cargo version & git SHA
     pub server_version: String,
     /// Timestamp this HDB was generated.

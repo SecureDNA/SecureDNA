@@ -37,7 +37,7 @@ fn to_pem_inner<T: ToASN1DerBytes + PemTaggable>(item: &T) -> Result<Pem, Encode
 
 fn from_pem_inner<T: FromASN1DerBytes + PemTaggable>(pem: &Pem) -> Result<T, DecodeError> {
     if pem.tag() != T::tag() {
-        return Err(DecodeError::UnexpectedPEMTag(
+        return Err(DecodeError::UnexpectedPemTag(
             T::tag(),
             pem.tag().to_owned(),
         ));
@@ -90,6 +90,3 @@ impl Default for MultiItemPemBuilder {
         Self::new()
     }
 }
-
-#[derive(Debug)]
-pub struct MultiPemError;

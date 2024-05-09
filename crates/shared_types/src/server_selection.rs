@@ -6,45 +6,42 @@ use std::{collections::HashMap, fmt, str::FromStr};
 use doprf::{active_security::ActiveSecurityKey, party::KeyserverId};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 // tsgen
-pub enum Tier {
-    #[serde(rename = "staging")]
-    Staging,
-    #[serde(rename = "prod")]
-    Prod,
-    #[serde(rename = "dev")]
-    Dev,
-}
+pub struct Tier(String);
 
 impl Tier {
-    /// Get the string used in the domain name of a server with this tier
-    /// e.g., for a `Tier::Dev` keyserver, this returns the `dev` of `1.ks.dev.securedna.org`
-    pub fn domain_str(&self) -> &'static str {
-        match self {
-            Tier::Staging => "staging",
-            Tier::Prod => "prod",
-            Tier::Dev => "dev",
-        }
+    pub fn new(tier: impl Into<String>) -> Self {
+        Self(tier.into())
+    }
+}
+
+impl<T> From<T> for Tier
+where
+    T: Into<String>,
+{
+    fn from(value: T) -> Self {
+        Self::new(value)
     }
 }
 
 impl FromStr for Tier {
-    type Err = &'static str;
+    type Err = std::convert::Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "staging" => Ok(Self::Staging),
-            "prod" => Ok(Self::Prod),
-            "dev" => Ok(Self::Dev),
-            _ => Err("not a valid tier"),
-        }
+        Ok(Self::new(s))
+    }
+}
+
+impl AsRef<str> for Tier {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 
 impl fmt::Display for Tier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.domain_str())
+        f.write_str(&self.0)
     }
 }
 

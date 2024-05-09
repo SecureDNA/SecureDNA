@@ -4,7 +4,7 @@
 use std::future::Future;
 
 use certificates::{
-    CanLoadKey, KeyPair, PublicKey, SynthesizerTokenGroup, TokenBundle, TokenGroup,
+    key_traits::CanLoadKey, KeyPair, PublicKey, SynthesizerTokenGroup, TokenBundle, TokenGroup,
 };
 use hyper::{body::Incoming, Request, StatusCode};
 use minhttp::response::GenericResponse;
@@ -43,9 +43,10 @@ where
     T: TokenGroup + Clone + std::fmt::Debug,
     T::Token: CanLoadKey + Clone + std::fmt::Debug,
     T::AssociatedRole: std::fmt::Debug,
+    T::ChainType: std::fmt::Debug,
     GetClientVersion: FnOnce(certificates::Id) -> GetClientVersionFut,
     GetClientVersionFut: Future<Output = Option<u64>>,
-    RecordOpenEvent: FnOnce(certificates::Id, u64) -> RecordOpenEventFut,
+    RecordOpenEvent: FnOnce(TokenBundle<SynthesizerTokenGroup>, u64) -> RecordOpenEventFut,
     RecordOpenEventFut: Future<Output = ()>,
 {
     let body =
@@ -69,7 +70,7 @@ where
     );
 
     let session_cookie = client_state.cookie();
-    let client_mid = client_state.client_mid();
+    let token_bundle = client_state.open_request().cert_chain.clone();
     let protocol_version = client_state.open_request().protocol_version;
 
     server_state
@@ -83,7 +84,7 @@ where
             ))
         })?;
 
-    record_open_event(client_mid, protocol_version).await;
+    record_open_event(token_bundle, protocol_version).await;
 
     let mut response =
         minhttp::response::json(StatusCode::OK, serde_json::to_string(&response).unwrap());
@@ -115,7 +116,7 @@ where
     T: TokenGroup,
     GetScreenedLastDay: FnOnce(certificates::Id) -> GetScreenedLastDayFut,
     GetScreenedLastDayFut: Future<Output = Result<u64, anyhow::Error>>,
-    RecordExceedance: FnOnce(TokenBundle<SynthesizerTokenGroup>, u64) -> RecordExceedanceFut,
+    RecordExceedance: FnOnce(certificates::Id, u64) -> RecordExceedanceFut,
     RecordExceedanceFut: Future<Output = ()>,
 {
     // delay warning about the cookie until we know the client is even speaking the right protocol

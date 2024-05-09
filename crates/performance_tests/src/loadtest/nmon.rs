@@ -57,7 +57,7 @@ pub fn process_nmon(baseline_file: String, new_file: String) {
     // Load the timestamps for the baseline file
 
     if let Ok(lines) = read_lines(baseline_file) {
-        for header in lines.flatten() {
+        for header in lines.map_while(Result::ok) {
             if header.starts_with("ZZZZ") {
                 baseline_timestamps.push(header);
             }
@@ -67,7 +67,7 @@ pub fn process_nmon(baseline_file: String, new_file: String) {
     println!("Building new NMON file with synced timestamps...");
     let mut counter = 0;
     if let Ok(lines) = read_lines(&new_file) {
-        for row in lines.flatten() {
+        for row in lines.map_while(Result::ok) {
             let mut h = false;
             for (key, value) in &nmon_labels {
                 if row.starts_with(key) {

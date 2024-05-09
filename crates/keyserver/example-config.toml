@@ -1,0 +1,71 @@
+[main]
+address = "127.0.0.1:8080"
+# IPv6 addresses are supported
+#address = "[::1]:8080"
+
+# Maximum number of simultaneous HTTP connections
+# max_connections = 16384
+
+# The id of the keyserver. Corresponds to the x coordinate of its keyshare
+id = 1
+
+# The number of keyholders required to hash a value
+keyholders_required = 3
+
+# The keyshare, as a hexadecimal string.
+keyshare = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+
+# List of commitments comprising the active security key
+active_security_key = [
+    "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+]
+
+# (optional) Maximum simultaneous hashing/encryption requests before 503 unavailable is returned
+#max_heavy_clients = 512
+
+# (optional) Maximum simultaneous queries to encrypt in parallel across server
+#crypto_parallelism_per_server = 1024
+
+# (optional) Size of query queue per request
+#crypto_parallelism_per_request = 8
+
+# (optional) Size limit for JSON request bodies in SCEP
+#scep_json_size_limit = 100000
+
+# Directory containing manufacturer root certs for SCEP client cert verification
+manufacturer_roots = "certs/manufacturer_roots/"
+
+# Path to the server's token and certificate chain bundle file, used for SCEP
+token_file = "keyserver-token.kt"
+
+# Path to the server's .priv keypair file, used for SCEP
+keypair_file = "keyserver-token.priv"
+
+# The file containing the passphrase to decrypt the server's .priv keypair file
+# (keypair_file setting)
+keypair_passphrase_file = "keyserver-passphrase.txt"
+
+# (optional) Do not set the `secure` flag on session cookies, allowing them to be transported
+# over http://. This is useful for local testing.
+#allow_insecure_cookie = false
+
+# (optional) Writable path where the server can persist event store data (ratelimits, client
+# versions, etc). The default is :memory:, which is an in-memory store that will be erased on
+# shutdown.
+#event_store_path = ":memory:"
+
+
+#[monitoring]
+#address = "127.0.0.1:8081"
+
+# Maximum number of simultaneous HTTP connections
+# max_connections = 16384
+
+
+#[control]
+#address = "127.0.0.1:8082"
+
+# Maximum number of simultaneous HTTP connections
+# max_connections = 16384

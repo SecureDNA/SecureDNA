@@ -9,14 +9,14 @@ resolver = "2"
 
 [workspace.package]
 license = "MIT OR Apache-2.0"
-version = "1.0.6-dev"
+version = "1.0.6"
 publish = false
 
 [workspace.dependencies]
 again = { git = "https://github.com/softprops/again.git", rev = "6db8c5e56bf93b1177ed35a926f8ff7d4adbf93b" }
 curve25519-dalek = "4.1.1"
 http-body-util = "0.1.0"
-hyper = "1.1.0"
+hyper = "1.3.1"
 quickdna = { git = "https://github.com/SecureDNA/quickdna", default-features = false }
 rasn = "0.10.0"
 serde = "1.0"

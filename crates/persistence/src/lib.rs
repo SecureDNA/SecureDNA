@@ -13,6 +13,8 @@ pub use tokio_rusqlite::{self, params, Connection};
 
 use shared_types::synthesis_permission::{Region, SynthesisPermission};
 
+pub mod open_events;
+
 #[derive(Debug, thiserror::Error)]
 pub enum OpenError {
     #[error("couldn't initialize connection to db at {0:?}: {1}")]
@@ -111,7 +113,7 @@ impl From<SqlRegion> for Region {
 }
 
 /// Wrapper that implements ToSql / FromSql for certificates::Id
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SqlCertificateId(pub certificates::Id);
 
 impl ToSql for SqlCertificateId {

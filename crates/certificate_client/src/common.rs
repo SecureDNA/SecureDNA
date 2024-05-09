@@ -60,7 +60,7 @@ impl ChainViewMode {
         method: &FormatMethod,
     ) -> Result<String, CertCliError> {
         match self {
-            ChainViewMode::AllCerts => display_all_certs_in_chain(bundle, method),
+            ChainViewMode::AllCerts => display_all_items_in_chain(bundle, method),
             ChainViewMode::AllPaths { public_keys } => {
                 if public_keys.is_empty() {
                     return Err(CertCliError::IssuerPublicKeyRequired);
@@ -77,7 +77,7 @@ impl ChainViewMode {
     }
 }
 
-pub fn display_all_certs_in_chain<B: ChainTraversal>(
+pub fn display_all_items_in_chain<B: ChainTraversal>(
     bundle: B,
     format_method: &FormatMethod,
 ) -> Result<String, CertCliError> {
@@ -95,7 +95,7 @@ pub fn display_all_valid_paths<B: ChainTraversal>(
     format_method: &FormatMethod,
     public_keys: &[PublicKey],
 ) -> Result<String, CertCliError> {
-    let all_paths = bundle.find_all_paths_to_issuers(public_keys);
+    let all_paths = bundle.find_all_paths_to_issuers(public_keys, None);
     if all_paths.is_empty() {
         return Ok(NO_PATH_FOUND_TEXT.to_string());
     }
@@ -108,7 +108,7 @@ fn display_certs_not_part_of_valid_path<B: ChainTraversal>(
     format_method: &FormatMethod,
     public_keys: &[PublicKey],
 ) -> Result<String, CertCliError> {
-    let excluded_certs = bundle.find_items_not_part_of_valid_path(public_keys);
+    let excluded_certs = bundle.find_items_not_part_of_valid_path(public_keys, None);
     if excluded_certs.is_empty() {
         return Ok(NO_EXCLUDED_CERTS_TEXT.to_string());
     }

@@ -5,40 +5,52 @@ use std::fs::{self, File};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use anyhow::Context;
-use futures::FutureExt;
 use hyper::body::Incoming;
 use hyper::{Method, Request, StatusCode};
 use serde::Deserialize;
-use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
-use tracing::{error, info, info_span, warn, Instrument};
+use tracing::{error, info, warn};
 
-use certificates::{DatabaseTokenGroup, Issued, Manufacturer, SynthesizerTokenGroup, TokenBundle};
-use hdb::{self, Database, HazardLookupTable};
+use certificates::{DatabaseTokenGroup, Issued, Manufacturer};
+use hdb::{Database, HazardLookupTable};
+use minhttp::error::ErrWrapper;
+use minhttp::mpserver::traits::ValidServerSetup;
+use minhttp::mpserver::{MultiplaneServer, ServerConfig};
 use minhttp::response::{self, ErrResponse, GenericResponse};
-use minhttp::signal::{fast_shutdown_requested, graceful_shutdown_requested};
-use minhttp::Server;
 use scep_server_helpers::server::ServerState;
 use securedna_versioning::version::get_version;
 use shared_types::hash::HashSpec;
 use shared_types::http::add_cors_headers;
-use shared_types::metrics::{get_metrics_output, HDBMetrics};
+use shared_types::metrics::{get_metrics_output, HdbMetrics};
 use shared_types::requests::RequestId;
-use shared_types::server_versions::HDBVersion;
+use shared_types::server_versions::HdbVersion;
 
 use crate::event_store;
-use crate::opts::Opts;
+use crate::opts::Config;
 use crate::state::{BuildTimestamp, HdbServerState};
 use crate::validation::NetworkingValidator;
 
 /// SCEP server version
 const SERVER_VERSION: u64 = 1;
 
-pub async fn run(opts: Opts, post_setup_hook: impl Future<Output = ()>) -> anyhow::Result<()> {
-    let build_info = get_hdb_build_info(&opts.database);
+pub fn server_setup() -> impl ValidServerSetup<Config, HdbServerState> {
+    MultiplaneServer::builder()
+        .with_reconfigure(reconfigure)
+        .with_response(respond)
+        .with_response_to_monitoring(respond_to_monitoring_plane)
+}
+
+async fn reconfigure(
+    server_cfg: ServerConfig<Config>,
+    prev_state: Weak<HdbServerState>,
+) -> Result<Arc<HdbServerState>, ErrWrapper> {
+    let app_cfg = server_cfg.main.custom;
+    let prev_state = Weak::upgrade(&prev_state);
+
+    let build_info = get_hdb_build_info(&app_cfg.database);
     match &build_info {
         Ok(build_info) => info!("HDB Build Info: {build_info:?}"),
         Err(err) => warn!("{err:?}"),
@@ -46,142 +58,95 @@ pub async fn run(opts: Opts, post_setup_hook: impl Future<Output = ()>) -> anyho
     let build_timestamp = build_info.ok().map(|bi| BuildTimestamp(bi.build_timestamp));
 
     info!("Starting HDB server");
-    let database = Database::open(&opts.database).expect("failed to open database");
+    let database = Database::open(&app_cfg.database).context("failed to open database")?;
     info!("Database is opened!");
-    let hlt = HazardLookupTable::read(&opts.database).expect("failed to open HLT");
+    let hlt = HazardLookupTable::read(&app_cfg.database).context("failed to open HLT")?;
     info!("HLT is ready!");
 
     let manufacturer_roots =
-        scep_server_helpers::certs::read_certificates::<Manufacturer>(opts.manufacturer_roots)
+        scep_server_helpers::certs::read_certificates::<Manufacturer>(app_cfg.manufacturer_roots)
             .context("reading manufacturer root certs")?
             .into_iter()
             .map(|c| *c.public_key())
             .collect::<Vec<_>>();
 
     let token_bundle =
-        scep_server_helpers::certs::read_tokenbundle::<DatabaseTokenGroup>(opts.token_file)
+        scep_server_helpers::certs::read_tokenbundle::<DatabaseTokenGroup>(app_cfg.token_file)
             .context("reading database token bundle")?;
 
-    let passphrase = fs::read_to_string(&opts.keypair_passphrase_file)
+    let passphrase = fs::read_to_string(&app_cfg.keypair_passphrase_file)
         .context("reading database keypair passphrase file")?;
 
-    let keypair = scep_server_helpers::certs::read_keypair(opts.keypair_file, passphrase.trim())
+    let keypair = scep_server_helpers::certs::read_keypair(app_cfg.keypair_file, passphrase.trim())
         .context("reading database keypair")?;
 
-    let heavy_requests = Arc::new(Semaphore::new(opts.max_heavy_clients));
-    let hdb_queries = Arc::new(Semaphore::new(opts.disk_parallelism_per_server));
+    let heavy_requests = Arc::new(Semaphore::new(app_cfg.max_heavy_clients));
+    let hdb_queries = Arc::new(Semaphore::new(app_cfg.disk_parallelism_per_server));
 
-    let metrics = opts.monitoring_plane_port.map(|_| {
-        let m = HDBMetrics::default();
-        m.max_clients.set(opts.max_clients as i64);
-        Arc::new(m)
-    });
+    // Once metrics are enabled, they can't be disabled.
+    // (at least, I don't yet know enough about our metrics code to be sure that's sensible)
+    let metrics = if let Some(prev_metrics) = prev_state.as_ref().map(|s| &s.metrics) {
+        prev_metrics.clone()
+    } else if server_cfg.monitoring.is_some() {
+        let m = HdbMetrics::default();
+        m.max_clients.set(server_cfg.main.max_connections as i64);
+        Some(Arc::new(m))
+    } else {
+        None
+    };
 
-    let hash_spec_json_string = match &opts.hash_spec_path {
-        Some(path) => std::fs::read_to_string(path).expect("failed to open hash spec file"),
+    let hash_spec_json_string = match &app_cfg.hash_spec_path {
+        Some(path) => std::fs::read_to_string(path).context("failed to open hash spec file")?,
         None => crate::opts::DEFAULT_HASH_SPEC.to_string(),
     };
 
     let hash_spec: HashSpec =
-        serde_json::from_str(&hash_spec_json_string).expect("failed to decode hash spec json");
-    hash_spec.validate().expect("hash spec is invalid");
+        serde_json::from_str(&hash_spec_json_string).context("failed to decode hash spec json")?;
+    hash_spec.validate().context("hash spec is invalid")?;
 
     let validator = NetworkingValidator {
-        yubico_api_client_id: opts.yubico_api_client_id,
-        yubico_api_secret_key: opts.yubico_api_secret_key,
+        yubico_api_client_id: app_cfg.yubico_api_client_id,
+        yubico_api_secret_key: app_cfg.yubico_api_secret_key,
     };
 
-    let persistence_connection = crate::event_store::open_db(opts.persistence_path)
-        .await
-        .context("opening event_store db")?;
+    let persistence_connection = if let Some(prev_state) = prev_state {
+        if app_cfg.event_store_path != prev_state.persistence_path {
+            return Err(anyhow::anyhow!(
+                "Changes to event_store_path not supported: expected {:?}, but found {:?}",
+                prev_state.persistence_path,
+                app_cfg.event_store_path,
+            )
+            .into());
+        }
+        prev_state.persistence_connection.clone()
+    } else {
+        crate::event_store::open_db(&app_cfg.event_store_path)
+            .await
+            .context("opening event_store db")?
+    };
 
-    let hdbs_state = Arc::new(HdbServerState {
+    Ok(Arc::new(HdbServerState {
         build_timestamp,
         database,
         heavy_requests,
         hlt,
         metrics: metrics.clone(),
         hdb_queries,
-        parallelism_per_request: opts.disk_parallelism_per_request,
+        parallelism_per_request: app_cfg.disk_parallelism_per_request,
         hash_spec,
         validator,
         scep: ServerState {
             clients: Default::default(),
-            json_size_limit: 100_000,
+            json_size_limit: app_cfg.scep_json_size_limit,
             manufacturer_roots,
             token_bundle,
             keypair,
-            allow_insecure_cookie: opts.allow_insecure_cookie,
+            allow_insecure_cookie: app_cfg.allow_insecure_cookie,
         },
+        elt_size_limit: app_cfg.elt_size_limit,
+        persistence_path: app_cfg.event_store_path,
         persistence_connection,
-    });
-
-    let server = Server::new(opts.max_clients);
-    // Note: Separate server so regular connections don't count against the monitoring plane limit.
-    let monitoring_plane_server = Server::new(opts.max_monitoring_plane_clients);
-
-    let address = SocketAddr::from(([0, 0, 0, 0], opts.port));
-    info!("Listening on {address}");
-    let listener = TcpListener::bind(address).await.unwrap();
-    let connections = futures::stream::unfold(listener, |listener| async {
-        Some((listener.accept().await, listener))
-    });
-
-    let run = server
-        .with_callbacks()
-        .respond(move |request, peer| {
-            let hdbs_state = hdbs_state.clone();
-            let request_id = RequestId::from(request.headers());
-            async move { respond(hdbs_state.clone(), &request_id, request, peer).await }
-        })
-        .connected(|_| metrics.as_ref().map(|m| m.connected_clients()))
-        .failed(move |_| {
-            // Apparently hdbservers don't track bad requests?
-            // if let Some(m) = metrics2 {
-            //     m.bad_requests.inc();
-            // }
-        })
-        .serve(connections);
-
-    let run_monitoring_plane = if let Some(port) = opts.monitoring_plane_port {
-        let address = SocketAddr::from(([0, 0, 0, 0], port));
-        info!("Listening on {address} for monitoring plane");
-        let listener = TcpListener::bind(address).await.unwrap();
-        let connections = futures::stream::unfold(listener, |listener| async {
-            Some((listener.accept().await, listener))
-        });
-
-        let run = monitoring_plane_server
-            .with_callbacks()
-            .respond(respond_to_monitoring_plane)
-            .serve(connections)
-            .instrument(info_span!("monitoring-plane"));
-
-        run.left_future()
-    } else {
-        async {}.right_future()
-    };
-
-    let graceful_shutdown = async {
-        graceful_shutdown_requested().await;
-        info!("Graceful shutdown requested...");
-        tokio::join!(
-            server.graceful_shutdown(),
-            monitoring_plane_server.graceful_shutdown()
-        );
-    };
-
-    // Note: Monitoring plane comes first to prioritize handling its traffic.
-    let run_until_gracefully_shutdown =
-        async { tokio::join!(run_monitoring_plane, run, graceful_shutdown) };
-    post_setup_hook.await;
-    tokio::select! {
-        biased;
-        _ = fast_shutdown_requested() => info!("Fast shutdown requested..."),
-        _ = run_until_gracefully_shutdown => {}
-    };
-
-    Ok(())
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -200,12 +165,13 @@ fn get_hdb_build_info(database: &Path) -> anyhow::Result<BuildInfo> {
 
 async fn respond(
     hdbs_state: Arc<HdbServerState>,
-    request_id: &RequestId,
-    request: Request<Incoming>,
     peer: SocketAddr,
+    request: Request<Incoming>,
 ) -> GenericResponse {
+    let request_id = RequestId::from(request.headers());
     let method = request.method().clone();
     let headers = request.headers().clone();
+
     let mut response = match request.uri().path() {
         "/qualification" => {
             handle_post(
@@ -223,7 +189,7 @@ async fn respond(
                 &method,
                 handle_scep_err(
                     &hdbs_state.metrics,
-                    request_id,
+                    &request_id,
                     peer,
                     scep_endpoint_open(&hdbs_state, request),
                 ),
@@ -235,27 +201,76 @@ async fn respond(
                 &method,
                 handle_scep_err(
                     &hdbs_state.metrics,
-                    request_id,
+                    &request_id,
                     peer,
                     scep_endpoint_authenticate(&hdbs_state, request),
                 ),
             )
             .await
         }
-        scep::SCREEN_ENDPOINT => {
+        scep::SCREEN_ENDPOINT | scep::ELT_SCREEN_HASHES_ENDPOINT => {
             handle_post(
                 &method,
                 handle_scep_err(
                     &hdbs_state.metrics,
-                    request_id,
+                    &request_id,
                     peer,
-                    crate::screening::scep_endpoint_screen(request_id, hdbs_state.clone(), request),
+                    crate::screening::scep_endpoint_screen(
+                        &request_id,
+                        hdbs_state.clone(),
+                        request,
+                    ),
+                ),
+            )
+            .await
+        }
+        scep::SCREEN_WITH_EL_ENDPOINT => {
+            handle_post(
+                &method,
+                handle_scep_err(
+                    &hdbs_state.metrics,
+                    &request_id,
+                    peer,
+                    crate::screening::scep_endpoint_screen_with_el(
+                        &request_id,
+                        hdbs_state.clone(),
+                        request,
+                    ),
+                ),
+            )
+            .await
+        }
+        scep::ELT_ENDPOINT => {
+            handle_post(
+                &method,
+                handle_scep_err(
+                    &hdbs_state.metrics,
+                    &request_id,
+                    peer,
+                    crate::screening::scep_endpoint_elt(&request_id, hdbs_state.clone(), request),
+                ),
+            )
+            .await
+        }
+        scep::ELT_SEQ_HASHES_ENDPOINT => {
+            handle_post(
+                &method,
+                handle_scep_err(
+                    &hdbs_state.metrics,
+                    &request_id,
+                    peer,
+                    crate::screening::scep_endpoint_elt_seq_hashes(
+                        &request_id,
+                        hdbs_state.clone(),
+                        request,
+                    ),
                 ),
             )
             .await
         }
         _ => response::not_found(),
     };
+
     add_cors_headers(&headers, response.headers_mut());
     response
 }
@@ -263,7 +278,7 @@ async fn respond(
 async fn version(hdbs_state: &HdbServerState) -> GenericResponse {
     let server_version = get_version();
     let hdb_timestamp = hdbs_state.build_timestamp.clone().map(|t| t.0);
-    let response = HDBVersion {
+    let response = HdbVersion {
         server_version,
         hdb_timestamp,
     };
@@ -295,7 +310,7 @@ async fn handle_post(
 }
 
 async fn handle_err(
-    metrics: &Option<Arc<HDBMetrics>>,
+    metrics: &Option<Arc<HdbMetrics>>,
     future: impl Future<Output = Result<GenericResponse, ErrResponse>>,
 ) -> GenericResponse {
     let result_response = future.await;
@@ -309,7 +324,7 @@ async fn handle_err(
 }
 
 async fn handle_scep_err<F, E>(
-    metrics: &Option<Arc<HDBMetrics>>,
+    metrics: &Option<Arc<HdbMetrics>>,
     request_id: &RequestId,
     peer: SocketAddr,
     future: F,
@@ -333,8 +348,9 @@ where
 }
 
 async fn respond_to_monitoring_plane(
-    request: Request<Incoming>,
+    _hdbs_state: Arc<HdbServerState>,
     _peer: SocketAddr,
+    request: Request<Incoming>,
 ) -> GenericResponse {
     match (request.method(), request.uri().path()) {
         (&Method::GET, "/metrics") => query_server_metrics(),
@@ -368,15 +384,18 @@ async fn scep_endpoint_open(
                 }
             }
         },
-        |client_mid, protocol_version| async move {
+        |client_token, protocol_version| async move {
             if let Err(e) = event_store::insert_open_event(
                 &server_state.persistence_connection,
-                client_mid,
+                &client_token,
                 protocol_version,
             )
             .await
             {
-                error!("error inserting open event for {client_mid}: {e}");
+                error!(
+                    "error inserting open event for {}: {e}",
+                    client_token.token.issuance_id()
+                );
             };
         },
         request,
@@ -392,25 +411,24 @@ async fn scep_endpoint_authenticate(
         &server_state.scep,
         SERVER_VERSION,
         |client_mid| async move {
-            event_store::query_client_screened_bp_last_day(
+            event_store::query_client_screened_bp_in_last_day(
                 &server_state.persistence_connection,
                 client_mid,
             )
             .await
             .map_err(|e| anyhow::anyhow!(e).context("querying event_store"))
         },
-        |client_tokenbundle: TokenBundle<SynthesizerTokenGroup>, attempted_bp| async move {
+        |client_mid, attempted_bp| async move {
             if let Err(e) = event_store::insert_ratelimit_exceedance(
                 &server_state.persistence_connection,
-                &client_tokenbundle,
+                client_mid,
                 attempted_bp,
             )
             .await
             {
                 error!(
                     "failed to record ratelimit exceedance of {} for {}: {e}",
-                    attempted_bp,
-                    client_tokenbundle.token.issuance_id()
+                    attempted_bp, client_mid,
                 );
             }
         },
@@ -422,26 +440,52 @@ async fn scep_endpoint_authenticate(
 #[cfg(test)]
 mod test {
     use super::*;
-    use clap::Parser;
+
+    use minhttp::mpserver::common::stub_cfg;
+    use minhttp::mpserver::{ExternalWorld, PlaneConfig};
+    use minhttp::test::FakeNetwork;
 
     #[tokio::test]
-    #[should_panic]
     async fn test_empty_hdb_returns_error() {
-        // since the panic happens inside the `run` fn, can't inspect the returned error. Consider
-        // removing the panic in `run`.
         let hdb_dir = tempfile::tempdir().unwrap();
-        let opts = crate::opts::Opts::parse_from(vec![
-            "hdbserver".to_string(),
-            "--manufacturer-roots".to_string(),
-            "test/certs/manufacturer_roots".to_string(),
-            "--token-file".to_string(),
-            "test/certs/database-token.dt".to_string(),
-            "--keypair-file".to_string(),
-            "test/certs/database-token.priv".to_string(),
-            "--keypair-passphrase-file".to_string(),
-            "test/certs/database-passphrase.txt".to_string(),
-            hdb_dir.path().display().to_string(),
-        ]);
-        run(opts, async {}).await.unwrap();
+        let network = Arc::new(FakeNetwork::default());
+
+        let app_cfg = Config {
+            database: hdb_dir.path().to_owned(),
+            max_heavy_clients: Config::default_max_heavy_clients(),
+            disk_parallelism_per_server: Config::default_disk_parallelism_per_server(),
+            disk_parallelism_per_request: Config::default_disk_parallelism_per_request(),
+            hash_spec_path: None,
+            yubico_api_client_id: None,
+            yubico_api_secret_key: None,
+            scep_json_size_limit: Config::default_scep_json_size_limit(),
+            elt_size_limit: Config::default_elt_size_limit(),
+            manufacturer_roots: "test/certs/manufacturer_roots".into(),
+            token_file: "test/certs/database-token.dt".into(),
+            keypair_file: "test/certs/database-token.priv".into(),
+            keypair_passphrase_file: "test/certs/database-passphrase.txt".into(),
+            allow_insecure_cookie: true,
+            event_store_path: Config::default_event_store_path(),
+        };
+        let server_config = ServerConfig {
+            main: PlaneConfig {
+                address: "192.0.2.2:80".parse().unwrap(),
+                max_connections: PlaneConfig::DEFAULT_MAX_CONNECTIONS,
+                custom: app_cfg,
+            },
+            monitoring: None,
+            control: None,
+        };
+        let external_world = ExternalWorld {
+            listen: network.listen_fn(),
+            load_cfg: stub_cfg(move || server_config.clone()),
+        };
+        let server = server_setup()
+            .to_server_setup()
+            .build_with_external_world(external_world);
+
+        // Checking that the HDB/etc is valid happens during a reconfiguration...
+        // This should fail because the HDB is empty.
+        assert!(server.reload_cfg().await.is_err());
     }
 }

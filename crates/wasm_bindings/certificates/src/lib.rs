@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use certificates::{
-    Authenticator, CertificateBundle, Description, ExemptionListTokenGroup,
-    ExemptionListTokenRequest, Expiration, KeyPair, Organism, PemDecodable, PemEncodable,
-    TokenBundle,
+    Authenticator, Builder, CertificateBundle, Description, ExemptionListTokenGroup,
+    ExemptionListTokenRequest, Expiration, KeyPair, Manufacturer, Organism, PemDecodable,
+    PemEncodable, RequestBuilder, TokenBundle,
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -44,6 +44,15 @@ pub struct SignEltr {
     validity_days: i64,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[wasm_bindgen(skip_typescript)]
+// tsgen
+pub struct CertRequestFiles {
+    certr_pem: String,
+    private_key_pem: String,
+    public_key_pem: String,
+}
+
 // The block of code below lets us generate .d.ts files with proper TypeScript
 // types. The types referred to are imported by `IMPORTS` above.
 //
@@ -68,6 +77,8 @@ extern "C" {
     pub type IExemptionListTokenRequest;
     #[wasm_bindgen(typescript_type = "SignEltr")]
     pub type ISignEltr;
+    #[wasm_bindgen(typescript_type = "CertRequestFiles")]
+    pub type ICertRequestFiles;
 }
 
 #[wasm_bindgen]
@@ -76,6 +87,7 @@ pub fn make_eltr_v1_pem(fields: IEltrV1Fields) -> Result<Vec<u8>, String> {
     let fields: EltrV1Fields = serde_wasm_bindgen::from_value(fields.into())
         .map_err(|e| format!("Couldn't decode JSON: {e:?}"))?;
     let eltr = ExemptionListTokenRequest::v1_token_request(
+        None,
         fields.exemptions,
         fields.requestor,
         fields.requestor_auth_devices,
@@ -153,4 +165,39 @@ pub fn sign_eltr(body: ISignEltr) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Couldn't encode ELT: {e:?}"))?;
 
     Ok(elt_pem.into_bytes())
+}
+
+#[wasm_bindgen]
+pub fn create_manufacturer_leaf(
+    name: String,
+    email: String,
+    passphrase: String,
+) -> Result<ICertRequestFiles, String> {
+    let keypair = KeyPair::new_random();
+    let public_key = keypair.public_key();
+    let mut private_key: Vec<u8> = vec![];
+    keypair
+        .write_key(&mut private_key, passphrase)
+        .map_err(|_| "Couldn't write key".to_owned())?;
+
+    let desc = Description::default().with_name(name).with_email(email);
+    let builder =
+        RequestBuilder::<Manufacturer>::leaf_v1_builder(public_key).with_description(desc);
+
+    let files = CertRequestFiles {
+        certr_pem: builder
+            .build()
+            .to_pem()
+            .map_err(|_| "Couldn't make certr pem".to_owned())?,
+        private_key_pem: String::from_utf8(private_key)
+            .map_err(|_| "Invalid UTF-8 in priv pem".to_owned())?,
+        public_key_pem: public_key
+            .to_pem()
+            .map_err(|_| "Couldn't make pub pem".to_owned())?,
+    };
+
+    match serde_wasm_bindgen::to_value(&files) {
+        Ok(v) => Ok(v.into()),
+        Err(e) => Err(format!("Couldn't convert files to JS: {e:?}")),
+    }
 }

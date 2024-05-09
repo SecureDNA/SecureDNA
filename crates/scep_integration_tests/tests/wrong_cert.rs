@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use certificates::KeyserverTokenGroup;
 use doprf::party::KeyserverId;
-use http_client::HTTPError;
+use http_client::HttpError;
 use scep::error::ScepError;
 use scep_client_helpers::ClientCerts;
 use scep_integration_tests::make_certs::{make_certs, CreatedCerts, MakeCertsOptions};
@@ -74,7 +74,7 @@ pub async fn wrong_client_cert() {
         .await
         .unwrap_err();
 
-    let scep_client_helpers::Error::Http(HTTPError::RequestError {
+    let scep_client_helpers::Error::Http(HttpError::RequestError {
         retriable,
         source: error,
         ..

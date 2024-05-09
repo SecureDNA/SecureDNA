@@ -6,12 +6,13 @@ use certificates::file::{
     TokenExtension,
 };
 use certificates::{
-    CanLoadKey, CertificateBundle, ChainTraversal, DatabaseTokenGroup, Infrastructure,
-    KeyserverTokenGroup, Manufacturer, PublicKey, Role, SynthesizerTokenGroup, TokenGroup,
+    CertificateBundle, ChainTraversal, DatabaseTokenGroup, Infrastructure, KeyserverTokenGroup,
+    Manufacturer, PublicKey, Role, SynthesizerTokenGroup, TokenGroup,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use certificates::key_traits::CanLoadKey;
 use once_cell::sync::Lazy;
 
 static CERTS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test/certs");
@@ -225,7 +226,7 @@ where
     let keypair = load_keypair_from_file(key_file, passphrase.trim())
         .map_err(|err| format!("Failed to load keypair from file: {err:?}"))?;
 
-    if let Err(err) = token_bundle.validate_path_to_issuers(&[*root_public_key]) {
+    if let Err(err) = token_bundle.validate_path_to_issuers(&[*root_public_key], None) {
         return Err(format!(
             "No path to root public key found for token: {err:?}"
         ));
@@ -250,7 +251,7 @@ fn check_cert_bundle_and_associated_key<R: Role>(
         format!("Failed to load keypair with passphrase '{CERT_KEY_PASSPHRASE}': {err:?}")
     })?;
 
-    if let Err(err) = cert_bundle.validate_path_to_issuers(&[*root_public_key]) {
+    if let Err(err) = cert_bundle.validate_path_to_issuers(&[*root_public_key], None) {
         return Err(format!(
             "No path to root public key found for certificate: {err:?}"
         ));

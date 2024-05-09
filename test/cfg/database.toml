@@ -1,0 +1,27 @@
+[main]
+address = "0.0.0.0:5300"
+
+# Where to find the database
+database = "../data/hdb"
+
+# (optional) Yubico API client ID. This is a short digit string, used to verify YubiKey OTPs
+# when handling an order with a 2FA-enabled exemption list. If set to the string 'allow_all',
+# all YubiKey OTPs are treated as valid.
+yubico_api_client_id = "allow_all"
+
+# Directory containing manufacturer root certs for SCEP client cert verification
+manufacturer_roots = "../certs/manufacturer_roots"
+
+# Path to the database's token and certificate chain bundle file, used for SCEP
+token_file = "../certs/database-token.dt"
+
+# Path to the database's .priv keypair file, used for SCEP
+keypair_file = "../certs/database-token.priv"
+
+# The file containing the passphrase to decrypt the database's .priv keypair file
+# (keypair_file setting)
+keypair_passphrase_file = "../certs/database-passphrase.txt"
+
+# (optional) Do not set the `secure` flag on session cookies, allowing them to be transported
+# over http://. This is useful for local testing.
+allow_insecure_cookie = true

@@ -7,7 +7,9 @@ pub mod instant;
 pub mod operations;
 pub mod progress;
 pub mod retry_if; // TODO: how to share this with synthclient?
+pub mod scep_client;
 pub mod server_selection;
+pub mod server_version_handler;
 pub mod windows;
 
 pub use crate::doprf_client::*;

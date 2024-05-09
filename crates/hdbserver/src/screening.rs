@@ -4,25 +4,35 @@
 use std::sync::Arc;
 
 use anyhow::Context;
+use doprf::prf::CompletedHashValue;
 use futures::{StreamExt, TryStreamExt};
+use http_body_util::BodyExt;
 use hyper::body::{Body, Incoming};
 use hyper::{Request, StatusCode};
+use scep::states::{EltState, ServerStateForClient};
+use scep::steps::{server_elt_client, server_elt_seq_hashes_client};
 use tracing::{error, info, warn};
 
+use certificates::Issued;
 use doprf::tagged::{HashTag, TaggedHash};
 use hdb::consolidate_windows::{consolidate_windows, HashId};
-use hdb::{self, Exemptions, HdbConfig, HdbParams};
+use hdb::{Exemptions, HdbConfig, HdbParams};
 use minhttp::response::{self, GenericResponse};
+use once_cell::sync::Lazy;
 use scep::error::ScepError;
-use scep::types::ScreenCommon;
+use scep::types::{ScreenCommon, ScreenWithElParams};
 use shared_types::hdb::HdbScreeningResult;
 use shared_types::requests::RequestId;
+use shared_types::synthesis_permission::SynthesisPermission;
 use streamed_ristretto::hyper::{check_content_length, from_request};
 use streamed_ristretto::stream::{check_content_type, ShortErrorMsg, StreamableRistretto};
 use streamed_ristretto::HasContentType;
 
 use crate::event_store;
 use crate::state::HdbServerState;
+use crate::validation::exemptions_from_otp;
+
+static NO_EXEMPTIONS: Lazy<Arc<Exemptions>> = Lazy::new(Arc::default);
 
 struct UnparsedTaggedHash([u8; TaggedHash::SIZE]);
 
@@ -82,6 +92,7 @@ pub async fn scep_endpoint_screen(
         .ok_or_else(|| {
             scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
         })?;
+    let client_mid = client_state.open_request().client_mid();
 
     let hash_count_from_content_len =
         check_content_length(request.body().size_hint().exact(), TaggedHash::SIZE)
@@ -101,26 +112,28 @@ pub async fn scep_endpoint_screen(
         Err(err_response) => return Ok(err_response),
     };
 
-    let screen_evt_id = match event_store::insert_screen_event(
-        &hdbs_state.persistence_connection,
-        client_state.open_request.client_mid(),
-        client_state.open_request.nucleotide_total_count,
-        region,
-    )
-    .await
-    {
-        Ok(id) => Some(id),
-        Err(e) => {
-            error!(
-                "Failed to persist screen event for {}: {e}",
-                client_state.open_request.client_mid()
-            );
-            None
+    let (elt, exemptions) = match client_state.elt_state {
+        EltState::NoElt => (None, NO_EXEMPTIONS.clone()),
+        EltState::AwaitingEltSize | EltState::PromisedElt { .. } => {
+            return Err(scep::error::Screen::ScreenBeforeElt.into())
+        }
+        EltState::EltNeedsHashes { .. } => {
+            return Err(scep::error::Screen::ScreenBeforeEltHashes.into())
+        }
+        EltState::EltReady { elt, hashes, otp } => {
+            let exemptions = exemptions_from_otp(
+                vec![*elt.clone()],
+                hashes.into_iter().collect(),
+                &hdbs_state.validator,
+                &Some(otp.clone()),
+                &Some(otp),
+            )
+            .await
+            .map_err(|e| scep::error::Screen::EltValidation(e.to_string()))?;
+
+            (Some(*elt), Arc::new(exemptions))
         }
     };
-
-    // make empty exemptions for non-EL screening
-    let exemptions = Arc::new(Exemptions::default());
 
     if let Some(metrics) = &hdbs_state.metrics {
         metrics.requests.inc();
@@ -144,6 +157,22 @@ pub async fn scep_endpoint_screen(
     }
 
     let logdone = LogDone(request_id.clone());
+
+    let screen_evt_id = match event_store::insert_screen_event(
+        &hdbs_state.persistence_connection,
+        client_mid,
+        client_state.open_request.nucleotide_total_count,
+        region,
+        elt.as_ref(),
+    )
+    .await
+    {
+        Ok(id) => Some(id),
+        Err(e) => {
+            error!("Failed to persist screen event for {client_mid}: {e}");
+            None
+        }
+    };
 
     let mut last_record = None;
     let hdbs_state2 = hdbs_state.clone();
@@ -222,6 +251,16 @@ pub async fn scep_endpoint_screen(
 
     let response: HdbScreeningResult = consolidation.to_hdb_screening_result(provider_reference);
 
+    let merged_permission =
+        SynthesisPermission::merge(response.results.iter().map(|r| r.synthesis_permission));
+    info!(
+        message = "screened",
+        %client_mid,
+        issued_to=client_state.open_request.cert_chain.token.issuer_description(),
+        screened_bp=client_state.open_request.nucleotide_total_count,
+        hash_count=num_hashes,
+        %merged_permission,
+    );
     if let Some(screen_evt_id) = screen_evt_id {
         if let Err(e) = event_store::insert_screen_result(
             &hdbs_state.persistence_connection,
@@ -244,4 +283,150 @@ pub async fn scep_endpoint_screen(
         .map_err(ScepError::InternalError)?;
 
     Ok(response::json(StatusCode::OK, json))
+}
+
+pub async fn scep_endpoint_screen_with_el(
+    _request_id: &RequestId,
+    hdbs_state: Arc<HdbServerState>,
+    request: Request<Incoming>,
+) -> Result<GenericResponse, scep::error::ScepError<scep::error::ScreenWithEL>> {
+    let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
+
+    let client_state = hdbs_state
+        .scep
+        .clients
+        .write()
+        .await
+        .take_session(&cookie)
+        .ok_or_else(|| {
+            scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
+        })?;
+
+    let bytes = request
+        .into_body()
+        .collect()
+        .await
+        .map_err(|e| scep::error::ScepError::InvalidMessage(e.into()))?
+        .to_bytes();
+
+    let params: ScreenWithElParams = serde_json::from_slice(&bytes)
+        .map_err(|e| scep::error::ScepError::InvalidMessage(e.into()))?;
+
+    if params.elt_size > hdbs_state.elt_size_limit {
+        return Err(scep::error::ScreenWithEL::EltSizeTooBig {
+            actual: params.elt_size,
+            maximum: hdbs_state.elt_size_limit,
+        }
+        .into());
+    }
+
+    let new_client_state = scep::steps::server_screen_with_el_client(params, client_state)?;
+
+    hdbs_state
+        .scep
+        .clients
+        .write()
+        .await
+        .add_session(
+            cookie,
+            ServerStateForClient::Authenticated(new_client_state),
+        )
+        .map_err(|_| {
+            scep::error::ScepError::InternalError(anyhow::anyhow!(
+                "failed to update state for cookie {cookie}"
+            ))
+        })?;
+
+    // Give them the OK to hit /ELT next.
+    Ok(response::json(StatusCode::OK, "{}"))
+}
+
+pub async fn scep_endpoint_elt(
+    _request_id: &RequestId,
+    hdbs_state: Arc<HdbServerState>,
+    request: Request<Incoming>,
+) -> Result<GenericResponse, scep::error::ScepError<scep::error::ELT>> {
+    let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
+
+    let client_state = hdbs_state
+        .scep
+        .clients
+        .write()
+        .await
+        .take_session(&cookie)
+        .ok_or_else(|| {
+            scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
+        })?;
+
+    let elt_body = request
+        .into_body()
+        .collect()
+        .await
+        .map_err(|e| scep::error::ScepError::InvalidMessage(e.into()))?
+        .to_bytes();
+
+    let (client, response) = server_elt_client(elt_body, client_state)?;
+
+    hdbs_state
+        .scep
+        .clients
+        .write()
+        .await
+        .add_session(cookie, ServerStateForClient::Authenticated(client))
+        .map_err(|_| {
+            scep::error::ScepError::InternalError(anyhow::anyhow!(
+                "failed to update state for cookie {cookie}"
+            ))
+        })?;
+
+    // Give them the OK to hit /ELT-seq-hashes or /ELT-screen-hashes next.
+    Ok(response::json(
+        StatusCode::OK,
+        serde_json::to_string(&response).map_err(|_| {
+            scep::error::ScepError::InternalError(anyhow::anyhow!("failed to encode JSON response"))
+        })?,
+    ))
+}
+
+pub async fn scep_endpoint_elt_seq_hashes(
+    _request_id: &RequestId,
+    hdbs_state: Arc<HdbServerState>,
+    request: Request<Incoming>,
+) -> Result<GenericResponse, scep::error::ScepError<scep::error::EltSeqHashes>> {
+    let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
+
+    let client_state = hdbs_state
+        .scep
+        .clients
+        .write()
+        .await
+        .take_session(&cookie)
+        .ok_or_else(|| {
+            scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
+        })?;
+
+    let hashes: Vec<_> = from_request::<_, CompletedHashValue>(request)
+        .context("in ELT-seq-hashes")
+        .map_err(ScepError::InvalidMessage)?
+        .try_collect()
+        .await
+        .context("in ELT-seq-hashes")
+        .map_err(ScepError::InvalidMessage)?;
+
+    let client = server_elt_seq_hashes_client(hashes, client_state)?;
+
+    hdbs_state
+        .scep
+        .clients
+        .write()
+        .await
+        .add_session(cookie, ServerStateForClient::Authenticated(client))
+        .map_err(|_| {
+            scep::error::ScepError::InternalError(anyhow::anyhow!(
+                "failed to update state for cookie {cookie}"
+            ))
+        })?;
+
+    // Give them the OK to hit /ELT-screen-hashes next.
+    Ok(response::json(StatusCode::OK, "{}"))
 }

@@ -1,13 +1,15 @@
 // Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use clap::{crate_version, ArgAction, Parser};
+use clap::{crate_version, ArgAction, Args, Parser};
+use serde::Deserialize;
 
 use doprf::active_security::Commitment;
 use doprf::party::KeyserverId;
 use doprf::prf::KeyShare;
+use minhttp::mpserver::traits::RelativeConfig;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -16,6 +18,16 @@ use doprf::prf::KeyShare;
     version = crate_version!()
 )]
 pub struct Opts {
+    #[clap(
+        long,
+        env = "SECUREDNA_KEYSERVER_CFG_PATH",
+        help = "The path to the keyserver config TOML"
+    )]
+    pub cfg_path: PathBuf,
+}
+
+#[derive(Clone, Debug, Args, Deserialize)]
+pub struct Config {
     #[clap(
         long,
         env = "SECUREDNA_KEYSERVER_ID",
@@ -48,44 +60,12 @@ pub struct Opts {
     pub active_security_key: Vec<Commitment>,
 
     #[clap(
-        short,
-        long,
-        help = "Port to listen on.",
-        default_value = "80",
-        env = "SECUREDNA_KEYSERVER_PORT"
-    )]
-    pub port: u16,
-
-    #[clap(
-        short,
-        long,
-        help = "Port to listen on for monitoring plane.",
-        env = "SECUREDNA_KEYSERVER_MONITORING_PLANE_PORT"
-    )]
-    pub monitoring_plane_port: Option<u16>,
-
-    #[clap(
-        long,
-        help = "Maximum simultaneously connected clients before connections are no longer accepted",
-        default_value = "1024",
-        env = "SECUREDNA_KEYSERVER_MAX_CLIENTS"
-    )]
-    pub max_clients: usize,
-
-    #[clap(
-        long,
-        help = "Maximum simultaneously connected monitoring plane clients before connections are no longer accepted",
-        default_value = "1024",
-        env = "SECUREDNA_KEYSERVER_MAX_MONITORING_PLANE_CLIENTS"
-    )]
-    pub max_monitoring_plane_clients: usize,
-
-    #[clap(
         long,
         help = "Maximum simultaneous hashing/encryption requests before 503 unavailable is returned",
-        default_value = "512",
+        default_value_t = Config::default_max_heavy_clients(),
         env = "SECUREDNA_KEYSERVER_MAX_HEAVY_CLIENTS"
     )]
+    #[serde(default = "Config::default_max_heavy_clients")]
     pub max_heavy_clients: usize,
 
     #[clap(
@@ -106,8 +86,9 @@ pub struct Opts {
         long,
         help = "Size limit for JSON request bodies in SCEP",
         env = "SECUREDNA_KEYSERVER_SCEP_JSON_SIZE_LIMIT",
-        default_value = "100000"
+        default_value_t = Config::default_scep_json_size_limit(),
     )]
+    #[serde(default = "Config::default_scep_json_size_limit")]
     pub scep_json_size_limit: u64,
 
     #[clap(
@@ -144,5 +125,44 @@ pub struct Opts {
         env = "SECUREDNA_KEYSERVER_ALLOW_INSECURE_COOKIE",
         default_value_t = false
     )]
+    #[serde(default)]
     pub allow_insecure_cookie: bool,
+
+    #[clap(
+        long,
+        help = "Writable path where the server can persist event store data (ratelimits, client versions, etc). The default is :memory:, which is an in-memory store that will be erased on shutdown.",
+        env = "SECUREDNA_KEYSERVER_EVENT_STORE_PATH",
+        default_value_os_t = Config::default_event_store_path()
+    )]
+    #[serde(default = "Config::default_event_store_path")]
+    pub event_store_path: PathBuf,
+}
+
+// Note: If you change these, remember to update example-config.toml in the crate root
+impl Config {
+    pub fn default_max_heavy_clients() -> usize {
+        512
+    }
+
+    pub fn default_scep_json_size_limit() -> u64 {
+        100000
+    }
+
+    pub fn default_event_store_path() -> PathBuf {
+        ":memory:".into()
+    }
+}
+
+impl RelativeConfig for Config {
+    fn relative_to(mut self, base: impl AsRef<Path>) -> Self {
+        let base = base.as_ref();
+        self.manufacturer_roots = base.join(self.manufacturer_roots);
+        self.token_file = base.join(self.token_file);
+        self.keypair_file = base.join(self.keypair_file);
+        self.keypair_passphrase_file = base.join(self.keypair_passphrase_file);
+        if self.event_store_path != Path::new(":memory:") {
+            self.event_store_path = base.join(self.event_store_path);
+        }
+        self
+    }
 }

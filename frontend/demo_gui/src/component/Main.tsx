@@ -106,7 +106,7 @@ function Main() {
     if (elt) {
       body.elt_pem = elt.pem;
       if (yubicoOtp) {
-        body.yubico_otp = yubicoOtp;
+        body.otp = yubicoOtp;
       }
     }
     const request = JSON.stringify(body);

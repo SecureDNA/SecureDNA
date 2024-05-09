@@ -4,16 +4,21 @@
 use std::sync::Arc;
 
 use crate::ClientCerts;
+use certificates::key_traits::CanLoadKey;
 use certificates::{
-    CanLoadKey, DatabaseTokenGroup, KeyPair, KeyserverTokenGroup, PublicKey, TokenGroup,
+    DatabaseTokenGroup, ExemptionListTokenGroup, KeyPair, KeyserverTokenGroup, PublicKey,
+    TokenBundle, TokenGroup,
 };
+use doprf::prf::CompletedHashValue;
 use doprf::{
     party::{KeyserverId, KeyserverIdSet},
     prf::{HashPart, Query},
     tagged::TaggedHash,
 };
-use http_client::{BaseApiClient, HTTPError};
+use http_client::{BaseApiClient, HttpError};
 use packed_ristretto::PackedRistrettos;
+use scep::steps::EltEndpointResponse;
+use scep::types::ScreenWithElParams;
 use scep::{
     states::{InitializedClientState, OpenedClientState},
     types::{ClientRequestType, ScreenCommon},
@@ -25,6 +30,8 @@ pub struct ScepClient<ServerTokenKind> {
     domain: String,
     certs: Arc<ClientCerts>,
     version_hint: String,
+    snoop_open_response: Option<SnoopFn>,
+    snoop_auth_response: Option<SnoopFn>,
     _phantom: std::marker::PhantomData<ServerTokenKind>,
 }
 
@@ -45,8 +52,20 @@ where
             domain,
             certs,
             version_hint,
+            snoop_open_response: None,
+            snoop_auth_response: None,
             _phantom: Default::default(),
         }
+    }
+
+    /// Set hooks for snooping on the (unvalidated) open / authentication responses.
+    ///
+    /// If you wait until after open / authenticate return Ok(...) to use these snooped
+    /// values, they will have been parsed and validated for correctness.
+    pub fn snoop(mut self, snoop_open_response: SnoopFn, snoop_auth_response: SnoopFn) -> Self {
+        self.snoop_open_response = Some(snoop_open_response);
+        self.snoop_auth_response = Some(snoop_auth_response);
+        self
     }
 
     async fn generic_open(
@@ -82,6 +101,10 @@ where
             )
             .await?;
 
+        if let Some(snoop_open_response) = &self.snoop_open_response {
+            snoop_open_response(&open_response);
+        }
+
         let opened_client = prevalidate_fn(
             open_response,
             client_state,
@@ -111,6 +134,10 @@ where
                 &authenticate_request,
             )
             .await?;
+
+        if let Some(snoop_auth_response) = &self.snoop_auth_response {
+            snoop_auth_response(&response);
+        }
 
         scep::steps::client_validate_authenticate_response(response).map_err(|source| Error::Scep {
             source,
@@ -155,7 +182,7 @@ impl ScepClient<KeyserverTokenGroup> {
     pub async fn keyserve(
         &self,
         queries: &PackedRistrettos<Query>,
-    ) -> Result<PackedRistrettos<HashPart>, HTTPError> {
+    ) -> Result<PackedRistrettos<HashPart>, HttpError> {
         self.api_client
             .ristretto_ristretto_post(
                 &format!("{}{}", self.domain, scep::KEYSERVE_ENDPOINT),
@@ -172,12 +199,19 @@ impl ScepClient<DatabaseTokenGroup> {
         last_server_version: Option<u64>,
         keyserver_id_set: KeyserverIdSet,
         region: Region,
+        with_exemption_list: bool,
     ) -> Result<OpenedClientState, Error<scep::error::ClientPrevalidation>> {
+        let common = ScreenCommon {
+            region,
+            provider_reference: None,
+        };
+        let request_type = if with_exemption_list {
+            ClientRequestType::ScreenWithEl(common)
+        } else {
+            ClientRequestType::Screen(common)
+        };
         self.generic_open(
-            ClientRequestType::Screen(ScreenCommon {
-                region,
-                provider_reference: None,
-            }),
+            request_type,
             nucleotide_total_count,
             last_server_version,
             keyserver_id_set,
@@ -189,12 +223,74 @@ impl ScepClient<DatabaseTokenGroup> {
     pub async fn screen(
         &self,
         hashes: &PackedRistrettos<TaggedHash>,
-    ) -> Result<HdbScreeningResult, HTTPError> {
+    ) -> Result<HdbScreeningResult, HttpError> {
         self.api_client
             .ristretto_json_post(&format!("{}{}", self.domain, scep::SCREEN_ENDPOINT), hashes)
             .await
     }
+
+    pub async fn screen_with_elt(
+        &self,
+        hashes: &PackedRistrettos<TaggedHash>,
+        elt: &TokenBundle<ExemptionListTokenGroup>,
+        elt_hashes: &PackedRistrettos<CompletedHashValue>,
+        otp: String,
+    ) -> Result<HdbScreeningResult, HttpError> {
+        let elt_wire = elt.to_wire_format().map_err(|e| HttpError::EncodeError {
+            encoding: "ELT".to_owned(),
+            source: e.into(),
+        })?;
+        self.api_client
+            .json_json_post::<_, serde_json::Value>(
+                &format!("{}{}", self.domain, scep::SCREEN_WITH_EL_ENDPOINT),
+                &ScreenWithElParams {
+                    elt_size: elt_wire.len().try_into().unwrap_or(u64::MAX),
+                    otp,
+                },
+            )
+            .await?;
+        let response: EltEndpointResponse = self
+            .api_client
+            .bytes_json_post(
+                &format!("{}{}", self.domain, scep::ELT_ENDPOINT),
+                elt_wire.into(),
+                "application/x-x509-ca-cert",
+            )
+            .await?;
+
+        if response.needs_hashes && !elt.token.has_dna_sequences() {
+            return Err(HttpError::ProtocolError {
+                error: "Server says we need to send hashes but our ELT has no DNA sequences."
+                    .to_owned(),
+            });
+        }
+
+        if !response.needs_hashes && elt.token.has_dna_sequences() {
+            return Err(HttpError::ProtocolError {
+                error: "Server says we don't need to send hashes, but our ELT has DNA sequences."
+                    .to_owned(),
+            });
+        }
+
+        if response.needs_hashes {
+            self.api_client
+                .ristretto_json_post::<_, serde_json::Value>(
+                    &format!("{}{}", self.domain, scep::ELT_SEQ_HASHES_ENDPOINT),
+                    elt_hashes,
+                )
+                .await?;
+        }
+        self.api_client
+            .ristretto_json_post(
+                &format!("{}{}", self.domain, scep::ELT_SCREEN_HASHES_ENDPOINT),
+                hashes,
+            )
+            .await
+    }
 }
+
+pub type SnoopFn = Box<dyn Fn(&serde_json::Value) + Send + Sync>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error<E: std::error::Error> {
     #[error("during scep for {domain}: {source}")]
@@ -203,5 +299,5 @@ pub enum Error<E: std::error::Error> {
         domain: String,
     },
     #[error("{0}")]
-    Http(#[from] HTTPError),
+    Http(#[from] HttpError),
 }

@@ -3,11 +3,11 @@
 
 mod asn;
 mod certificate;
+mod certificate_chain;
 mod chain_item;
 mod ecies;
 mod error;
 mod format;
-
 mod issued;
 mod key_state;
 mod keypair;
@@ -26,11 +26,11 @@ pub use key_state::{KeyAvailable, KeyMismatchError, KeyUnavailable};
 pub(crate) use crate::pem::MultiItemPemBuilder;
 pub use crate::pem::{PemDecodable, PemEncodable};
 pub use certificate::certificate_bundle::{CertificateBundle, CertificateBundleError};
-pub use certificate::certificate_chain::CertificateChain;
 pub use certificate::{
-    Certificate, CertificateDigest, CertificateRequest, HierarchyKind, HierarchyKindParseError,
-    IssuanceError, IssuerAdditionalFields, RequestBuilder, RequestDigest,
+    Builder, Certificate, CertificateDigest, CertificateRequest, HierarchyKind,
+    HierarchyKindParseError, IssuanceError, IssuerAdditionalFields, RequestBuilder, RequestDigest,
 };
+pub use certificate_chain::CertificateChain;
 pub use chain_item::ChainItem;
 pub use ecies::EncryptionPublicKey;
 pub use error::{DecodeError, EncodeError};
@@ -56,10 +56,13 @@ pub use tokens::manufacturer::synthesizer::{
     AuditRecipient, SynthesizerToken, SynthesizerTokenGroup, SynthesizerTokenRequest,
 };
 pub use tokens::token_bundle::{TokenBundle, TokenBundleError};
-pub use tokens::{CanLoadKey, HasAssociatedKey, KeyLoaded, Request, TokenGroup, TokenKind};
+pub use tokens::{Request, TokenGroup, TokenKind};
 pub use traversal::ChainTraversal;
 pub use utility::now_utc;
 pub use validation_failure::{EXPIRED_TEXT, INVALID_SIGNATURE_TEXT, NOT_YET_VALID_TEXT};
 
+mod chain;
 pub mod file;
+pub mod key_traits;
+pub mod revocation;
 pub mod test_helpers;

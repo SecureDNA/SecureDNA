@@ -10,7 +10,7 @@ pub mod implementation;
 use bytes::Bytes;
 
 pub use self::implementation::ApiClientCore as ApiClientCoreImpl;
-use crate::error::HTTPError;
+use crate::error::HttpError;
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -22,7 +22,7 @@ pub trait ApiClientCore {
         content_type: &'static str,
         headers: &[(String, String)],
         expected_content_type: &'static str,
-    ) -> Result<bytes::Bytes, HTTPError>;
+    ) -> Result<bytes::Bytes, HttpError>;
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -35,7 +35,7 @@ impl ApiClientCore for ApiClientCoreImpl {
         content_type: &'static str,
         headers: &[(String, String)],
         expected_content_type: &'static str,
-    ) -> Result<bytes::Bytes, HTTPError> {
+    ) -> Result<bytes::Bytes, HttpError> {
         self.raw_request(url, body, content_type, headers, expected_content_type)
             .await
     }
@@ -46,7 +46,7 @@ pub mod test_utils {
 
     use std::pin::Pin;
 
-    type ResultFuture = dyn futures::Future<Output = Result<bytes::Bytes, HTTPError>> + Send;
+    type ResultFuture = dyn futures::Future<Output = Result<bytes::Bytes, HttpError>> + Send;
     type Responder = dyn (Fn(String, Option<Bytes>, String, Vec<(String, String)>, String) -> Pin<Box<ResultFuture>>)
         + Send
         + Sync;
@@ -56,15 +56,16 @@ pub mod test_utils {
     /// ```rust
     /// use futures::FutureExt;
     ///
-    /// use http_client::{BaseApiClient, HTTPError};
+    /// use http_client::{BaseApiClient, HttpError};
     /// use http_client::test_utils::ApiClientCoreMock;
     ///
     /// let mock = ApiClientCoreMock::from(|url: String, _body, _content_type, _headers, _expected_content_type| {
     ///     // note the `async { ... }.boxed()`!
     ///     async {
     ///         if url.contains("coffee") {
-    ///             Err(HTTPError::RequestError {
+    ///             Err(HttpError::RequestError {
     ///                 ctx: url,
+    ///                 status: Some(418),
     ///                 retriable: true,
     ///                 source: "i'm a teapot".into(),
     ///             })
@@ -97,7 +98,7 @@ pub mod test_utils {
             content_type: &'static str,
             headers: &[(String, String)],
             expected_content_type: &'static str,
-        ) -> Result<bytes::Bytes, HTTPError> {
+        ) -> Result<bytes::Bytes, HttpError> {
             (self.responder)(
                 url.into(),
                 body,

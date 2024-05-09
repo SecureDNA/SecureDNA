@@ -32,7 +32,7 @@ impl Display for EncryptionPublicKey {
 impl FromStr for EncryptionPublicKey {
     type Err = EncryptionKeyParseError;
 
-    /// Expects a hex encoded secp256k1 pubic key
+    /// Expects a hex encoded secp256k1 public key
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let x = hex::decode(s)
             .map_err(|_| EncryptionKeyParseError)?

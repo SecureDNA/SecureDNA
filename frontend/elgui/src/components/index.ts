@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+export { AddTotp } from "./AddTotp";
 export { AuthCard } from "./AuthCard";
 export type { AuthFileResult } from "./AuthCard";
 export { Button } from "./Button";
@@ -27,5 +28,6 @@ export { ProgressBar } from "./ProgressBar";
 export { RemoveButton } from "./RemoveButton";
 export { ScreeningCard } from "./ScreeningCard";
 export { ShippingAddresses } from "./ShippingAddresses";
+export { Spinner } from "./Spinner";
 export { Typeahead } from "./Typeahead";
 export { Version } from "./Version";

@@ -7,7 +7,20 @@ use rasn::{types::*, Decode, Encode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    Serialize,
+)]
 // tsgen
 #[rasn(automatic_tags)]
 pub struct YubikeyId([ModhexCharacter; Self::LEN]);
@@ -54,7 +67,19 @@ impl TryFrom<String> for YubikeyId {
 
 // https://developers.yubico.com/OTP/OTPs_Explained.html
 #[derive(
-    AsnType, Decode, Encode, Debug, Default, Clone, PartialEq, Eq, Hash, Deserialize, Serialize,
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Default,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    Serialize,
 )]
 // tsgen
 #[rasn(automatic_tags)]
@@ -106,12 +131,26 @@ impl TryFrom<char> for ModhexCharacter {
 }
 
 /// Device(s) used to authorize synthesis requests for exempt sequences
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    Serialize,
+)]
 // tsgen
 #[rasn(automatic_tags)]
 #[rasn(choice)]
 pub enum Authenticator {
     Yubikey(YubikeyId),
+    Totp(String),
 }
 
 #[derive(Error, Debug)]

@@ -19,6 +19,7 @@ use crate::{
     impl_encoding_boilerplate, impl_key_boilerplate_for_token,
     impl_key_boilerplate_for_token_request, impl_key_boilerplate_for_token_request_version,
     issued::Issued,
+    key_traits::HasAssociatedKey,
     keypair::{PublicKey, Signature},
     pem::PemTaggable,
     shared_components::{
@@ -27,11 +28,24 @@ use crate::{
         },
         digest::{INDENT, INDENT2},
     },
-    tokens::{HasAssociatedKey, TokenData, TokenGroup},
-    Formattable, Infrastructure, KeyAvailable, KeyPair, KeyUnavailable,
+    tokens::{TokenData, TokenGroup},
+    CertificateChain, Formattable, Infrastructure, KeyAvailable, KeyPair, KeyUnavailable,
 };
 
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[rasn(automatic_tags)]
 pub(crate) struct DatabaseTokenRequest1 {
     guard: ComponentVersionGuard<Self>,
@@ -105,7 +119,20 @@ impl Decode for DatabaseTokenRequest {
 }
 
 /// Data that will be signed by the issuer of the DatabaseRequest
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[rasn(automatic_tags)]
 pub(crate) struct DatabaseTokenIssuer1 {
     guard: ComponentVersionGuard<Self>,
@@ -133,7 +160,20 @@ impl VersionedComponent for DatabaseTokenIssuer1 {
 }
 
 /// Enum wrapping all database token versions.
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[rasn(automatic_tags)]
 #[rasn(choice)]
 pub(crate) enum DatabaseTokenVersion {
@@ -149,7 +189,7 @@ impl DatabaseTokenVersion {
 }
 
 /// Token for identifying instances of the hdb
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DatabaseToken<K> {
     pub(crate) version: DatabaseTokenVersion,
     key_state: K,
@@ -190,6 +230,7 @@ impl TokenGroup for DatabaseTokenGroup {
     type AssociatedRole = Infrastructure;
     type TokenRequest = DatabaseTokenRequest;
     type Token = DatabaseToken<KeyUnavailable>;
+    type ChainType = CertificateChain<Self::AssociatedRole>;
 }
 
 impl_boilerplate_for_token_request_version! {DatabaseTokenRequestVersion, V1}
@@ -261,7 +302,7 @@ pub struct DatabaseTokenDigest {
 
 impl<K> From<DatabaseToken<K>> for DatabaseTokenDigest {
     fn from(value: DatabaseToken<K>) -> Self {
-        let validation_failure = value.validate().err();
+        let validation_failure = value.check_signature_and_expiry().err();
         match value.version {
             DatabaseTokenVersion::V1(t) => {
                 let version = "V1".to_string();
@@ -311,7 +352,7 @@ impl Display for DatabaseTokenDigest {
 
 #[cfg(test)]
 mod test {
-    use crate::tokens::{CanLoadKey, HasAssociatedKey, KeyLoaded};
+    use crate::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
     use crate::{
         concat_with_newline,
         test_helpers::{

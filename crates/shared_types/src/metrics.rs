@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use prometheus::core::{AtomicI64, GenericGauge};
-use prometheus::{self, IntCounter, IntGauge};
 use prometheus::{register_int_counter, register_int_gauge, Encoder, TextEncoder};
+use prometheus::{IntCounter, IntGauge};
 
 static HASH_COUNTER_NAME: &str = "total_hashes_processed";
 static HASH_COUNTER_DESCRIPTION: &str = "Total number of 32B hashes processed since last start";
@@ -74,7 +74,7 @@ impl Default for SynthClientMetrics {
     }
 }
 
-pub struct HDBMetrics {
+pub struct HdbMetrics {
     pub hash_counter: IntCounter,
     connected_clients: IntGauge,
     pub max_clients: IntGauge,
@@ -83,9 +83,9 @@ pub struct HDBMetrics {
     pub bad_requests: IntCounter,
 }
 
-impl HDBMetrics {
-    pub fn new() -> HDBMetrics {
-        HDBMetrics {
+impl HdbMetrics {
+    pub fn new() -> HdbMetrics {
+        HdbMetrics {
             hash_counter: register_int_counter!(HASH_COUNTER_NAME, HASH_COUNTER_DESCRIPTION,)
                 .unwrap(),
             connected_clients: register_int_gauge!(
@@ -111,13 +111,13 @@ impl HDBMetrics {
     }
 }
 
-impl Default for HDBMetrics {
+impl Default for HdbMetrics {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub struct KSMetrics {
+pub struct KeyserverMetrics {
     pub hash_counter: IntCounter,
     connected_clients: IntGauge,
     pub max_clients: IntGauge,
@@ -125,9 +125,9 @@ pub struct KSMetrics {
     pub bad_requests: IntCounter,
 }
 
-impl KSMetrics {
-    pub fn new() -> KSMetrics {
-        KSMetrics {
+impl KeyserverMetrics {
+    pub fn new() -> KeyserverMetrics {
+        KeyserverMetrics {
             hash_counter: register_int_counter!(HASH_COUNTER_NAME, HASH_COUNTER_DESCRIPTION,)
                 .unwrap(),
             connected_clients: register_int_gauge!(
@@ -151,7 +151,7 @@ impl KSMetrics {
     }
 }
 
-impl Default for KSMetrics {
+impl Default for KeyserverMetrics {
     fn default() -> Self {
         Self::new()
     }

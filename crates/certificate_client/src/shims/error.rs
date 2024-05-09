@@ -50,6 +50,10 @@ pub enum CertCliError {
     TooManyKeyArgs,
     #[error(transparent)]
     FileError(FileError),
+    #[error("The use of the --notify option is only valid for exemption leaf certificates.")]
+    EmailsToNotifyNotAllowed,
+    #[error("The use of the --allow-blinding option is only valid for exemption certificates.")]
+    AllowBlindingNotAllowed,
 }
 
 impl From<FileError> for CertCliError {

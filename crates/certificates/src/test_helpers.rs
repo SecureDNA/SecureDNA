@@ -4,18 +4,22 @@
 use doprf::party::KeyserverId;
 use time::{format_description::well_known::Rfc2822, OffsetDateTime};
 
+use crate::key_traits::HasAssociatedKey;
 use crate::{
     asn::{FromASN1DerBytes, ToASN1DerBytes},
-    Authenticator, Certificate, CertificateBundle, CertificateRequest, DatabaseToken,
+    Authenticator, Builder, Certificate, CertificateBundle, CertificateRequest, DatabaseToken,
     DatabaseTokenGroup, DatabaseTokenRequest, Description, Exemption, ExemptionListToken,
-    ExemptionListTokenGroup, ExemptionListTokenRequest, Expiration, GenbankId, HasAssociatedKey,
-    HltToken, HltTokenGroup, HltTokenRequest, IssuanceError, Issued, IssuerAdditionalFields,
-    KeyAvailable, KeyPair, KeyserverToken, KeyserverTokenGroup, KeyserverTokenRequest, Organism,
+    ExemptionListTokenGroup, ExemptionListTokenRequest, Expiration, GenbankId, HltToken,
+    HltTokenGroup, HltTokenRequest, IssuanceError, Issued, IssuerAdditionalFields, KeyAvailable,
+    KeyPair, KeyUnavailable, KeyserverToken, KeyserverTokenGroup, KeyserverTokenRequest, Organism,
     PublicKey, RequestBuilder, Role, Sequence, SequenceIdentifier, SynthesizerToken,
     SynthesizerTokenGroup, SynthesizerTokenRequest, TokenBundle, TokenGroup, YubikeyId,
 };
 
-pub fn create_leaf_cert<R: Role>() -> Certificate<R, KeyAvailable> {
+pub fn create_leaf_cert<R: Role>() -> Certificate<R, KeyAvailable>
+where
+    RequestBuilder<R>: Builder<Item = CertificateRequest<R, KeyUnavailable>>,
+{
     let kp = KeyPair::new_random();
     let root_cert = RequestBuilder::<R>::root_v1_builder(kp.public_key())
         .build()
@@ -43,7 +47,10 @@ pub fn create_leaf_cert<R: Role>() -> Certificate<R, KeyAvailable> {
         .unwrap()
 }
 
-pub fn create_intermediate_bundle<R: Role>() -> (CertificateBundle<R>, KeyPair, PublicKey) {
+pub fn create_intermediate_bundle<R: Role>() -> (CertificateBundle<R>, KeyPair, PublicKey)
+where
+    RequestBuilder<R>: Builder<Item = CertificateRequest<R, KeyUnavailable>>,
+{
     let kp = KeyPair::new_random();
     let root_pk = kp.public_key();
     let root_cert = RequestBuilder::<R>::root_v1_builder(kp.public_key())
@@ -68,7 +75,10 @@ pub fn create_intermediate_bundle<R: Role>() -> (CertificateBundle<R>, KeyPair, 
 }
 
 pub fn create_cross_signed_intermediate_bundle<R: Role>(
-) -> (CertificateBundle<R>, KeyPair, PublicKey) {
+) -> (CertificateBundle<R>, KeyPair, PublicKey)
+where
+    RequestBuilder<R>: Builder<Item = CertificateRequest<R, KeyUnavailable>>,
+{
     let kp = KeyPair::new_random();
     let root_pk = kp.public_key();
     let root_cert = RequestBuilder::<R>::root_v1_builder(kp.public_key())
@@ -97,7 +107,10 @@ pub fn create_cross_signed_intermediate_bundle<R: Role>(
     (bundle, int_kp, root_pk)
 }
 
-pub fn create_leaf_bundle<R: Role>() -> (CertificateBundle<R>, KeyPair, PublicKey) {
+pub fn create_leaf_bundle<R: Role>() -> (CertificateBundle<R>, KeyPair, PublicKey)
+where
+    RequestBuilder<R>: Builder<Item = CertificateRequest<R, KeyUnavailable>>,
+{
     let kp = KeyPair::new_random();
     let root_pk = kp.public_key();
     let root_cert = RequestBuilder::<R>::root_v1_builder(kp.public_key())
@@ -133,22 +146,11 @@ pub fn create_leaf_bundle<R: Role>() -> (CertificateBundle<R>, KeyPair, PublicKe
     )
 }
 
-pub fn create_eltr_with_auth_devices(
+pub fn create_eltr_with_options(
+    public_key: Option<PublicKey>,
+    exemptions: Vec<Organism>,
     auth_devices: Vec<Authenticator>,
 ) -> ExemptionListTokenRequest {
-    let exemption = Organism::new(
-        "Chlamydia psittaci",
-        vec![
-            SequenceIdentifier::Id(GenbankId::try_new("1112252").unwrap()),
-            SequenceIdentifier::Id(GenbankId::try_new("1112253").unwrap()),
-            SequenceIdentifier::Dna(
-                Sequence::try_new(
-                    ">Virus1\nAC\nT\n>Empty\n\n>Virus2\n>with many\n>comment lines\nC  AT",
-                )
-                .unwrap(),
-            ),
-        ],
-    );
     let requestor = Description::default()
         .with_name("some researcher")
         .with_email("email@example.com");
@@ -156,24 +158,26 @@ pub fn create_eltr_with_auth_devices(
     let shipping_address = vec!["19 Some Street".to_string(), "Some City".to_string()];
 
     ExemptionListTokenRequest::v1_token_request(
-        vec![exemption],
+        public_key,
+        exemptions,
         requestor,
         auth_devices,
         vec![shipping_address],
     )
 }
 
-pub fn create_eltr() -> ExemptionListTokenRequest {
+pub fn create_eltr(exemptions: Vec<Organism>) -> ExemptionListTokenRequest {
     let auth_device = Authenticator::Yubikey(YubikeyId::try_new("cccjgjgkhcbb").unwrap());
-    create_eltr_with_auth_devices(vec![auth_device])
+    create_eltr_with_options(None, exemptions, vec![auth_device])
 }
 
 pub fn create_elt_with_auth_devices(
+    exemptions: Vec<Organism>,
     requestor_auth_devices: Vec<Authenticator>,
     issuer_auth_devices: Vec<Authenticator>,
-) -> ExemptionListToken {
+) -> ExemptionListToken<KeyUnavailable> {
     let leaf_cert = create_leaf_cert::<Exemption>();
-    let eltr = create_eltr_with_auth_devices(requestor_auth_devices);
+    let eltr = create_eltr_with_options(None, exemptions, requestor_auth_devices);
 
     leaf_cert
         .issue_elt(
@@ -206,8 +210,10 @@ where
         Certificate<T::AssociatedRole, KeyAvailable>,
         T::TokenRequest,
     ) -> Result<T::Token, IssuanceError>,
+    RequestBuilder<T::AssociatedRole>:
+        Builder<Item = CertificateRequest<T::AssociatedRole, KeyUnavailable>>,
 {
-    let (leaf_bundle, leaf_kp, root_pubic_key) = create_leaf_bundle::<T::AssociatedRole>();
+    let (leaf_bundle, leaf_kp, root_public_key) = create_leaf_bundle::<T::AssociatedRole>();
 
     let issuing_cert = leaf_bundle
         .get_lead_cert()
@@ -221,13 +227,62 @@ where
 
     let chain = leaf_bundle.issue_chain();
     let token_bundle = TokenBundle::<T>::new(token, chain);
-    (token_bundle, root_pubic_key)
+    (token_bundle, root_public_key)
 }
 
-pub fn create_elt_bundle() -> (TokenBundle<ExemptionListTokenGroup>, PublicKey) {
-    create_token_bundle(create_eltr, |cert, req| {
+pub fn create_issuing_exemption_list_token_bundle(
+) -> (TokenBundle<ExemptionListTokenGroup>, KeyPair, PublicKey) {
+    let keypair = KeyPair::new_random();
+    let create_eltr = || create_eltr_with_options(Some(keypair.public_key()), vec![], vec![]);
+    let (bundle, root_public_key) = create_token_bundle(create_eltr, |cert, req| {
         cert.issue_elt(req, Expiration::default(), vec![])
-    })
+    });
+    (bundle, keypair, root_public_key)
+}
+
+pub fn create_elt_bundle_with_exemptions(
+    exemptions: Vec<Organism>,
+) -> (TokenBundle<ExemptionListTokenGroup>, PublicKey) {
+    create_token_bundle(
+        || create_eltr(exemptions),
+        |cert, req| cert.issue_elt(req, Expiration::default(), vec![]),
+    )
+}
+
+pub fn create_exemptions() -> Vec<Organism> {
+    vec![Organism::new(
+        "Chlamydia psittaci",
+        vec![
+            SequenceIdentifier::Id(GenbankId::try_new("1112252").unwrap()),
+            SequenceIdentifier::Id(GenbankId::try_new("1112253").unwrap()),
+            SequenceIdentifier::Dna(
+                Sequence::try_new(
+                    ">Virus1\nAC\nT\n>Empty\n\n>Virus2\n>with many\n>comment lines\nC  AT",
+                )
+                .unwrap(),
+            ),
+        ],
+    )]
+}
+
+pub fn create_exemption_list_token_bundle() -> (TokenBundle<ExemptionListTokenGroup>, PublicKey) {
+    create_elt_bundle_with_exemptions(create_exemptions())
+}
+
+pub fn create_child_exemption_list_token_bundle(
+) -> (TokenBundle<ExemptionListTokenGroup>, PublicKey) {
+    let (elt_bundle, elt_kp, root) = create_issuing_exemption_list_token_bundle();
+    let child_eltr = create_eltr_with_options(None, vec![], vec![]);
+    let child_elt = elt_bundle
+        .token
+        .clone()
+        .load_key(elt_kp)
+        .unwrap()
+        .issue_elt(child_eltr, Expiration::default(), vec![])
+        .unwrap();
+    let token_bundle =
+        TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
+    (token_bundle, root)
 }
 
 pub fn create_database_token_bundle() -> (TokenBundle<DatabaseTokenGroup>, PublicKey) {
@@ -277,31 +332,24 @@ pub fn create_synthesizer_token_bundle() -> (TokenBundle<SynthesizerTokenGroup>,
 #[macro_export]
 macro_rules! test_for_all_token_types {
     ($test_fn:ident) => {
+        $crate::test_for_token_types!(
+            child_exemption_list, exemption_list, database, hlt, keyserver, synthesizer;
+            $test_fn
+        );
+    };
+}
+
+#[cfg(test)]
+#[macro_export]
+macro_rules! test_for_token_types {
+    ($($token_type:ident),*; $test_fn:ident) => {
         paste::item! {
-            #[test]
-            fn [<$test_fn _for_elt_bundle>]() {
-                $test_fn($crate::test_helpers::create_elt_bundle);
-            }
-
-            #[test]
-            fn [<$test_fn _for_database_token_bundle>]() {
-                $test_fn($crate::test_helpers::create_database_token_bundle);
-            }
-
-            #[test]
-            fn [<$test_fn _for_hlt_token_bundle>]() {
-                $test_fn($crate::test_helpers::create_hlt_token_bundle);
-            }
-
-            #[test]
-            fn [<$test_fn _for_keyserver_token_bundle>]() {
-                $test_fn($crate::test_helpers::create_keyserver_token_bundle);
-            }
-
-            #[test]
-            fn [<$test_fn _for_synthesizer_token_bundle>]() {
-                $test_fn($crate::test_helpers::create_synthesizer_token_bundle);
-            }
+            $(
+                #[test]
+                fn [< $test_fn _for_ $token_type _token_bundle >]() {
+                    $test_fn($crate::test_helpers::[<create_ $token_type _token_bundle>]);
+                }
+            )*
         }
     };
 }

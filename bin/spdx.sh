@@ -39,6 +39,7 @@ ignores=(
   -ignore 'crates/wasm_bindings/**/pkg/**'
   -ignore 'crates/wasm_bindings/**/pkg_node/**'
   -ignore 'frontend/common/src/all_bindings.ts'
+  -ignore 'frontend/**/dist/**'
   -ignore 'target/**'
   -ignore 'test/certs/**'
   -ignore 'test/data/**'

@@ -6,25 +6,31 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 
-use crate::certificate::certificate_bundle::CertificateBundle;
+use crate::chain::Chain;
 use crate::chain_item::ChainItem;
 use crate::keypair::PublicKey;
+use crate::revocation::RevocationList;
 use crate::shared_components::role::Role;
-use crate::tokens::token_bundle::TokenBundle;
-use crate::tokens::TokenGroup;
 use crate::validation_failure::ValidationFailure;
 
 pub type ChainItemFailure<R> = (ChainItem<R>, ValidationFailure);
 
 /// Holds any items that failed to validate, with the reasons for failure.
 /// If no items were found, then the incorrect roots may have been used.
-
 #[derive(Debug)]
-pub struct ChainValidationFailure<R: Role>(Vec<ChainItemFailure<R>>);
+pub struct ChainValidationFailure<R: Role> {
+    causes: Vec<ChainItemFailure<R>>,
+}
+
+impl<R: Role> ChainValidationFailure<R> {
+    pub fn new(causes: Vec<ChainItemFailure<R>>) -> Self {
+        Self { causes }
+    }
+}
 
 impl<R: Role> Display for ChainValidationFailure<R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.0.is_empty() {
+        if self.causes.is_empty() {
             write!(
                 f,
                 "Could not validate the chain but no individual items failed validation. You may be using the wrong roots.")?;
@@ -32,7 +38,7 @@ impl<R: Role> Display for ChainValidationFailure<R> {
             write!(
                 f,
                 "Could not validate the chain. Items that failed verification: {:?}",
-                self.0
+                self.causes
             )?;
         }
         Ok(())
@@ -47,11 +53,12 @@ pub trait ChainTraversal {
     fn validate_path_to_issuers(
         &self,
         issuer_pks: &[PublicKey],
+        list: Option<&RevocationList>,
     ) -> Result<(), ChainValidationFailure<Self::R>> {
         let mut invalid_items = HashSet::new();
 
         for cert in self.bundle_subjects() {
-            match validate_path_from_item(cert, &self.chain(), issuer_pks) {
+            match validate_path_from_item(cert, &self.chain(), issuer_pks, list) {
                 Ok(_) => return Ok(()),
                 Err(e) => {
                     for invalid_item in e {
@@ -60,13 +67,19 @@ pub trait ChainTraversal {
                 }
             }
         }
-        Err(ChainValidationFailure(invalid_items.into_iter().collect()))
+        Err(ChainValidationFailure::new(
+            invalid_items.into_iter().collect(),
+        ))
     }
 
     /// Returns a vec of each valid path through the chain to the supplied issuer public key.
     /// If none are found an empty vec will be returned.
-    fn find_all_paths_to_issuers(&self, issuer_pks: &[PublicKey]) -> Vec<Vec<ChainItem<Self::R>>> {
-        find_all_paths_to_issuers(&self.bundle_subjects(), &self.chain(), issuer_pks)
+    fn find_all_paths_to_issuers(
+        &self,
+        issuer_pks: &[PublicKey],
+        list: Option<&RevocationList>,
+    ) -> Vec<Vec<ChainItem<Self::R>>> {
+        find_all_paths_to_issuers(&self.bundle_subjects(), &self.chain(), issuer_pks, list)
     }
 
     /// Returns all items which do not form part of a valid path to the issuer public key.
@@ -74,83 +87,61 @@ pub trait ChainTraversal {
     fn find_items_not_part_of_valid_path(
         &self,
         issuer_pks: &[PublicKey],
+        list: Option<&RevocationList>,
     ) -> Vec<ChainItem<Self::R>> {
         let subjects = self.bundle_subjects();
         let chain = self.chain();
 
-        let all_valid_certs: Vec<_> = find_all_paths_to_issuers(&subjects, &chain, issuer_pks)
-            .into_iter()
-            .flatten()
-            .collect();
+        let all_valid_certs: Vec<_> =
+            find_all_paths_to_issuers(&subjects, &chain, issuer_pks, list)
+                .into_iter()
+                .flatten()
+                .collect();
 
         chain
-            .iter()
-            .chain(subjects.iter())
+            .into_iter()
+            .chain(subjects)
             .filter(|x| !all_valid_certs.contains(x))
-            .cloned()
             .collect()
     }
 
     /// Items included with the bundle's main certificate(s) or token in order to prove their provenance
-    fn chain(&self) -> Vec<ChainItem<Self::R>>;
+    fn chain(&self) -> Chain<Self::R>;
 
     /// The main certificate(s) or token which are the focus of the bundle
     fn bundle_subjects(&self) -> Vec<ChainItem<Self::R>>;
 }
 
-impl<R: Role> ChainTraversal for CertificateBundle<R> {
-    type R = R;
-
-    fn bundle_subjects(&self) -> Vec<ChainItem<Self::R>> {
-        self.certs.iter().map(|c| c.clone().into()).collect()
-    }
-
-    fn chain(&self) -> Vec<ChainItem<Self::R>> {
-        self.chain
-            .items()
-            .into_iter()
-            .map(|c| c.clone().into())
-            .collect()
-    }
-}
-
-impl<T: TokenGroup> ChainTraversal for TokenBundle<T> {
-    type R = T::AssociatedRole;
-
-    fn chain(&self) -> Vec<ChainItem<Self::R>> {
-        self.chain
-            .items()
-            .into_iter()
-            .map(|c| c.clone().into())
-            .collect()
-    }
-
-    fn bundle_subjects(&self) -> Vec<ChainItem<Self::R>> {
-        vec![self.token.clone().into()]
-    }
+fn find_valid_issuers<R: Role>(
+    item: &ChainItem<R>,
+    chain: &Chain<R>,
+    list: Option<&RevocationList>,
+) -> Vec<ChainItem<R>> {
+    chain
+        .into_iter()
+        .filter(|chain_item| {
+            item.valid_issuance_by(chain_item) && chain_item.validate(list).is_ok()
+        })
+        .cloned()
+        .collect::<Vec<_>>()
 }
 
 /// Finds first valid path from `item` to any of the provided issuer public keys
 /// If a path is not found then all invalid items are returned
 fn validate_path_from_item<R>(
     item: ChainItem<R>,
-    chain: &[ChainItem<R>],
+    chain: &Chain<R>,
     issuer_pks: &[PublicKey],
+    list: Option<&RevocationList>,
 ) -> Result<(), Vec<ChainItemFailure<R>>>
 where
     R: Role,
 {
-    let issuers = |c: &ChainItem<R>| {
-        chain
-            .iter()
-            .filter(|chain_item| c.was_issued_by_item(chain_item) && chain_item.validate().is_ok())
-            .cloned()
-            .collect::<Vec<_>>()
-    };
+    let issuers = |item: &ChainItem<R>| find_valid_issuers(item, chain, list);
     let success = |c: &ChainItem<R>| issuer_pks.iter().any(|pk| c.was_issued_by_public_key(pk));
 
     let mut invalid_items = vec![];
-    match item.validate() {
+    match item.validate(list) {
         Ok(()) => {
             if dfs(item, issuers, success).is_some() {
                 return Ok(());
@@ -159,7 +150,7 @@ where
         Err(failure) => invalid_items.push((item, failure)),
     };
     for chain_item in chain {
-        if let Err(err) = chain_item.validate() {
+        if let Err(err) = chain_item.validate(list) {
             invalid_items.push((chain_item.clone(), err))
         }
     }
@@ -167,37 +158,35 @@ where
 }
 
 /// Finds all possible paths to issuer public keys from each item in `start_points`
-fn find_all_paths_to_issuers<R: Role>(
+fn find_all_paths_to_issuers<'a, R: Role + 'a>(
     start_points: &[ChainItem<R>],
-    chain: &[ChainItem<R>],
+    chain: &Chain<R>,
     issuer_pks: &[PublicKey],
+    list: Option<&RevocationList>,
 ) -> Vec<Vec<ChainItem<R>>> {
     let mut paths = Vec::new();
     for item in start_points {
-        paths.extend(find_all_paths_to_issuers_from_item(item, chain, issuer_pks))
+        paths.extend(find_all_paths_to_issuers_from_item(
+            item, chain, issuer_pks, list,
+        ))
     }
     paths
 }
 
 fn find_all_paths_to_issuers_from_item<R>(
     item: &ChainItem<R>,
-    chain: &[ChainItem<R>],
+    chain: &Chain<R>,
     issuer_pks: &[PublicKey],
+    list: Option<&RevocationList>,
 ) -> Vec<Vec<ChainItem<R>>>
 where
     R: Role,
 {
-    if item.validate().is_err() {
+    if item.check_signature_and_expiry().is_err() {
         return Vec::new();
     }
 
-    let issuers = |c: &ChainItem<R>| {
-        chain
-            .iter()
-            .filter(|chain_item| c.was_issued_by_item(chain_item) && chain_item.validate().is_ok())
-            .cloned()
-            .collect()
-    };
+    let issuers = |item: &ChainItem<R>| find_valid_issuers(item, chain, list);
     let success = |c: &ChainItem<R>| issuer_pks.iter().any(|pk| c.was_issued_by_public_key(pk));
 
     let mut paths = vec![];
@@ -246,17 +235,24 @@ fn all_dfs_paths<C, F, G>(
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Debug;
-
+    use crate::key_traits::HasAssociatedKey;
+    use crate::test_helpers::create_exemptions;
+    use crate::test_helpers::{
+        create_eltr_with_options, create_issuing_exemption_list_token_bundle, create_leaf_bundle,
+    };
+    use crate::tokens::exemption::exemption_list::issue_elt_without_compliance_check;
+    use crate::validation_failure::InvalidityCause;
     use crate::{
         certificate::{IssuerAdditionalFields, RequestBuilder},
         shared_components::role::Exemption,
-        test_for_all_token_types,
+        test_for_all_token_types, test_for_token_types,
         test_helpers::{
             create_cross_signed_intermediate_bundle, create_eltr, create_intermediate_bundle,
-            create_leaf_cert, BreakableSignature,
+            BreakableSignature,
         },
-        ExemptionListTokenGroup, Expiration, KeyPair,
+        Builder, Certificate, CertificateBundle, CertificateRequest, Description,
+        ExemptionListTokenGroup, ExemptionListTokenRequest, Expiration, GenbankId, Issued, KeyPair,
+        KeyUnavailable, Organism, SequenceIdentifier, TokenBundle, TokenGroup,
     };
 
     use super::*;
@@ -282,7 +278,7 @@ mod tests {
         let int_cert_bundle = CertificateBundle::new(intermediate_cert, None);
 
         int_cert_bundle
-            .validate_path_to_issuers(&[*root_cert.public_key()])
+            .validate_path_to_issuers(&[*root_cert.public_key()], None)
             .expect("should find path to root");
     }
 
@@ -315,7 +311,7 @@ mod tests {
         let int_certificate_bundle = CertificateBundle::new(intermediate_cert, None);
 
         int_certificate_bundle
-            .validate_path_to_issuers(&[*root_cert_2.public_key()])
+            .validate_path_to_issuers(&[*root_cert_2.public_key()], None)
             .expect_err("should not find path to root");
     }
 
@@ -352,7 +348,7 @@ mod tests {
         let leaf_certificate_bundle = CertificateBundle::new(leaf_cert, Some(cert_chain));
 
         leaf_certificate_bundle
-            .validate_path_to_issuers(&[*root_cert.public_key()])
+            .validate_path_to_issuers(&[*root_cert.public_key()], None)
             .expect("should find path to root");
     }
 
@@ -396,7 +392,7 @@ mod tests {
 
         let leaf_certificate_bundle = CertificateBundle::new(leaf_cert, Some(cert_chain));
         leaf_certificate_bundle
-            .validate_path_to_issuers(&[*root_cert.public_key()])
+            .validate_path_to_issuers(&[*root_cert.public_key()], None)
             .expect("should find path to root");
     }
 
@@ -454,12 +450,16 @@ mod tests {
         let chain = int_cert_bundle.issue_chain();
         let leaf_bundle = CertificateBundle::new(leaf_cert, Some(chain));
 
-        let paths_to_root_a = leaf_bundle.find_all_paths_to_issuers(&[*root_cert_a.public_key()]);
+        let paths_to_root_a =
+            leaf_bundle.find_all_paths_to_issuers(&[*root_cert_a.public_key()], None);
 
-        let paths_to_root_b = leaf_bundle.find_all_paths_to_issuers(&[*root_cert_b.public_key()]);
+        let paths_to_root_b =
+            leaf_bundle.find_all_paths_to_issuers(&[*root_cert_b.public_key()], None);
 
-        let all_paths = leaf_bundle
-            .find_all_paths_to_issuers(&[*root_cert_a.public_key(), *root_cert_b.public_key()]);
+        let all_paths = leaf_bundle.find_all_paths_to_issuers(
+            &[*root_cert_a.public_key(), *root_cert_b.public_key()],
+            None,
+        );
 
         assert!(paths_to_root_a.len() == 1);
         assert!(paths_to_root_b.len() == 1);
@@ -509,11 +509,11 @@ mod tests {
             .into_key_unavailable();
 
         let mut chain = int_cert_bundle.issue_chain();
-        chain.add_certificate(root_cert_b.clone());
+        chain.add_item(root_cert_b.clone());
         let leaf_bundle = CertificateBundle::new(leaf_cert, Some(chain));
 
         let excluded_certs =
-            leaf_bundle.find_items_not_part_of_valid_path(&[*root_cert_a.public_key()]);
+            leaf_bundle.find_items_not_part_of_valid_path(&[*root_cert_a.public_key()], None);
         assert_eq!(excluded_certs.len(), 1);
         assert_eq!(excluded_certs[0], root_cert_b.into());
     }
@@ -555,14 +555,14 @@ mod tests {
         let leaf_certificate_bundle = CertificateBundle::new(leaf_cert, Some(cert_chain));
 
         leaf_certificate_bundle
-            .validate_path_to_issuers(&[*root_cert.public_key()])
+            .validate_path_to_issuers(&[*root_cert.public_key()], None)
             .expect_err("should not find path to root");
 
         let all_paths =
-            leaf_certificate_bundle.find_all_paths_to_issuers(&[*root_cert.public_key()]);
+            leaf_certificate_bundle.find_all_paths_to_issuers(&[*root_cert.public_key()], None);
 
-        let excluded_certs =
-            leaf_certificate_bundle.find_items_not_part_of_valid_path(&[*root_cert.public_key()]);
+        let excluded_certs = leaf_certificate_bundle
+            .find_items_not_part_of_valid_path(&[*root_cert.public_key()], None);
 
         assert!(all_paths.is_empty());
         assert_eq!(excluded_certs[0], intermediate_cert.into());
@@ -605,16 +605,14 @@ mod tests {
         let leaf_certificate_bundle = CertificateBundle::new(leaf_cert.clone(), Some(cert_chain));
 
         leaf_certificate_bundle
-            .validate_path_to_issuers(&[*root_cert.public_key()])
+            .validate_path_to_issuers(&[*root_cert.public_key()], None)
             .expect_err("should not find path to root");
 
         let all_paths =
-            leaf_certificate_bundle.find_all_paths_to_issuers(&[*root_cert.public_key()]);
+            leaf_certificate_bundle.find_all_paths_to_issuers(&[*root_cert.public_key()], None);
 
-        let excluded_certs =
-            leaf_certificate_bundle.find_items_not_part_of_valid_path(&[*root_cert.public_key()]);
-
-        println!("{:?}", excluded_certs);
+        let excluded_certs = leaf_certificate_bundle
+            .find_items_not_part_of_valid_path(&[*root_cert.public_key()], None);
 
         assert!(all_paths.is_empty());
         assert!(excluded_certs.contains(&leaf_cert.into()));
@@ -629,7 +627,7 @@ mod tests {
     {
         let (token_bundle, root_pk) = create_token_bundle_fn();
         token_bundle
-            .validate_path_to_issuers(&[root_pk])
+            .validate_path_to_issuers(&[root_pk], None)
             .expect("should find path to root");
     }
 
@@ -642,7 +640,7 @@ mod tests {
         let (token_bundle, _) = create_token_bundle_fn();
 
         token_bundle
-            .validate_path_to_issuers(&[KeyPair::new_random().public_key()])
+            .validate_path_to_issuers(&[KeyPair::new_random().public_key()], None)
             .expect_err("should not find path to root");
     }
 
@@ -656,8 +654,126 @@ mod tests {
         token_bundle.token.break_signature();
 
         token_bundle
-            .validate_path_to_issuers(&[KeyPair::new_random().public_key()])
+            .validate_path_to_issuers(&[KeyPair::new_random().public_key()], None)
             .expect_err("should not find path to root");
+    }
+
+    test_for_all_token_types!(cannot_traverse_to_root_with_token_revoked_via_issuance_id);
+    fn cannot_traverse_to_root_with_token_revoked_via_issuance_id<F, T>(create_token_bundle_fn: F)
+    where
+        F: FnOnce() -> (TokenBundle<T>, PublicKey),
+        T: TokenGroup,
+    {
+        let (token_bundle, _) = create_token_bundle_fn();
+        let issuance_id = token_bundle.token.issuance_id();
+
+        let revocation_list = RevocationList::default().with_issuance_id(*issuance_id);
+
+        let validation_failure = token_bundle
+            .validate_path_to_issuers(
+                &[KeyPair::new_random().public_key()],
+                Some(&revocation_list),
+            )
+            .expect_err("should not validate");
+
+        assert_eq!(
+            validation_failure.causes,
+            vec![(
+                token_bundle.token.into(),
+                ValidationFailure::new(vec![InvalidityCause::Revoked])
+            )]
+        );
+    }
+
+    test_for_all_token_types!(cannot_traverse_to_root_with_token_revoked_via_request_id);
+    fn cannot_traverse_to_root_with_token_revoked_via_request_id<F, T>(create_token_bundle_fn: F)
+    where
+        F: FnOnce() -> (TokenBundle<T>, PublicKey),
+        T: TokenGroup,
+    {
+        let (token_bundle, _) = create_token_bundle_fn();
+        let request_id = token_bundle.token.request_id();
+
+        let revocation_list = RevocationList::default().with_request_id(*request_id);
+
+        let chain_validation_failure = token_bundle
+            .validate_path_to_issuers(
+                &[KeyPair::new_random().public_key()],
+                Some(&revocation_list),
+            )
+            .expect_err("should not validate");
+
+        assert_eq!(
+            chain_validation_failure.causes[0],
+            (
+                token_bundle.token.into(),
+                ValidationFailure::new(vec![InvalidityCause::Revoked])
+            )
+        );
+    }
+
+    test_for_token_types!(database, hlt, keyserver, synthesizer; cannot_traverse_to_root_with_token_revoked_via_public_key);
+    fn cannot_traverse_to_root_with_token_revoked_via_public_key<F, T>(create_token_bundle_fn: F)
+    where
+        F: FnOnce() -> (TokenBundle<T>, PublicKey),
+        T: TokenGroup,
+        T::Token: HasAssociatedKey,
+    {
+        let (token_bundle, _) = create_token_bundle_fn();
+        let public_key = token_bundle.token.public_key();
+
+        let revocation_list = RevocationList::default().with_public_key(*public_key);
+
+        let chain_validation_failure = token_bundle
+            .validate_path_to_issuers(
+                &[KeyPair::new_random().public_key()],
+                Some(&revocation_list),
+            )
+            .expect_err("should not validate");
+
+        assert_eq!(
+            chain_validation_failure.causes[0],
+            (
+                token_bundle.token.into(),
+                ValidationFailure::new(vec![InvalidityCause::Revoked])
+            )
+        );
+    }
+
+    test_for_all_token_types!(
+        all_relevant_causes_for_token_invalidity_included_in_chain_validation_failure
+    );
+    fn all_relevant_causes_for_token_invalidity_included_in_chain_validation_failure<F, T>(
+        create_token_bundle_fn: F,
+    ) where
+        F: FnOnce() -> (TokenBundle<T>, PublicKey),
+        T: TokenGroup,
+    {
+        let (mut token_bundle, _) = create_token_bundle_fn();
+        token_bundle.token.break_signature();
+        let request_id = token_bundle.token.request_id();
+
+        let revocation_list = RevocationList::default().with_request_id(*request_id);
+
+        let chain_validation_failure = token_bundle
+            .validate_path_to_issuers(
+                &[KeyPair::new_random().public_key()],
+                Some(&revocation_list),
+            )
+            .expect_err("should not validate");
+
+        let (invalid_item, validation_failure) = chain_validation_failure
+            .causes
+            .first()
+            .expect("chain failures should not be empty");
+
+        assert_eq!(*invalid_item, token_bundle.token.clone().into());
+        assert!(validation_failure
+            .causes
+            .contains(&InvalidityCause::Revoked));
+        assert!(validation_failure
+            .causes
+            .contains(&InvalidityCause::SignatureFailure));
     }
 
     test_for_all_token_types!(can_identify_redundant_certificates);
@@ -666,15 +782,14 @@ mod tests {
         F: FnOnce() -> (TokenBundle<T>, PublicKey),
         T: TokenGroup,
         <T as TokenGroup>::AssociatedRole: Debug,
+        RequestBuilder<T::AssociatedRole>:
+            Builder<Item = CertificateRequest<T::AssociatedRole, KeyUnavailable>>,
     {
-        let (mut token_bundle, root_pk) = create_token_bundle_fn();
-
-        let redundant_cert = create_leaf_cert::<T::AssociatedRole>().into_key_unavailable();
-        token_bundle.chain.add_certificate(redundant_cert.clone());
-
-        let certs_not_part_of_path = token_bundle.find_items_not_part_of_valid_path(&[root_pk]);
-        assert_eq!(certs_not_part_of_path.len(), 1);
-        assert_eq!(certs_not_part_of_path[0], redundant_cert.into());
+        let (token_bundle, _) = create_token_bundle_fn();
+        let incorrect_root = KeyPair::new_random().public_key();
+        let items_not_part_of_path =
+            token_bundle.find_items_not_part_of_valid_path(&[incorrect_root], None);
+        assert!(items_not_part_of_path.contains(&token_bundle.token.into()));
     }
 
     #[test]
@@ -689,7 +804,8 @@ mod tests {
             .unwrap();
 
         let int_kp = KeyPair::new_random();
-        let int_req = RequestBuilder::intermediate_v1_builder(int_kp.public_key()).build();
+        let int_req =
+            RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
         let intermediate_cert = root_cert
             .issue_cert(int_req, IssuerAdditionalFields::default())
@@ -698,7 +814,7 @@ mod tests {
             .unwrap();
 
         let leaf_kp = KeyPair::new_random();
-        let leaf_req = RequestBuilder::leaf_v1_builder(leaf_kp.public_key()).build();
+        let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
         let mut leaf_cert = intermediate_cert
             .issue_cert(leaf_req, IssuerAdditionalFields::default())
@@ -710,7 +826,7 @@ mod tests {
         leaf_cert.break_signature();
         let leaf_bundle = CertificateBundle::new(leaf_cert.clone(), Some(chain));
 
-        let token_request = create_eltr();
+        let token_request = create_eltr(create_exemptions());
         let token = leaf_cert
             .load_key(leaf_kp)
             .unwrap()
@@ -720,7 +836,7 @@ mod tests {
         let token_bundle = TokenBundle::<ExemptionListTokenGroup>::new(token, token_chain);
 
         token_bundle
-            .validate_path_to_issuers(&[root_pk])
+            .validate_path_to_issuers(&[root_pk], None)
             .expect_err("should not find path to root");
     }
 
@@ -736,7 +852,8 @@ mod tests {
             .unwrap();
 
         let int_kp = KeyPair::new_random();
-        let int_req = RequestBuilder::intermediate_v1_builder(int_kp.public_key()).build();
+        let int_req =
+            RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
         let mut intermediate_cert = root_cert
             .issue_cert(int_req, IssuerAdditionalFields::default())
@@ -747,7 +864,7 @@ mod tests {
         let int_cert_bundle = CertificateBundle::new(intermediate_cert.clone(), None);
 
         let leaf_kp = KeyPair::new_random();
-        let leaf_req = RequestBuilder::leaf_v1_builder(leaf_kp.public_key()).build();
+        let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
         let leaf_cert = intermediate_cert
             .load_key(int_kp)
@@ -759,7 +876,7 @@ mod tests {
 
         let leaf_bundle = CertificateBundle::new(leaf_cert.clone(), Some(chain));
 
-        let token_request = create_eltr();
+        let token_request = create_eltr(create_exemptions());
         let token = leaf_cert
             .load_key(leaf_kp)
             .unwrap()
@@ -769,7 +886,7 @@ mod tests {
         let token_bundle = TokenBundle::<ExemptionListTokenGroup>::new(token, token_chain);
 
         token_bundle
-            .validate_path_to_issuers(&[root_pk])
+            .validate_path_to_issuers(&[root_pk], None)
             .expect_err("should not find path to root");
     }
 
@@ -778,7 +895,7 @@ mod tests {
         let (int_bundle, int_kp, root_pk) = create_intermediate_bundle::<Exemption>();
 
         let leaf_kp = KeyPair::new_random();
-        let leaf_req = RequestBuilder::leaf_v1_builder(leaf_kp.public_key()).build();
+        let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
         let int_cert = int_bundle.get_lead_cert().unwrap().clone();
 
@@ -792,7 +909,7 @@ mod tests {
         let chain = int_bundle.issue_chain();
         let leaf_bundle = CertificateBundle::new(leaf_cert.clone(), Some(chain));
 
-        let eltr = create_eltr();
+        let eltr = create_eltr(create_exemptions());
 
         let elt = leaf_bundle
             .get_lead_cert()
@@ -807,7 +924,7 @@ mod tests {
 
         let elt_bundle = TokenBundle::<ExemptionListTokenGroup>::new(elt.clone(), chain);
 
-        let all_paths = elt_bundle.find_all_paths_to_issuers(&[root_pk]);
+        let all_paths = elt_bundle.find_all_paths_to_issuers(&[root_pk], None);
 
         // assert that only one path to issuer found
         assert_eq!(all_paths.len(), 1);
@@ -826,9 +943,9 @@ mod tests {
         let (int_bundle, int_kp, root_pk) = create_cross_signed_intermediate_bundle::<Exemption>();
 
         let leaf_kp = KeyPair::new_random();
-        let leaf_req = RequestBuilder::leaf_v1_builder(leaf_kp.public_key()).build();
+        let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
-        let int_cert = int_bundle.get_lead_cert().unwrap();
+        let int_cert: &Certificate<Exemption, _> = int_bundle.get_lead_cert().unwrap();
 
         let leaf_cert = int_cert
             .clone()
@@ -840,7 +957,7 @@ mod tests {
         let chain = int_bundle.issue_chain();
         let leaf_bundle = CertificateBundle::new(leaf_cert.clone(), Some(chain));
 
-        let eltr = create_eltr();
+        let eltr = create_eltr(create_exemptions());
 
         let elt = leaf_bundle
             .get_lead_cert()
@@ -855,7 +972,7 @@ mod tests {
 
         let elt_bundle = TokenBundle::<ExemptionListTokenGroup>::new(elt.clone(), chain);
 
-        let all_paths = elt_bundle.find_all_paths_to_issuers(&[root_pk]);
+        let all_paths = elt_bundle.find_all_paths_to_issuers(&[root_pk], None);
 
         // assert that two paths to issuer found
         assert_eq!(all_paths.len(), 2);
@@ -874,5 +991,139 @@ mod tests {
         // assert that expected paths to issuer are found
         assert!(all_paths.contains(&(expected_path_1)));
         assert!(all_paths.contains(&(expected_path_2)));
+    }
+
+    #[test]
+    fn can_traverse_from_child_elt_to_root() {
+        let (elt_bundle, elt_kp, root_pub) = create_issuing_exemption_list_token_bundle();
+
+        let child_eltr = create_eltr_with_options(None, vec![], vec![]);
+        let child_elt = elt_bundle
+            .token
+            .clone()
+            .load_key(elt_kp)
+            .unwrap()
+            .issue_elt(child_eltr, Expiration::default(), vec![])
+            .unwrap();
+        let child_elt_bundle =
+            TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
+        child_elt_bundle
+            .validate_path_to_issuers(&[root_pub], None)
+            .expect("traversal should succeed");
+    }
+
+    #[test]
+    fn traversal_fails_where_child_elt_has_associated_keypair() {
+        let (elt_bundle, elt_kp, root_pub) = create_issuing_exemption_list_token_bundle();
+
+        let child_kp = KeyPair::new_random();
+        let child_eltr = create_eltr_with_options(Some(child_kp.public_key()), vec![], vec![]);
+        let child_elt = issue_elt_without_compliance_check(child_eltr, &elt_kp, vec![]);
+        let child_elt_bundle =
+            TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
+        child_elt_bundle
+            .validate_path_to_issuers(&[root_pub], None)
+            .expect_err("traversal should fail");
+    }
+
+    #[test]
+    fn traversal_fails_where_child_elt_has_shipping_address_not_found_on_issuer() {
+        let (elt_bundle, elt_kp, root_pub) = create_issuing_exemption_list_token_bundle();
+
+        let shipping_address = vec!["22 New Street".to_string(), "Some Other City".to_string()];
+        let eltr = ExemptionListTokenRequest::v1_token_request(
+            None,
+            vec![],
+            Description::default(),
+            vec![],
+            vec![shipping_address],
+        );
+
+        let child_elt = issue_elt_without_compliance_check(eltr, &elt_kp, vec![]);
+        let child_elt_bundle =
+            TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
+        child_elt_bundle
+            .validate_path_to_issuers(&[root_pub], None)
+            .expect_err("traversal should fail");
+    }
+
+    #[test]
+    fn traversal_fails_where_child_elt_has_exemptions_not_found_on_issuer() {
+        let (elt_bundle, elt_kp, root_pub) = create_issuing_exemption_list_token_bundle();
+
+        let exemption = Organism::new(
+            "test",
+            vec![SequenceIdentifier::Id(GenbankId::try_new("555").unwrap())],
+        );
+        let eltr = ExemptionListTokenRequest::v1_token_request(
+            None,
+            vec![exemption],
+            Description::default(),
+            vec![],
+            vec![],
+        );
+
+        let child_elt = issue_elt_without_compliance_check(eltr, &elt_kp, vec![]);
+        let child_elt_bundle =
+            TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
+        child_elt_bundle
+            .validate_path_to_issuers(&[root_pub], None)
+            .expect_err("traversal should fail");
+    }
+
+    #[test]
+    fn traversal_fails_where_child_elt_is_missing_emails_to_notify_from_issuer() {
+        let (leaf_bundle, leaf_kp, root_pub) = create_leaf_bundle::<Exemption>();
+
+        let elt_kp = KeyPair::new_random();
+        let issuing_eltr = ExemptionListTokenRequest::v1_token_request(
+            Some(elt_kp.public_key()),
+            vec![],
+            Description::default(),
+            vec![],
+            vec![],
+        );
+
+        let emails_to_notify = vec!["must_notify@example.com".into()];
+        let issuing_elt =
+            issue_elt_without_compliance_check(issuing_eltr, &leaf_kp, emails_to_notify);
+
+        let elt_bundle =
+            TokenBundle::<ExemptionListTokenGroup>::new(issuing_elt, leaf_bundle.issue_chain());
+
+        let child_eltr = ExemptionListTokenRequest::v1_token_request(
+            None,
+            vec![],
+            Description::default(),
+            vec![],
+            vec![],
+        );
+
+        let child_elt = issue_elt_without_compliance_check(child_eltr, &elt_kp, vec![]);
+        let child_elt_bundle =
+            TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
+        child_elt_bundle
+            .validate_path_to_issuers(&[root_pub], None)
+            .expect_err("traversal should fail");
+    }
+
+    #[test]
+    fn traversal_for_child_elt_fails_where_issuing_elt_is_revoked() {
+        let (elt_bundle, elt_kp, root_pub) = create_issuing_exemption_list_token_bundle();
+        let elt_public_key = elt_kp.public_key();
+        let child_eltr = create_eltr_with_options(None, vec![], vec![]);
+        let child_elt = elt_bundle
+            .token
+            .clone()
+            .load_key(elt_kp)
+            .unwrap()
+            .issue_elt(child_eltr, Expiration::default(), vec![])
+            .unwrap();
+        let child_elt_bundle =
+            TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
+        let revocation_list = RevocationList::default().with_public_key(elt_public_key);
+        child_elt_bundle
+            .validate_path_to_issuers(&[root_pub], Some(&revocation_list))
+            .expect_err("traversal should fail");
     }
 }

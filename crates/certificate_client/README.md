@@ -33,8 +33,9 @@ Generating a SecureDNA certificate request
 ### Options:
     --name <NAME>                               Name of certificate creator (optional)
     --email <EMAIL>                             Email of certificate creator (optional)
-    --notify <EMAIL>                            Email(s) to be notified when an ELT issued by this cert is used (optional, only for leaf certs).
+    --notify <EMAIL>                            Email(s) to be notified when an ELT issued by this cert is used (optional, only for exemption leaf certs).
                                                 Provide one email address per use, e.g. "--notify a@example.com --notify b@example.com".
+    --allow-blinding                            Determines whether the certificate is able to issue blinded certificates/ELTs (optional, only for exemption certs).
     --output <REQUEST FILE DESTINATION>         Filepath where the certificate request will be saved (optional). 
                                                 If this is not provided ~/SecureDNA will be used.
     --create-new-key <KEY DESTINATION>          Filepath where the private key will be saved (optional). 
@@ -87,7 +88,7 @@ If none out of [--create-new-key, --key-from-file, --key-from-hex] are used then
     --audit-email <AUDIT_EMAIL>
         Email of the audit recipient (optional).
     --audit-public-key <AUDIT_PUBLIC_KEY>
-        Public key of the audit recipient (optional). Expects a hex encoded secp256k1 pubic key
+        Public key of the audit recipient (optional). Expects a hex encoded secp256k1 public key
 
 The database and HLT tokens have no custom options.
 

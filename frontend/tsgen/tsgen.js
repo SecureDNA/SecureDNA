@@ -227,6 +227,8 @@ function tsgen(source, sourcePath) {
             // ignore everything else. See `impl_encoding_boilerplate` in
             // crates/certificates/src/tokens/token.rs
             parsing = false;
+            // Remove any generics
+            name = name.replace(/<[^>]*>/, '')
             output.push(`export interface ${name} extends ${typename} {}`);
           } else if (flatten) {
             bases.push(typename);

@@ -97,6 +97,9 @@ export default () => {
       fs: {
         strict: false,
       },
+      headers: {
+        "cross-origin-embedder-policy": "credentialless",
+      },
     },
     resolve: { alias },
     root: "./views",

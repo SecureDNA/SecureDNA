@@ -11,9 +11,9 @@ use clap::{crate_version, ArgAction, Args, CommandFactory, Parser};
 use tokio::sync::Mutex;
 use url::Url;
 
-use crate::api::Region;
-use crate::parsefasta::{CheckerConfiguration, CurrentSystemLoadTracker, LimitConfiguration};
+use crate::parsefasta::{CurrentSystemLoadTracker, LimitConfiguration};
 use crate::rate_limiter::{RateLimiter, SystemTimeHourProvider};
+use crate::shims::event_store::Connection;
 use doprf_client::server_selection::{ServerEnumerationSource, ServerSelector};
 use scep_client_helpers::ClientCerts;
 use shared_types::metrics::SynthClientMetrics;
@@ -138,6 +138,14 @@ pub struct Opts {
         env = "SECUREDNA_SYNTHCLIENT_JSON_SIZE_LIMIT"
     )]
     pub json_size_limit: u64,
+
+    #[clap(
+        long,
+        help = "Writable path where synthclient can persist event store data (known server versions, etc). The default is :memory:, which is an in-memory store that will be erased on shutdown.",
+        env = "SECUREDNA_SYNTHCLIENT_EVENT_STORE_PATH",
+        default_value = ":memory:"
+    )]
+    pub event_store_path: PathBuf,
 }
 
 #[derive(Args, Debug)]
@@ -145,8 +153,8 @@ pub struct EnumerationArgs {
     #[clap(
         long,
         help = "Server tier to use for enumeration.",
-        default_value_t = Tier::Prod,
-        env = "SECUREDNA_SYNTHCLIENT_ENUMERATE_TIER",
+        default_value = "prod",
+        env = "SECUREDNA_SYNTHCLIENT_ENUMERATE_TIER"
     )]
     pub enumerate_tier: Tier,
 
@@ -204,12 +212,12 @@ impl EnumerationArgs {
         } else if let Some(provider_domain) = &self.doh_provider {
             ServerEnumerationSource::DnsOverHttps {
                 provider_domain: provider_domain.clone(),
-                tier: self.enumerate_tier,
+                tier: self.enumerate_tier.clone(),
                 apex: self.enumerate_apex.clone(),
             }
         } else {
             ServerEnumerationSource::NativeDns {
-                tier: self.enumerate_tier,
+                tier: self.enumerate_tier.clone(),
                 apex: self.enumerate_apex.clone(),
             }
         }
@@ -286,25 +294,15 @@ pub struct CertificateArgs {
 impl CertificateArgs {
     /// Attempts to validate the certificate args and load the client certificates,
     /// exiting with an error if the arguments are invalid.
-    pub fn validate_and_build(&self) -> ClientCerts {
-        let result = (|| {
-            let passphrase = std::fs::read_to_string(&self.keypair_passphrase_file)
-                .context("reading keypair passphrase file")?;
-            let passphrase = passphrase.trim();
+    pub fn validate_and_build(&self) -> anyhow::Result<ClientCerts> {
+        let passphrase = std::fs::read_to_string(&self.keypair_passphrase_file)
+            .context("reading keypair passphrase file")?;
+        let passphrase = passphrase.trim();
 
-            if self.use_test_roots_do_not_use_this_in_prod {
-                ClientCerts::load_with_test_roots(&self.token_file, &self.keypair_file, passphrase)
-            } else {
-                ClientCerts::load_with_prod_roots(&self.token_file, &self.keypair_file, passphrase)
-            }
-        })();
-
-        match result {
-            Ok(v) => v,
-            Err(e) => {
-                let mut cmd = Opts::command();
-                cmd.error(clap::error::ErrorKind::Io, e).exit();
-            }
+        if self.use_test_roots_do_not_use_this_in_prod {
+            ClientCerts::load_with_test_roots(&self.token_file, &self.keypair_file, passphrase)
+        } else {
+            ClientCerts::load_with_prod_roots(&self.token_file, &self.keypair_file, passphrase)
         }
     }
 }
@@ -318,6 +316,7 @@ pub struct SynthClientState {
     pub certs: Arc<ClientCerts>,
     /// version string returned from /version and passed to doprf_client to identify us
     pub synthclient_version: String,
+    pub persistence_connection: Arc<Connection>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,36 +326,18 @@ pub enum ScreeningType {
 }
 
 impl SynthClientState {
-    pub fn make_config(
-        &self,
-        screening_type: ScreeningType,
-        region: Region,
-        include_debug_info: bool,
-        use_http: bool,
-        certs: Arc<ClientCerts>,
-        provider_reference: Option<String>,
-    ) -> CheckerConfiguration {
-        let max_request_bp = match screening_type {
+    pub fn max_request_bp(&self, screening_type: ScreeningType) -> usize {
+        match screening_type {
             ScreeningType::Demo => self.opts.limited_max_request_bp,
             ScreeningType::Normal => self.opts.default_max_request_bp,
-        };
+        }
+    }
 
-        let limit_config = LimitConfiguration {
+    pub fn limit_config(&self, screening_type: ScreeningType) -> LimitConfiguration {
+        LimitConfiguration {
             memory_limit: self.opts.memorylimit,
-            max_request_bp,
+            max_request_bp: self.max_request_bp(screening_type),
             limits: &self.limits,
-        };
-
-        CheckerConfiguration {
-            server_selector: self.server_selector.clone(),
-            certs,
-            include_debug_info,
-            metrics: self.metrics.clone(),
-            region,
-            limit_config,
-            use_http,
-            provider_reference,
-            synthclient_version_hint: &self.synthclient_version,
         }
     }
 }
