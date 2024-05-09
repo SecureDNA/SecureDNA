@@ -9,8 +9,6 @@ import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
 import * as path from "path";
 
-const stagingApiUrl = "https://demo.staging.securedna.org";
-
 // https://vitejs.dev/config/
 export default defineConfig(({ command, mode }) => ({
   plugins: [react(), wasm(), topLevelAwait()],

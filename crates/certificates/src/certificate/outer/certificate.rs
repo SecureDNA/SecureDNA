@@ -10,10 +10,12 @@ use rasn::types::Constraints;
 use rasn::{AsnType, Decode, Encoder, Tag};
 use serde::Serialize;
 
+use crate::certificate::CertificateVersion;
 use crate::error::EncodeError;
 use crate::format::Formattable;
 use crate::issued::Issued;
 use crate::key_state::{KeyAvailable, KeyMismatchError, KeyUnavailable};
+use crate::key_traits::HasAssociatedKey;
 use crate::keypair::{PublicKey, Signature};
 use crate::pem::PemTaggable;
 use crate::shared_components::common::{Expiration, Id};
@@ -22,18 +24,18 @@ use crate::tokens::exemption::authenticator::Authenticator;
 use crate::tokens::exemption::exemption_list::{ExemptionListToken, ExemptionListTokenRequest};
 use crate::tokens::infrastructure::keyserver::{KeyserverToken, KeyserverTokenRequest};
 use crate::{
-    DatabaseToken, DatabaseTokenRequest, HierarchyKind, HltToken, HltTokenRequest,
-    IssuerAdditionalFields, KeyPair, Manufacturer, SynthesizerToken, SynthesizerTokenRequest,
+    CertificateRequest, DatabaseToken, DatabaseTokenRequest, HierarchyKind, HltToken,
+    HltTokenRequest, IssuerAdditionalFields, KeyPair, Manufacturer, SignatureVerificationError,
+    SynthesizerToken, SynthesizerTokenRequest,
 };
 
-use super::version_wrappers::CertificateVersion;
-use super::{CertificateDigest, CertificateRequest, IssuanceError};
+use super::{CertificateDigest, IssuanceError};
 
 /// We can interact with different certificate versions through the `Certificate`.
 /// The certificate version is held in a private enum.
 #[derive(Debug)]
 pub struct Certificate<R: Role, K> {
-    pub(crate) version: CertificateVersion<R>,
+    pub(crate) version: R::CertVersion,
     pub(crate) key_state: K,
 }
 
@@ -61,7 +63,7 @@ where
     }
 
     pub fn request(&self) -> CertificateRequest<R, KeyUnavailable> {
-        CertificateRequest::new(self.version.request())
+        CertificateRequest::new(self.version.request().clone())
     }
 }
 
@@ -129,8 +131,7 @@ where
         tag: Tag,
         constraints: Constraints,
     ) -> Result<Self, D::Error> {
-        let version =
-            CertificateVersion::<R>::decode_with_tag_and_constraints(decoder, tag, constraints)?;
+        let version = R::CertVersion::decode_with_tag_and_constraints(decoder, tag, constraints)?;
         Ok(Self::new(version))
     }
 }
@@ -176,7 +177,7 @@ impl<R> Certificate<R, KeyUnavailable>
 where
     R: Role,
 {
-    pub(crate) fn new(version: CertificateVersion<R>) -> Self {
+    pub(crate) fn new(version: R::CertVersion) -> Self {
         Certificate {
             version,
             key_state: KeyUnavailable,
@@ -193,6 +194,20 @@ where
             version: self.version,
             key_state,
         })
+    }
+}
+impl<R: Role, K> HasAssociatedKey for Certificate<R, K> {
+    fn public_key(&self) -> &PublicKey {
+        self.public_key()
+    }
+
+    fn verify(
+        &self,
+        message: &[u8],
+        signature: &Signature,
+    ) -> Result<(), SignatureVerificationError> {
+        let public_key = self.public_key();
+        public_key.verify(message, signature)
     }
 }
 
@@ -263,13 +278,20 @@ where
         self.into()
     }
 }
+
+impl<K> Certificate<Exemption, K> {
+    pub fn blinding_allowed(&self) -> bool {
+        self.version.blinding_allowed()
+    }
+}
+
 impl Certificate<Exemption, KeyAvailable> {
     pub fn issue_elt(
         &self,
         token_request: ExemptionListTokenRequest,
         expiration: Expiration,
         issuer_auth_devices: Vec<Authenticator>,
-    ) -> Result<ExemptionListToken, IssuanceError> {
+    ) -> Result<ExemptionListToken<KeyUnavailable>, IssuanceError> {
         self.version.issue_elt(
             token_request,
             expiration,
@@ -328,7 +350,8 @@ mod tests {
         pem::{PemDecodable, PemEncodable},
         shared_components::role::{Exemption, Manufacturer},
         test_helpers::create_leaf_bundle,
-        Certificate, Description, Infrastructure, IssuerAdditionalFields, KeyPair, RequestBuilder,
+        Builder, Certificate, Description, Infrastructure, IssuerAdditionalFields, KeyPair,
+        RequestBuilder,
     };
 
     #[test]
@@ -480,7 +503,7 @@ mod tests {
         let encoded = root_cert.to_pem().unwrap();
 
         let result = Certificate::<Exemption, _>::from_pem(encoded);
-        assert!(matches!(result, Err(DecodeError::UnexpectedPEMTag(_, _))));
+        assert!(matches!(result, Err(DecodeError::UnexpectedPemTag(_, _))));
     }
 
     #[test]

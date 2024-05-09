@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 pub mod certificate_bundle;
-pub mod certificate_chain;
 mod inner;
 mod outer;
 
 pub use inner::IssuerAdditionalFields;
 pub use inner::{HierarchyKind, HierarchyKindParseError};
 pub use outer::{
-    Certificate, CertificateDigest, CertificateRequest, IssuanceError, RequestBuilder,
-    RequestDigest,
+    Builder, Certificate, CertificateDigest, CertificateRequest, CertificateVersion,
+    ExemptionCertificateVersion, ExemptionRequestVersion, InfrastructureCertificateVersion,
+    InfrastructureRequestVersion, IssuanceError, ManufacturerCertificateVersion,
+    ManufacturerRequestVersion, RequestBuilder, RequestDigest, RequestVersion,
 };

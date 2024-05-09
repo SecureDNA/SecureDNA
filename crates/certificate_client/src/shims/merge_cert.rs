@@ -107,7 +107,7 @@ mod tests {
     use certificates::test_helpers::create_intermediate_bundle;
     use certificates::{
         file::{load_certificate_bundle_from_file, save_certificate_bundle_to_file},
-        test_helpers, CertificateBundle, Infrastructure, IssuerAdditionalFields, KeyPair,
+        test_helpers, Builder, CertificateBundle, Infrastructure, IssuerAdditionalFields, KeyPair,
         Manufacturer, RequestBuilder, RoleKind,
     };
     use std::path::Path;

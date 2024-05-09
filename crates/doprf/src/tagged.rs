@@ -104,6 +104,12 @@ impl From<TaggedHash> for [u8; 36] {
     }
 }
 
+impl From<TaggedHash> for CompletedHashValue {
+    fn from(value: TaggedHash) -> Self {
+        value.hash
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

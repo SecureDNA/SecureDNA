@@ -129,19 +129,21 @@ mod tests {
     use certificates::file::{
         save_token_bundle_to_file, save_token_request_to_file, FileError, TokenExtension,
     };
+    use certificates::test_helpers::{create_leaf_bundle, create_leaf_cert};
     use certificates::{
         concat_with_newline,
         test_helpers::{
             create_database_token_bundle, create_hlt_token_bundle, create_intermediate_bundle,
-            create_keyserver_token_bundle, create_leaf_cert, create_synthesizer_token_bundle,
+            create_keyserver_token_bundle, create_synthesizer_token_bundle,
             expected_database_token_plaintext_display, expected_hlt_token_plaintext_display,
             expected_keyserver_token_plaintext_display,
             expected_synthesizer_token_plaintext_display, BreakableSignature,
         },
-        CertificateBundle, DatabaseTokenGroup, DatabaseTokenRequest, Expiration, FormatMethod,
-        Formattable, Infrastructure, Issued, IssuerAdditionalFields, KeyPair, RequestBuilder,
-        TokenBundle, TokenKind,
+        Builder, CertificateBundle, DatabaseTokenGroup, DatabaseTokenRequest, Expiration,
+        FormatMethod, Formattable, Infrastructure, Issued, IssuerAdditionalFields, KeyPair,
+        KeyserverTokenGroup, KeyserverTokenRequest, RequestBuilder, TokenBundle, TokenKind,
     };
+    use doprf::party::KeyserverId;
 
     use super::{run, InspectTokenOpts, Target};
     use crate::common::{ChainViewMode, NO_EXCLUDED_CERTS_TEXT, NO_PATH_FOUND_TEXT};
@@ -386,7 +388,8 @@ mod tests {
         let (int_bundle, int_kp, _) = create_intermediate_bundle::<Infrastructure>();
 
         let leaf_kp = KeyPair::new_random();
-        let leaf_req = RequestBuilder::leaf_v1_builder(leaf_kp.public_key()).build();
+        let leaf_req =
+            RequestBuilder::<Infrastructure>::leaf_v1_builder(leaf_kp.public_key()).build();
 
         let int_cert = int_bundle.get_lead_cert().unwrap().to_owned();
 
@@ -445,7 +448,8 @@ mod tests {
         let (int_bundle, int_kp, root_public_key) = create_intermediate_bundle::<Infrastructure>();
 
         let leaf_kp = KeyPair::new_random();
-        let leaf_req = RequestBuilder::leaf_v1_builder(leaf_kp.public_key()).build();
+        let leaf_req =
+            RequestBuilder::<Infrastructure>::leaf_v1_builder(leaf_kp.public_key()).build();
 
         let int_cert = int_bundle.get_lead_cert().unwrap().to_owned();
 
@@ -510,9 +514,25 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let token_path = temp_dir.path().join("token.kt");
 
-        let (mut token_bundle, root_public_key) = create_keyserver_token_bundle();
+        let (leaf_bundle, leaf_kp, root_public_key) = create_leaf_bundle::<Infrastructure>();
+        let token_request = KeyserverTokenRequest::v1_token_request(
+            KeyPair::new_random().public_key(),
+            KeyserverId::try_from(1).unwrap(),
+        );
+        let keyserver_token = leaf_bundle
+            .get_lead_cert()
+            .unwrap()
+            .clone()
+            .load_key(leaf_kp)
+            .unwrap()
+            .issue_keyserver_token(token_request, Expiration::default())
+            .unwrap();
+        let mut keyserver_chain = leaf_bundle.issue_chain();
         let extra_cert = create_leaf_cert().into_key_unavailable();
-        token_bundle.chain.add_certificate(extra_cert.clone());
+        keyserver_chain.add_item(extra_cert.clone());
+
+        let token_bundle =
+            TokenBundle::<KeyserverTokenGroup>::new(keyserver_token, keyserver_chain);
 
         save_token_bundle_to_file(token_bundle, &token_path).unwrap();
 

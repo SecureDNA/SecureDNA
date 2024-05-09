@@ -99,7 +99,7 @@ mod tests {
     }
 
     fn make_exemptions() -> Exemptions {
-        crate::exemption::make_exemptions(vec![certificates::Organism {
+        crate::exemption::make_test_exemptions(vec![certificates::Organism {
             name: "Testus Unitae".into(),
             sequences: vec![SequenceIdentifier::Id(
                 GenbankId::try_from("AN_1234".to_owned()).unwrap(),

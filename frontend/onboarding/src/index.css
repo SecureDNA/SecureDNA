@@ -1,0 +1,101 @@
+/**
+ * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * SPDX-License-Identifier: MIT OR Apache-2.0
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    @apply scroll-smooth font-primary;
+  }
+
+  html {
+    @apply h-full;
+
+    font-size: 0.85rem;
+
+    @screen sm {
+      font-size: 1rem;
+    }
+  }
+
+  body {
+    @apply text-base;
+  }
+
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-bold;
+  }
+
+  a[href] {
+    @apply underline hover:opacity-50 transition-opacity;
+  }
+}
+
+@layer components {
+  .grid-layout {
+    @apply grid grid-cols-12 gap-x-6 gap-y-8 sm:gap-x-8;
+  }
+
+  .btn {
+    @apply px-8 py-2.5 border-2 border-transparent inline-flex text-base sm:text-lg font-medium enabled:cursor-pointer items-center justify-center rounded-full text-white bg-secondary transition-colors enabled:hover:bg-opacity-90 disabled:opacity-50;
+  }
+
+  .btn-outline {
+    @apply bg-transparent text-secondary border-secondary hover:bg-secondary/90 hover:text-white;
+  }
+
+  .input,
+  .textarea {
+    @apply block w-full rounded-sm border border-secondary px-4 py-3 text-base text-secondary read-only:opacity-50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary;
+  }
+
+  .group\/block {
+    &.dark {
+      @apply bg-primary text-secondary;
+
+      .btn:not(.btn-outline) {
+        @apply text-primary;
+      }
+
+      .btn-outline:hover {
+        @apply text-primary;
+      }
+    }
+    &.light {
+      @apply relative text-secondary;
+
+      &::after {
+        @apply absolute inset-0 -z-10 opacity-10;
+        content: "";
+        background: linear-gradient(
+          346deg,
+          #00d4ff 26.89%,
+          #0bd5f2 64.9%,
+          #2ad7d0 137.75%,
+          #5bdc98 232.77%,
+          #9be252 343.63%
+        );
+      }
+    }
+    &.white {
+      @apply bg-white text-secondary;
+
+      .shapes {
+        @apply opacity-50;
+      }
+    }
+  }
+
+  header .btn {
+    @apply text-primary;
+  }
+}

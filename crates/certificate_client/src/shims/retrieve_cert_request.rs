@@ -86,8 +86,8 @@ mod tests {
     };
     use certificates::test_helpers::create_intermediate_bundle;
     use certificates::{
-        CertificateBundle, Description, Exemption, Infrastructure, IssuerAdditionalFields, KeyPair,
-        Manufacturer, RequestBuilder, RoleKind,
+        Builder, CertificateBundle, Description, Exemption, Infrastructure, IssuerAdditionalFields,
+        KeyPair, Manufacturer, RequestBuilder, RoleKind,
     };
     use std::fs;
     use tempfile::TempDir;

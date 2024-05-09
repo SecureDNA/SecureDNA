@@ -19,7 +19,7 @@ test-rust:
 
 # Runs system tests only. Requires system w/ test hdb linked, see recipe `run-docker-with-test-data`
 test-system:
-    cargo test -p system_tests --features run_system_tests
+    cargo test -p system_tests -p awesome_hazard_analyzer --features run_system_tests
 
 # Generates an example json API response (following current documentation example).
 # Does not include comments; that would be a bit more involved.

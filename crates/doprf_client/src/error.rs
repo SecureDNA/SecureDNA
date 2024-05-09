@@ -9,13 +9,18 @@ use crate::{server_selection::ServerSelectionError, windows::WindowsError};
 use doprf::prf::{DecodeError, QueryError};
 
 #[derive(Debug, Error)]
-pub enum DOPRFError {
+pub enum DoprfError {
     #[error("Timed out after {:.3}s", after.as_secs_f64())]
     Timeout { after: Duration },
     #[error("Error during server selection: {0}")]
     ServerSelectionError(#[from] ServerSelectionError),
+    #[error("Error querying last server version for {domain}: {source}")]
+    GetLastServerVersion {
+        source: Box<dyn std::error::Error + Send + Sync + 'static>,
+        domain: String,
+    },
     #[error("Error during HTTP: {0}")]
-    HttpError(#[from] http_client::HTTPError),
+    HttpError(#[from] http_client::HttpError),
     #[error("Error during SCEP for {domain}: {source}")]
     ScepError {
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
@@ -33,11 +38,12 @@ pub enum DOPRFError {
     InvalidRecord,
 }
 
-impl DOPRFError {
+impl DoprfError {
     pub fn is_retriable(&self) -> bool {
         match self {
             Self::Timeout { .. } => true,
             Self::ServerSelectionError(_) => true,
+            Self::GetLastServerVersion { .. } => false,
             Self::HttpError(e) => e.is_retriable(),
             Self::ScepError { .. } => false,
             Self::SequencesTooBig => false,
@@ -50,12 +56,12 @@ impl DOPRFError {
 }
 
 impl<E: std::error::Error + Send + Sync + 'static> From<scep_client_helpers::Error<E>>
-    for DOPRFError
+    for DoprfError
 {
     fn from(value: scep_client_helpers::Error<E>) -> Self {
         match value {
             scep_client_helpers::Error::Http(e) => e.into(),
-            scep_client_helpers::Error::Scep { source, domain } => DOPRFError::ScepError {
+            scep_client_helpers::Error::Scep { source, domain } => DoprfError::ScepError {
                 source: Box::new(source),
                 domain,
             },

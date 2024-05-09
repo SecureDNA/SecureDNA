@@ -19,6 +19,7 @@ use crate::{
     impl_encoding_boilerplate, impl_key_boilerplate_for_token,
     impl_key_boilerplate_for_token_request, impl_key_boilerplate_for_token_request_version,
     issued::Issued,
+    key_traits::HasAssociatedKey,
     keypair::{PublicKey, Signature},
     pem::PemTaggable,
     shared_components::{
@@ -27,11 +28,24 @@ use crate::{
         },
         digest::{INDENT, INDENT2},
     },
-    tokens::{HasAssociatedKey, TokenData, TokenGroup},
-    Formattable, Infrastructure, KeyAvailable, KeyPair, KeyUnavailable,
+    tokens::{TokenData, TokenGroup},
+    CertificateChain, Formattable, Infrastructure, KeyAvailable, KeyPair, KeyUnavailable,
 };
 
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[rasn(automatic_tags)]
 pub(crate) struct HltTokenRequest1 {
     guard: ComponentVersionGuard<Self>,
@@ -102,7 +116,20 @@ impl Decode for HltTokenRequest {
 }
 
 /// Data that will be signed by the issuer of the HLTRequest
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[rasn(automatic_tags)]
 pub(crate) struct HltTokenIssuer1 {
     guard: ComponentVersionGuard<Self>,
@@ -130,7 +157,20 @@ impl VersionedComponent for HltTokenIssuer1 {
 }
 
 /// Enum wrapping all HLT token versions.
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[rasn(automatic_tags)]
 #[rasn(choice)]
 pub(crate) enum HltTokenVersion {
@@ -146,7 +186,7 @@ impl HltTokenVersion {
 }
 
 /// Token for identifying instances of the hazard lookup table
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HltToken<K> {
     pub(crate) version: HltTokenVersion,
     key_state: K,
@@ -185,6 +225,7 @@ impl TokenGroup for HltTokenGroup {
     type AssociatedRole = Infrastructure;
     type TokenRequest = HltTokenRequest;
     type Token = HltToken<KeyUnavailable>;
+    type ChainType = CertificateChain<Self::AssociatedRole>;
 }
 
 impl_boilerplate_for_token_request_version! {HltTokenRequestVersion, V1}
@@ -256,7 +297,7 @@ pub struct HltTokenDigest {
 
 impl<K> From<HltToken<K>> for HltTokenDigest {
     fn from(value: HltToken<K>) -> Self {
-        let validation_failure = value.validate().err();
+        let validation_failure = value.check_signature_and_expiry().err();
         match value.version {
             HltTokenVersion::V1(t) => {
                 let version = "V1".to_string();
@@ -308,8 +349,8 @@ impl Display for HltTokenDigest {
 #[cfg(test)]
 mod test {
 
+    use crate::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
     use crate::test_helpers::BreakableSignature;
-    use crate::tokens::{CanLoadKey, HasAssociatedKey, KeyLoaded};
     use crate::{
         asn::{FromASN1DerBytes, ToASN1DerBytes},
         concat_with_newline,

@@ -17,11 +17,11 @@ use rand::rngs::OsRng;
 use serde::{de, ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
 use sha3::Sha3_512;
 
+use crate::lagrange::evaluate_lagrange_polynomial;
 use crate::party::KeyserverId;
 use crate::party::KeyserverIdSet;
 use crate::prf::DecodeError;
 use crate::prf::KeyShare;
-use crate::{impls_for_ristretto_point, lagrange::evaluate_lagrange_polynomial};
 
 /// Validation target used in database membership protocol.
 /// Acts as a checksum for verifying the keyserver's responses, ensuring correct evaluation of the PRF.

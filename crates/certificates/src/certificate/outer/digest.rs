@@ -5,10 +5,10 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::certificate::{CertificateVersion, RequestVersion};
 use crate::validation_failure::ValidationFailure;
 use crate::{
     certificate::inner::{CertificateInner, HierarchyLevel, Issuer, RequestInner, Subject},
-    issued::Issued,
     keypair::Signature,
     shared_components::{
         common::{CompatibleIdentity, Expiration, Id},
@@ -16,12 +16,10 @@ use crate::{
         role::Role,
     },
     utility::combine_and_dedup_items,
+    CertificateRequest, Issued,
 };
 
-use super::{
-    version_wrappers::{CertificateVersion, RequestVersion},
-    Certificate, CertificateRequest,
-};
+use super::Certificate;
 
 /// Contains fields useful for inspecting the certificate
 #[derive(Serialize)]
@@ -42,22 +40,9 @@ where
     R: Role,
 {
     fn from(value: Certificate<R, K>) -> Self {
-        let validation_failure = value.validate().err();
+        let validation_failure = value.check_signature_and_expiry().err();
         let role = capitalize_first(R::DESCRIPTION);
-        match value.version {
-            CertificateVersion::RootV1(inner) => {
-                let version = format!("Root V1 {role}");
-                CertificateDigest::new(version, inner, validation_failure)
-            }
-            CertificateVersion::IntermediateV1(inner) => {
-                let version = format!("Intermediate V1 {role}");
-                CertificateDigest::new(version, inner, validation_failure)
-            }
-            CertificateVersion::LeafV1(inner) => {
-                let version = format!("Leaf V1 {role}");
-                CertificateDigest::new(version, inner, validation_failure)
-            }
-        }
+        value.version.into_digest(&role, validation_failure)
     }
 }
 
@@ -91,7 +76,7 @@ impl fmt::Display for CertificateDigest {
 }
 
 impl CertificateDigest {
-    fn new<T, R, S, I>(
+    pub fn new<T, R, S, I>(
         version: String,
         inner: CertificateInner<T, R, S, I>,
         validation_failure: Option<ValidationFailure>,
@@ -141,25 +126,12 @@ where
 {
     fn from(value: CertificateRequest<R, K>) -> Self {
         let role = capitalize_first(R::DESCRIPTION);
-        match value.version {
-            RequestVersion::RootV1(inner) => {
-                let version = format!("Root V1 {role}");
-                Self::from_version_and_request_inner(version, inner)
-            }
-            RequestVersion::IntermediateV1(inner) => {
-                let version = format!("Intermediate V1 {role}");
-                Self::from_version_and_request_inner(version, inner)
-            }
-            RequestVersion::LeafV1(inner) => {
-                let version = format!("Leaf V1 {role}");
-                Self::from_version_and_request_inner(version, inner)
-            }
-        }
+        value.version.into_digest(&role)
     }
 }
 
 impl RequestDigest {
-    fn from_version_and_request_inner<T: HierarchyLevel, R: Role, S: Subject>(
+    pub fn from_version_and_request_inner<T: HierarchyLevel, R: Role, S: Subject>(
         version: String,
         inner: RequestInner<T, R, S>,
     ) -> Self {
@@ -207,7 +179,7 @@ mod test {
             self, expected_cert_plaintext_display, expected_cert_request_plaintext_display,
             BreakableSignature,
         },
-        Description, Exemption, FormatMethod, Formattable, Infrastructure, Issued,
+        Builder, Description, Exemption, FormatMethod, Formattable, Infrastructure, Issued,
         IssuerAdditionalFields, KeyPair, Manufacturer, RequestBuilder,
     };
 
@@ -246,8 +218,10 @@ mod test {
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
 
-        let req =
-            RequestBuilder::intermediate_v1_builder(KeyPair::new_random().public_key()).build();
+        let req = RequestBuilder::<Infrastructure>::intermediate_v1_builder(
+            KeyPair::new_random().public_key(),
+        )
+        .build();
         let int_cert = root_cert
             .issue_cert(req, IssuerAdditionalFields::default())
             .unwrap();
@@ -299,9 +273,11 @@ mod test {
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
 
-        let req = RequestBuilder::intermediate_v1_builder(KeyPair::new_random().public_key())
-            .with_description(Description::default().with_name("B Person"))
-            .build();
+        let req = RequestBuilder::<Exemption>::intermediate_v1_builder(
+            KeyPair::new_random().public_key(),
+        )
+        .with_description(Description::default().with_name("B Person"))
+        .build();
         let intermediate_cert = root_cert
             .issue_cert(req, IssuerAdditionalFields::default())
             .unwrap();
@@ -339,14 +315,16 @@ mod test {
         let int_kp = KeyPair::new_random();
         let int_public_key = int_kp.public_key();
 
-        let intermediate_req = RequestBuilder::intermediate_v1_builder(int_kp.public_key()).build();
+        let intermediate_req =
+            RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
         let intermediate_cert = root_cert
             .issue_cert(intermediate_req, IssuerAdditionalFields::default())
             .unwrap();
 
-        let leaf_req = RequestBuilder::leaf_v1_builder(KeyPair::new_random().public_key())
-            .with_emails_to_notify(vec!["a@example.com", "b@example.com"])
-            .build();
+        let leaf_req =
+            RequestBuilder::<Exemption>::leaf_v1_builder(KeyPair::new_random().public_key())
+                .with_emails_to_notify(vec!["a@example.com", "b@example.com"])
+                .build();
         let leaf_cert = intermediate_cert
             .load_key(int_kp)
             .unwrap()

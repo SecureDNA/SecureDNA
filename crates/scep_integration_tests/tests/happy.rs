@@ -3,24 +3,37 @@
 
 use std::sync::Arc;
 
-use certificates::{DatabaseTokenGroup, KeyserverTokenGroup};
+use certificates::{DatabaseTokenGroup, ExemptionListTokenGroup, KeyserverTokenGroup, TokenBundle};
 use doprf::{
     party::KeyserverId,
-    prf::{HashPart, Query},
+    prf::Query,
     tagged::{HashTag, TaggedHash},
 };
 use doprf_client::packed_ristretto::PackedRistrettos;
 use scep_client_helpers::ClientCerts;
 use scep_integration_tests::{
     make_certs::{make_certs, MakeCertsOptions},
+    mock_screening::{
+        mock_hazard_cert_an_organism, mock_hazard_cert_hash_organism, mock_hazard_hash,
+        mock_hazard_organism, mock_hazard_query, rehash_query,
+    },
     server::{Opts, TestServer},
 };
-use shared_types::{hash::HashSpec, requests::RequestId, synthesis_permission::Region};
+use shared_types::{
+    hash::HashSpec,
+    hdb::{ConsolidatedHazardResult, HdbScreeningResult},
+    requests::RequestId,
+    synthesis_permission::{Region, SynthesisPermission},
+};
 use tracing::info;
 
-#[tracing_test::traced_test]
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-pub async fn smoketest() {
+struct Scenario {
+    screen_hashes: Vec<[u8; 32]>,
+    exemptions: Option<(TokenBundle<ExemptionListTokenGroup>, Vec<[u8; 32]>)>,
+    expected_result: HdbScreeningResult,
+}
+
+async fn test_scenario(scenario: Scenario) {
     let certs = make_certs(Default::default());
     let issuer_pks = vec![
         certs.infra_root_keypair.public_key(),
@@ -54,13 +67,7 @@ pub async fn smoketest() {
     let keyserver_port = keyserver.port();
     let hdb_port = hdb.port();
 
-    let input_hashes = vec![
-        Query::hash_from_bytes_for_tests_only(&[0]).into(),
-        Query::hash_from_bytes_for_tests_only(&[1]).into(),
-        Query::hash_from_bytes_for_tests_only(&[2]).into(),
-        Query::hash_from_bytes_for_tests_only(&[3]).into(),
-        Query::hash_from_bytes_for_tests_only(&[4]).into(),
-    ];
+    let input_hashes = scenario.screen_hashes;
     let hash_total_count = input_hashes.len() as u64;
 
     let client_certs = Arc::new(ClientCerts::with_custom_roots(
@@ -133,6 +140,7 @@ pub async fn smoketest() {
             ]
             .into(),
             Region::All,
+            scenario.exemptions.is_some(),
         )
         .await
         .unwrap();
@@ -152,9 +160,20 @@ pub async fn smoketest() {
             }
         }));
 
-    let screen_response = hdb_client.screen(&tagged_hashes).await.unwrap();
+    // The exact value doesn't matter, as the integration tests
+    // launch hdbserver with --yubico-api-client-id allow_all.
+    let otp = "123456".to_owned();
+    let screen_response = match scenario.exemptions {
+        None => hdb_client.screen(&tagged_hashes).await.unwrap(),
+        Some((elt, elt_hashes)) => hdb_client
+            .screen_with_elt(&tagged_hashes, &elt, &elt_hashes.into(), otp)
+            .await
+            .unwrap(),
+    };
 
     info!("hdb screen_response = {screen_response:#?}");
+
+    assert_eq!(screen_response, scenario.expected_result);
 
     info!("finished test");
 
@@ -162,8 +181,94 @@ pub async fn smoketest() {
     hdb.stop().await;
 }
 
-/// A dummy processing function so we don't need a real keyshare
-fn rehash_query(query: Query) -> HashPart {
-    let bytes: [u8; 32] = query.into();
-    HashPart::hash_from_bytes_for_tests_only(&bytes)
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+pub async fn smoketest() {
+    test_scenario(Scenario {
+        screen_hashes: vec![
+            Query::hash_from_bytes_for_tests_only(&[0]).into(),
+            Query::hash_from_bytes_for_tests_only(&[1]).into(),
+            Query::hash_from_bytes_for_tests_only(&[2]).into(),
+            Query::hash_from_bytes_for_tests_only(&[3]).into(),
+            Query::hash_from_bytes_for_tests_only(&[4]).into(),
+        ],
+        exemptions: None,
+        expected_result: HdbScreeningResult {
+            results: vec![],
+            debug_hdb_responses: None,
+            provider_reference: None,
+        },
+    })
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+pub async fn test_hazard_denied() {
+    test_scenario(Scenario {
+        screen_hashes: vec![mock_hazard_query().into()],
+        exemptions: None,
+        expected_result: HdbScreeningResult {
+            results: vec![ConsolidatedHazardResult {
+                record: 0,
+                hit_regions: vec![],
+                synthesis_permission: SynthesisPermission::Denied,
+                most_likely_organism: mock_hazard_organism(),
+                organisms: vec![mock_hazard_organism()],
+                is_dna: true,
+                is_wild_type: None,
+                exempt: false,
+            }],
+            debug_hdb_responses: None,
+            provider_reference: None,
+        },
+    })
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+pub async fn test_hazard_exempt_organism() {
+    let elt = hdb::exemption::make_test_elt(vec![mock_hazard_cert_an_organism()]);
+    test_scenario(Scenario {
+        screen_hashes: vec![mock_hazard_query().into()],
+        exemptions: Some((elt, vec![])),
+        expected_result: HdbScreeningResult {
+            results: vec![ConsolidatedHazardResult {
+                record: 0,
+                hit_regions: vec![],
+                synthesis_permission: SynthesisPermission::Granted,
+                most_likely_organism: mock_hazard_organism(),
+                organisms: vec![mock_hazard_organism()],
+                is_dna: true,
+                is_wild_type: None,
+                exempt: true,
+            }],
+            debug_hdb_responses: None,
+            provider_reference: None,
+        },
+    })
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+pub async fn test_hazard_exempt_hash() {
+    let elt = hdb::exemption::make_test_elt(vec![mock_hazard_cert_hash_organism()]);
+    let elt_hashes = vec![mock_hazard_hash()].into_iter().collect();
+    test_scenario(Scenario {
+        screen_hashes: vec![mock_hazard_query().into()],
+        exemptions: Some((elt, elt_hashes)),
+        expected_result: HdbScreeningResult {
+            results: vec![ConsolidatedHazardResult {
+                record: 0,
+                hit_regions: vec![],
+                synthesis_permission: SynthesisPermission::Granted,
+                most_likely_organism: mock_hazard_organism(),
+                organisms: vec![mock_hazard_organism()],
+                is_dna: true,
+                is_wild_type: None,
+                exempt: true,
+            }],
+            debug_hdb_responses: None,
+            provider_reference: None,
+        },
+    })
+    .await;
 }

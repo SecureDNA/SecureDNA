@@ -21,7 +21,7 @@ use crate::active_security::{ActiveSecurityKey, RandomizedTarget};
 #[cfg(any(feature = "centralized_keygen", test))]
 use crate::lagrange::evaluate_lagrange_polynomial;
 use crate::party::{KeyserverId, KeyserverIdSet};
-use crate::tagged::HashTag;
+use crate::tagged::{HashTag, TaggedHash};
 
 /// The probability that a malicious party could evade active security is 2^(-SECURITY_PARAMETER).
 /// Values of 4N+2 for N=0,1,... will maximise security vs speed.
@@ -264,20 +264,21 @@ impl QueryStateSet {
     }
 
     /// This function will also most likely block for a long time, `async` callers should `spawn_blocking`
-    pub fn get_hash_values(&self) -> Result<Vec<(HashTag, CompletedHashValue)>, QueryError> {
+    pub fn get_hash_values(&self) -> Result<Vec<TaggedHash>, QueryError> {
         if !self.all_have_hash() {
             return Err(QueryError::MissingKeyserverResponse);
         }
-        let (mut hashes, verifiers): (Vec<(HashTag, CompletedHashValue)>, Vec<RistrettoPoint>) =
-            self.querystates
-                .iter()
-                .map(|(tag, qs)| {
-                    let (hash, verification) = qs
-                        .get_hash_value_and_verification_value()
-                        .expect("all_have_hash is true but get_hash_value is None!");
-                    (((*tag).unwrap_or_default(), hash), verification)
-                })
-                .unzip();
+        let (mut hashes, verifiers): (Vec<TaggedHash>, Vec<RistrettoPoint>) = self
+            .querystates
+            .iter()
+            .map(|(tag, qs)| {
+                let (hash, verification) = qs
+                    .get_hash_value_and_verification_value()
+                    .expect("all_have_hash is true but get_hash_value is None!");
+                let tag = (*tag).unwrap_or_default();
+                (TaggedHash { tag, hash }, verification)
+            })
+            .unzip();
 
         if self.randomized_target.validate_responses(&verifiers) {
             hashes.pop();
@@ -403,6 +404,16 @@ impl FromStr for KeyShare {
     }
 }
 
+impl<'de> Deserialize<'de> for KeyShare {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        FromStr::from_str(&s).map_err(de::Error::custom)
+    }
+}
+
 impl Query {
     fn to_rp(self) -> RistrettoPoint {
         self.0.decompress().unwrap() // already verified to be valid via try_from_buf
@@ -419,10 +430,6 @@ impl HashPart {
 impl CompletedHashValue {
     pub fn to_rp(self) -> RistrettoPoint {
         self.0.decompress().unwrap() // already verified to be valid via try_from_buf
-    }
-
-    pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0 .0
     }
 }
 
@@ -461,6 +468,10 @@ macro_rules! impls_for_ristretto_point {
                 } else {
                     Err(DecodeError::InvalidRistrettoPoint)
                 }
+            }
+
+            pub fn as_bytes(&self) -> &[u8; 32] {
+                &self.0 .0
             }
         }
         impl FromStr for $type_ {
@@ -684,7 +695,7 @@ mod tests {
         }
         querystates
             .get_hash_values()
-            .map(|v| v.iter().map(|x| x.1).collect())
+            .map(|v| v.iter().map(|x| x.hash).collect())
     }
 
     // Finds a message for which distributed key hashing doesn't match single-key hashing

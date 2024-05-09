@@ -13,7 +13,7 @@ use rand::seq::IteratorRandom;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    error::DOPRFError,
+    error::DoprfError,
     instant::{get_now, Instant},
     retry_if,
     server_selection::dns::*,
@@ -348,16 +348,14 @@ pub async fn server_selection(
 
     let (keyserver_domains, hdb_domains) = match &config.enumeration_source {
         #[cfg(not(target_arch = "wasm32"))]
-        ServerEnumerationSource::NativeDns { tier, apex } => {
-            enumerate(NativeDns, *tier, apex).await
-        }
+        ServerEnumerationSource::NativeDns { tier, apex } => enumerate(NativeDns, tier, apex).await,
         ServerEnumerationSource::DnsOverHttps {
             provider_domain,
             tier,
             apex,
         } => {
             let dns = DnsOverHttps::new(provider_domain);
-            enumerate(&dns, *tier, apex).await
+            enumerate(&dns, tier, apex).await
         }
         ServerEnumerationSource::Fixed {
             keyserver_domains,
@@ -398,9 +396,9 @@ pub async fn server_selection(
     Ok(selection)
 }
 
-async fn enumerate(
+pub async fn enumerate(
     dns: impl dns::DnsLookup + Copy,
-    tier: Tier,
+    tier: &Tier,
     apex: &str,
 ) -> (Vec<String>, Vec<String>) {
     futures::join!(
@@ -412,7 +410,7 @@ async fn enumerate(
 async fn enumerate_role(
     dns: impl dns::DnsLookup,
     role: Role,
-    tier: Tier,
+    tier: &Tier,
     apex: &str,
 ) -> Vec<String> {
     let mut domains = Vec::new();
@@ -421,7 +419,7 @@ async fn enumerate_role(
             "{}.{}.{}.{apex}",
             domains.len() + 1,
             role.domain_str(),
-            tier.domain_str()
+            tier,
         );
         match dns.lookup(&domain).await {
             Ok(true) => domains.push(domain),
@@ -438,7 +436,7 @@ async fn enumerate_role(
 async fn qualify<D: DeserializeOwned>(
     domains: Vec<String>,
     api_client: &BaseApiClient,
-) -> Vec<(String, Result<D, DOPRFError>)> {
+) -> Vec<(String, Result<D, DoprfError>)> {
     let tasks = FuturesUnordered::new();
     for domain in domains.into_iter() {
         tasks.push(async {
@@ -454,7 +452,7 @@ async fn qualify<D: DeserializeOwned>(
 async fn qualify_one<D: DeserializeOwned>(
     domain: &str,
     api_client: &BaseApiClient,
-) -> Result<D, DOPRFError> {
+) -> Result<D, DoprfError> {
     let url = format!("https://{domain}/qualification");
 
     // we don't use our crate's default retry_if policy here because it waits too long--we
@@ -474,7 +472,7 @@ async fn qualify_one<D: DeserializeOwned>(
                 })
             },
             // don't retry 400 Bad Request
-            |e: &DOPRFError| {
+            |e: &DoprfError| {
                 info_with_timestamp!("qualification for {}: got error: {}", domain, e);
                 e.is_retriable()
             },
@@ -806,25 +804,25 @@ mod tests {
     #[tokio::test]
     async fn enumerate_normal() {
         let dns = MockDns::new()
-            .with_known_domain("1.ks.dev.securedna.org")
-            .with_known_domain("2.ks.dev.securedna.org")
-            .with_known_domain("3.ks.dev.securedna.org")
-            .with_known_domain("5.ks.dev.securedna.org") // hole before, this one should not get reached
-            .with_known_domain("0.db.dev.securedna.org") // server with "0" part should never be selected
-            .with_known_domain("1.db.dev.securedna.org")
-            .with_known_domain("2.db.dev.securedna.org");
+            .with_known_domain("1.ks.prod.securedna.org")
+            .with_known_domain("2.ks.prod.securedna.org")
+            .with_known_domain("3.ks.prod.securedna.org")
+            .with_known_domain("5.ks.prod.securedna.org") // hole before, this one should not get reached
+            .with_known_domain("0.db.prod.securedna.org") // server with "0" part should never be selected
+            .with_known_domain("1.db.prod.securedna.org")
+            .with_known_domain("2.db.prod.securedna.org");
 
         assert_eq!(
-            enumerate(&dns, Tier::Dev, "securedna.org").await,
+            enumerate(&dns, &Tier::new("prod"), "securedna.org").await,
             (
                 vec![
-                    "1.ks.dev.securedna.org".into(),
-                    "2.ks.dev.securedna.org".into(),
-                    "3.ks.dev.securedna.org".into(),
+                    "1.ks.prod.securedna.org".into(),
+                    "2.ks.prod.securedna.org".into(),
+                    "3.ks.prod.securedna.org".into(),
                 ],
                 vec![
-                    "1.db.dev.securedna.org".into(),
-                    "2.db.dev.securedna.org".into(),
+                    "1.db.prod.securedna.org".into(),
+                    "2.db.prod.securedna.org".into(),
                 ]
             ),
         );
@@ -833,20 +831,20 @@ mod tests {
     #[tokio::test]
     async fn enumerate_with_errors() {
         let dns = MockDns::new()
-            .with_known_domain("1.db.dev.securedna.org")
-            .with_known_domain("1.ks.dev.securedna.org")
-            .with_known_domain("2.ks.dev.securedna.org")
-            .with_error("3.ks.dev.securedna.org", || dns::LookupError::Status(500))
-            .with_known_domain("4.ks.dev.securedna.org"); // will never be reached
+            .with_known_domain("1.db.prod.securedna.org")
+            .with_known_domain("1.ks.prod.securedna.org")
+            .with_known_domain("2.ks.prod.securedna.org")
+            .with_error("3.ks.prod.securedna.org", || dns::LookupError::Status(500))
+            .with_known_domain("4.ks.prod.securedna.org"); // will never be reached
 
         assert_eq!(
-            enumerate(&dns, Tier::Dev, "securedna.org").await,
+            enumerate(&dns, &Tier::new("prod"), "securedna.org").await,
             (
                 vec![
-                    "1.ks.dev.securedna.org".into(),
-                    "2.ks.dev.securedna.org".into(),
+                    "1.ks.prod.securedna.org".into(),
+                    "2.ks.prod.securedna.org".into(),
                 ],
-                vec!["1.db.dev.securedna.org".into(),],
+                vec!["1.db.prod.securedna.org".into(),],
             )
         )
     }
@@ -862,7 +860,7 @@ mod tests {
         let result = do_server_selection(
             vec![
                 (
-                    "1.ks.dev.securedna.org".into(),
+                    "1.ks.prod.securedna.org".into(),
                     KeyserverQualificationResponse {
                         id: KeyserverId::try_from(1).unwrap(),
                         generations_and_key_info: [
@@ -875,7 +873,7 @@ mod tests {
                     },
                 ),
                 (
-                    "2.ks.dev.securedna.org".into(),
+                    "2.ks.prod.securedna.org".into(),
                     KeyserverQualificationResponse {
                         id: KeyserverId::try_from(2).unwrap(),
                         generations_and_key_info: [
@@ -888,7 +886,7 @@ mod tests {
                     },
                 ),
                 (
-                    "3.ks.dev.securedna.org".into(),
+                    "3.ks.prod.securedna.org".into(),
                     KeyserverQualificationResponse {
                         id: KeyserverId::try_from(2).unwrap(),
                         generations_and_key_info: [
@@ -902,7 +900,7 @@ mod tests {
                 ),
             ],
             vec![(
-                "1.db.dev.securedna.org".into(),
+                "1.db.prod.securedna.org".into(),
                 HdbQualificationResponse {
                     supported_generations: vec![0, 1],
                 },
@@ -920,7 +918,7 @@ mod tests {
                         KeyserverId::try_from(1).unwrap(),
                         vec![SelectedKeyserver {
                             id: KeyserverId::try_from(1).unwrap(),
-                            domain: "1.ks.dev.securedna.org".into(),
+                            domain: "1.ks.prod.securedna.org".into(),
                             bad_flag: Default::default(),
                         }]
                     ),
@@ -929,12 +927,12 @@ mod tests {
                         vec![
                             SelectedKeyserver {
                                 id: KeyserverId::try_from(2).unwrap(),
-                                domain: "2.ks.dev.securedna.org".into(),
+                                domain: "2.ks.prod.securedna.org".into(),
                                 bad_flag: Default::default(),
                             },
                             SelectedKeyserver {
                                 id: KeyserverId::try_from(2).unwrap(),
-                                domain: "3.ks.dev.securedna.org".into(),
+                                domain: "3.ks.prod.securedna.org".into(),
                                 bad_flag: Default::default(),
                             }
                         ]
@@ -944,7 +942,7 @@ mod tests {
                 .collect(),
                 active_security_key,
                 hdbs: vec![SelectedHdb {
-                    domain: "1.db.dev.securedna.org".into(),
+                    domain: "1.db.prod.securedna.org".into(),
                     bad_flag: Default::default(),
                 }]
             }
@@ -972,7 +970,7 @@ mod tests {
         let result = do_server_selection(
             vec![
                 (
-                    "1.ks.dev.securedna.org".into(),
+                    "1.ks.prod.securedna.org".into(),
                     KeyserverQualificationResponse {
                         id: KeyserverId::try_from(1).unwrap(),
                         generations_and_key_info: [
@@ -984,7 +982,7 @@ mod tests {
                     },
                 ),
                 (
-                    "2.ks.dev.securedna.org".into(),
+                    "2.ks.prod.securedna.org".into(),
                     KeyserverQualificationResponse {
                         id: KeyserverId::try_from(2).unwrap(),
                         generations_and_key_info: [
@@ -996,7 +994,7 @@ mod tests {
                     },
                 ),
                 (
-                    "3.ks.dev.securedna.org".into(),
+                    "3.ks.prod.securedna.org".into(),
                     KeyserverQualificationResponse {
                         id: KeyserverId::try_from(3).unwrap(),
                         generations_and_key_info: [
@@ -1009,7 +1007,7 @@ mod tests {
                 ),
             ],
             vec![(
-                "1.db.dev.securedna.org".into(),
+                "1.db.prod.securedna.org".into(),
                 HdbQualificationResponse {
                     supported_generations: vec![0, 1],
                 },
@@ -1027,7 +1025,7 @@ mod tests {
                         KeyserverId::try_from(1).unwrap(),
                         vec![SelectedKeyserver {
                             id: KeyserverId::try_from(1).unwrap(),
-                            domain: "1.ks.dev.securedna.org".into(),
+                            domain: "1.ks.prod.securedna.org".into(),
                             bad_flag: Default::default(),
                         }]
                     ),
@@ -1035,7 +1033,7 @@ mod tests {
                         KeyserverId::try_from(2).unwrap(),
                         vec![SelectedKeyserver {
                             id: KeyserverId::try_from(2).unwrap(),
-                            domain: "2.ks.dev.securedna.org".into(),
+                            domain: "2.ks.prod.securedna.org".into(),
                             bad_flag: Default::default(),
                         }]
                     ),
@@ -1043,7 +1041,7 @@ mod tests {
                         KeyserverId::try_from(3).unwrap(),
                         vec![SelectedKeyserver {
                             id: KeyserverId::try_from(3).unwrap(),
-                            domain: "3.ks.dev.securedna.org".into(),
+                            domain: "3.ks.prod.securedna.org".into(),
                             bad_flag: Default::default(),
                         }]
                     )
@@ -1052,7 +1050,7 @@ mod tests {
                 .collect(),
                 active_security_key,
                 hdbs: vec![SelectedHdb {
-                    domain: "1.db.dev.securedna.org".into(),
+                    domain: "1.db.prod.securedna.org".into(),
                     bad_flag: Default::default(),
                 }]
             }

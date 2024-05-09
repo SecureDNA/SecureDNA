@@ -8,8 +8,8 @@ mod request;
 
 pub use certificate::{CertificateData, CertificateInner};
 
+pub(crate) use common::{ExemptionSubject1, Issuer1, Subject1};
 pub use common::{Issuer, IssuerAdditionalFields, Subject};
-pub(crate) use common::{Issuer1, Subject1};
 pub use hierarchy::{HierarchyKind, HierarchyKindParseError, HierarchyLevel};
 pub(crate) use hierarchy::{Intermediate1, Leaf1, Root1};
-pub use request::{RequestBuilderInner, RequestInner};
+pub use request::RequestInner;

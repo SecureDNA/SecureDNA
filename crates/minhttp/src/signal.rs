@@ -5,6 +5,34 @@
 
 use tokio::signal::ctrl_c;
 
+/// Future that resolves when a config reload has been requested.
+///
+/// Detects a `SIGHUP`.
+///
+/// **BEWARE:** This alters process state by _permanently_ registering an interrupt handler
+/// through [`tokio`]. As such, this should probably only be called near the entry point to
+/// a program, not by a library. Also, the usual caveats around signals apply; they may only
+/// be detected after this is first called, multiple signals may be collapsed, etc.
+///
+/// # Panics
+///
+/// In theory, this can panic when things in [`tokio::signal`] error out, but...
+/// realistically, the docs only describe that as happening when lower-level things
+/// fail "for some reason".
+pub async fn reload_config_requested() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        let mut sighup = signal(SignalKind::hangup()).expect("Can't register SIGHUP handler");
+        sighup.recv().await;
+    }
+
+    // Windows doesn't have an equivalent to SIGHUP.
+    #[cfg(not(unix))]
+    std::future::pending::<()>().await;
+}
+
 /// Future that resolves when a graceful shutdown has been requested.
 ///
 /// Detects a `SIGINT`.
@@ -29,7 +57,6 @@ pub async fn graceful_shutdown_requested() {
 ///
 /// * Multiple `SIGINT`s
 /// * At least one `SIGTERM`
-/// * At least one `SIGHUP`
 ///
 /// **BEWARE:** This alters process state by _permanently_ registering an interrupt handler
 /// through [`tokio`]. As such, this should probably only be called near the entry point to
@@ -52,11 +79,9 @@ pub async fn fast_shutdown_requested() {
         use tokio::signal::unix::{signal, SignalKind};
 
         let mut sigterm = signal(SignalKind::terminate()).expect("Can't register SIGTERM handler");
-        let mut sighup = signal(SignalKind::hangup()).expect("Can't register SIGHUP handler");
         tokio::select! {
             _ = want_to_shutdown => {},
             _ = sigterm.recv() => {},
-            _ = sighup.recv() => {},
         };
     };
 

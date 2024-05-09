@@ -6,8 +6,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
+use anyhow::Context;
 use bytes::Bytes;
-use doprf::party::KeyserverId;
+use certificates::TokenBundle;
 use futures::future::join_all;
 use futures::FutureExt;
 use http_body_util::BodyExt;
@@ -20,7 +21,9 @@ use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tracing::{error, info, info_span, Instrument};
 
+use doprf::party::KeyserverId;
 use doprf_client::server_selection::ServerSelector;
+use doprf_client::server_version_handler::LastServerVersionHandler;
 use minhttp::response::{self, GenericResponse};
 use minhttp::server::Server;
 use minhttp::signal::{fast_shutdown_requested, graceful_shutdown_requested};
@@ -30,15 +33,16 @@ use shared_types::http::add_cors_headers;
 use shared_types::info_with_timestamp;
 use shared_types::metrics::{get_metrics_output, SynthClientMetrics};
 use shared_types::requests::RequestId;
-use shared_types::server_versions::{HDBVersion, KeyserverVersion};
+use shared_types::server_versions::{HdbVersion, KeyserverVersion};
 
 use crate::api::{
     ApiError, ApiResponse, CheckFastaRequest, CheckNcbiRequest, RequestCommon, SynthesisPermission,
     VersionInfo,
 };
 use crate::ncbi::download_fasta_by_acc_number;
-use crate::parsefasta::{check_fasta, CurrentSystemLoadTracker};
+use crate::parsefasta::{check_fasta, CheckerConfiguration, CurrentSystemLoadTracker};
 use crate::rate_limiter::{RateLimiter, SystemTimeHourProvider};
+
 use crate::shims::recaptcha::validate_recaptcha;
 use crate::shims::server_selection::initialize_server_selector;
 use crate::shims::types::{Opts, SynthClientState};
@@ -50,7 +54,7 @@ pub async fn run(opts: Opts, post_setup_hook: impl Future<Output = ()>) -> anyho
         info_with_timestamp!("Running with memory limit: {}B", limit);
     }
 
-    let certs = Arc::new(opts.certs.validate_and_build());
+    let certs = Arc::new(opts.certs.validate_and_build()?);
 
     info_with_timestamp!("Initializing server selector...");
     let server_selector = initialize_server_selector(&opts).await.unwrap();
@@ -79,7 +83,10 @@ pub async fn run(opts: Opts, post_setup_hook: impl Future<Output = ()>) -> anyho
 
     let address = SocketAddr::from(([0, 0, 0, 0], opts.port));
     info!("Listening on {address}");
-    let listener = TcpListener::bind(address).await.unwrap();
+    let listener = TcpListener::bind(address)
+        .await
+        .map_err(|err| PortAdvice::new(opts.port, err))
+        .with_context(|| format!("Couldn't listen on port {}.", opts.port))?;
     let connections = futures::stream::unfold(listener, |listener| async {
         Some((listener.accept().await, listener))
     });
@@ -87,7 +94,10 @@ pub async fn run(opts: Opts, post_setup_hook: impl Future<Output = ()>) -> anyho
     let run_monitoring_plane = if let Some(port) = opts.monitoring_plane_port {
         let address = SocketAddr::from(([0, 0, 0, 0], port));
         info!("Listening on {address} for monitoring plane");
-        let listener = TcpListener::bind(address).await.unwrap();
+        let listener = TcpListener::bind(address)
+            .await
+            .map_err(|err| PortAdvice::new(port, err))
+            .with_context(|| format!("Couldn't listen on port {port} for monitoring plane."))?;
         let connections = futures::stream::unfold(listener, |listener| async {
             Some((listener.accept().await, listener))
         });
@@ -105,6 +115,12 @@ pub async fn run(opts: Opts, post_setup_hook: impl Future<Output = ()>) -> anyho
 
     let synthclient_version = securedna_versioning::version::get_version();
 
+    let persistence_connection = Arc::new(
+        crate::shims::event_store::open_db(&opts.event_store_path)
+            .await
+            .context("opening event store db")?,
+    );
+
     let sc_state = Arc::new(SynthClientState {
         opts,
         server_selector: Arc::new(server_selector),
@@ -113,6 +129,7 @@ pub async fn run(opts: Opts, post_setup_hook: impl Future<Output = ()>) -> anyho
         demo_rate_limiter: rate_limiter,
         certs,
         synthclient_version,
+        persistence_connection,
     });
 
     // let metrics2 = metrics.clone();
@@ -355,14 +372,51 @@ async fn screen(
 
     let debug_info = bool_param(&parts.uri, "debug_info");
 
-    let config = state.make_config(
-        source.screening_type(),
-        common.region,
-        debug_info,
-        state.opts.use_http,
-        state.certs.clone(),
-        common.provider_reference,
+    let server_version_handler = LastServerVersionHandler::new(
+        {
+            let connection = state.persistence_connection.clone();
+            Box::new(move |domain| {
+                let connection = connection.clone();
+                Box::pin(async move {
+                    Ok(super::event_store::query_last_server_version(&connection, domain).await?)
+                })
+            })
+        },
+        {
+            let connection = state.persistence_connection.clone();
+            Box::new(move |domain, server_version| {
+                let connection = connection.clone();
+                Box::pin(async move {
+                    Ok(super::event_store::upsert_server_version(
+                        &connection,
+                        domain,
+                        server_version,
+                    )
+                    .await?)
+                })
+            })
+        },
     );
+
+    let elt = match common.elt_pem {
+        None => None,
+        Some(pem) => Some(TokenBundle::from_file_contents(pem)?),
+    };
+
+    let config = CheckerConfiguration {
+        server_selector: Arc::clone(&state.server_selector),
+        certs: Arc::clone(&state.certs),
+        include_debug_info: debug_info,
+        metrics: state.metrics.as_ref().map(Arc::clone),
+        region: common.region,
+        limit_config: state.limit_config(source.screening_type()),
+        use_http: state.opts.use_http,
+        provider_reference: common.provider_reference,
+        synthclient_version_hint: &state.synthclient_version,
+        elt,
+        otp: common.otp,
+        server_version_handler,
+    };
 
     let api_response = check_fasta::<NucleotideAmbiguous>(&request_id, sequence, &config).await?;
 
@@ -430,7 +484,7 @@ async fn get_json_version<T: DeserializeOwned>(url: impl AsRef<str>) -> Option<T
 async fn get_hdb_version(
     server_selector: Arc<ServerSelector>,
     use_http: bool,
-) -> Option<HDBVersion> {
+) -> Option<HdbVersion> {
     let current_hdb = server_selector.choose().await.ok()?.hdb;
     let scheme = if use_http { "http" } else { "https" };
     let url = format!("{scheme}://{}/version", current_hdb.domain);
@@ -499,5 +553,29 @@ fn forwarded_from_https(headers: &HeaderMap) -> bool {
         ON.is_match(x_fwd_ssl.as_bytes())
     } else {
         false
+    }
+}
+
+#[derive(Debug)]
+struct PortAdvice {
+    port: u16,
+    inner: std::io::Error,
+}
+
+impl PortAdvice {
+    fn new(port: u16, inner: std::io::Error) -> Self {
+        Self { port, inner }
+    }
+}
+
+impl std::error::Error for PortAdvice {}
+
+impl std::fmt::Display for PortAdvice {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.inner.fmt(f)?;
+        if self.inner.kind() == std::io::ErrorKind::PermissionDenied && self.port < 1024 {
+            write!(f, "\n(ports under 1024 usually require admin privileges)")?;
+        }
+        Ok(())
     }
 }

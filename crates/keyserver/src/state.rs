@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use hyper::StatusCode;
@@ -12,8 +13,10 @@ use doprf::party::KeyserverId;
 use doprf::prf::KeyShare;
 use minhttp::response::{self, GenericResponse};
 use scep_server_helpers::server::ServerState;
-use shared_types::metrics::KSMetrics;
+use shared_types::metrics::KeyserverMetrics;
 use shared_types::server_selection::KeyInfo;
+
+use crate::event_store::Connection;
 
 /// Holds the keyserver's constant (for now) information about what generations it supports,
 /// and what the thresholds are for that generation
@@ -25,10 +28,12 @@ pub struct KeyserverState {
     pub keyserver_id: KeyserverId,
     pub keyshare: KeyShare,
     pub generations_key_info: GenerationKeyInfo,
-    pub metrics: Option<Arc<KSMetrics>>,
+    pub metrics: Option<Arc<KeyserverMetrics>>,
     pub processing_chunks: Arc<Semaphore>,
     pub parallelism_per_request: usize,
     pub scep: ServerState<KeyserverTokenGroup>,
+    pub persistence_path: PathBuf,
+    pub persistence_connection: Connection,
 }
 
 impl KeyserverState {

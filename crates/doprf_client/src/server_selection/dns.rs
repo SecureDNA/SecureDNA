@@ -3,7 +3,7 @@
 
 use bytes::Bytes;
 
-use crate::{error::DOPRFError, retry_if::retry_if};
+use crate::{error::DoprfError, retry_if::retry_if};
 use http_client::BaseApiClient;
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -70,7 +70,7 @@ impl DnsLookup for &DnsOverHttps {
                         .await?)
                 }
             },
-            |e: &DOPRFError| e.is_retriable(),
+            |e: &DoprfError| e.is_retriable(),
         )
         .await?;
 
@@ -125,7 +125,7 @@ impl DnsLookup for NativeDns {
 #[derive(thiserror::Error, Debug)]
 pub enum LookupError {
     #[error("http error: {0}")]
-    Fetch(#[from] DOPRFError),
+    Fetch(#[from] DoprfError),
     #[error("bad http status: {0}")]
     Status(u16),
     #[error("error parsing dns response: {0} ({1:?})")]

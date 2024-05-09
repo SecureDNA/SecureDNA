@@ -19,6 +19,7 @@ use crate::{
     impl_encoding_boilerplate, impl_key_boilerplate_for_token,
     impl_key_boilerplate_for_token_request, impl_key_boilerplate_for_token_request_version,
     issued::Issued,
+    key_traits::HasAssociatedKey,
     keypair::{PublicKey, Signature},
     pem::PemTaggable,
     shared_components::{
@@ -27,14 +28,27 @@ use crate::{
         },
         digest::{INDENT, INDENT2},
     },
-    tokens::{HasAssociatedKey, TokenData, TokenGroup},
-    Formattable, KeyAvailable, KeyPair, KeyUnavailable, Manufacturer,
+    tokens::{TokenData, TokenGroup},
+    CertificateChain, Formattable, KeyAvailable, KeyPair, KeyUnavailable, Manufacturer,
 };
 
 /// Represents a recipient in the context of an audit process. This struct encapsulates the necessary
 /// information to securely send encrypted audit data. It includes the recipient's email and their
 /// public key for encryption.
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 pub struct AuditRecipient {
     email: String,
     public_key: EncryptionPublicKey,
@@ -53,7 +67,20 @@ impl AuditRecipient {
     }
 }
 
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[rasn(automatic_tags)]
 pub(crate) struct SynthesizerTokenRequest1 {
     guard: ComponentVersionGuard<Self>,
@@ -158,7 +185,20 @@ impl Decode for SynthesizerTokenRequest {
 }
 
 /// Data that will be signed by the issuer of the SynthesizerRequest
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[rasn(automatic_tags)]
 pub(crate) struct SynthesizerTokenIssuer1 {
     guard: ComponentVersionGuard<Self>,
@@ -186,7 +226,20 @@ impl VersionedComponent for SynthesizerTokenIssuer1 {
 }
 
 /// Enum wrapping all synthesizer token versions.
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[rasn(automatic_tags)]
 #[rasn(choice)]
 pub(crate) enum SynthesizerTokenVersion {
@@ -226,7 +279,7 @@ impl SynthesizerTokenVersion {
 }
 
 /// Token to identify benchtop synthesizers
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SynthesizerToken<K> {
     pub(crate) version: SynthesizerTokenVersion,
     key_state: K,
@@ -285,6 +338,7 @@ impl TokenGroup for SynthesizerTokenGroup {
     type AssociatedRole = Manufacturer;
     type TokenRequest = SynthesizerTokenRequest;
     type Token = SynthesizerToken<KeyUnavailable>;
+    type ChainType = CertificateChain<Self::AssociatedRole>;
 }
 
 impl_boilerplate_for_token_request_version! {SynthesizerTokenRequestVersion, V1}
@@ -396,7 +450,7 @@ pub struct SynthesizerTokenDigest {
 
 impl<K> From<SynthesizerToken<K>> for SynthesizerTokenDigest {
     fn from(value: SynthesizerToken<K>) -> Self {
-        let validation_failure = value.validate().err();
+        let validation_failure = value.check_signature_and_expiry().err();
         match value.version {
             SynthesizerTokenVersion::V1(t) => {
                 let version = "V1".to_string();
@@ -478,6 +532,7 @@ impl Display for SynthesizerTokenDigest {
 
 #[cfg(test)]
 mod test {
+    use crate::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
     use crate::test_helpers::{create_intermediate_bundle, BreakableSignature};
     use crate::{
         concat_with_newline,
@@ -485,11 +540,9 @@ mod test {
             create_leaf_cert, create_synth_token_request,
             expected_synthesizer_token_plaintext_display,
         },
-        tokens::{
-            manufacturer::synthesizer::AuditRecipient, CanLoadKey, HasAssociatedKey, KeyLoaded,
-        },
-        Description, Expiration, FormatMethod, Formattable, Issued, IssuerAdditionalFields,
-        KeyPair, Manufacturer, RequestBuilder, SynthesizerTokenRequest,
+        tokens::manufacturer::synthesizer::AuditRecipient,
+        Builder, Description, Expiration, FormatMethod, Formattable, Issued,
+        IssuerAdditionalFields, KeyPair, Manufacturer, RequestBuilder, SynthesizerTokenRequest,
     };
 
     #[test]
@@ -667,7 +720,7 @@ mod test {
 
         let leaf_kp = KeyPair::new_random();
 
-        let leaf_req = RequestBuilder::leaf_v1_builder(leaf_kp.public_key())
+        let leaf_req = RequestBuilder::<Manufacturer>::leaf_v1_builder(leaf_kp.public_key())
             .with_description(
                 Description::default()
                     .with_name("A Company")

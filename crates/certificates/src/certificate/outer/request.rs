@@ -6,9 +6,15 @@
 
 use rasn::{types::Constraints, AsnType, Decode, Encoder, Tag};
 use serde::Serialize;
+use std::marker::PhantomData;
 
+use crate::certificate::inner::{ExemptionSubject1, RequestInner, Subject1};
+use crate::certificate::{
+    ExemptionRequestVersion, InfrastructureRequestVersion, ManufacturerRequestVersion,
+    RequestVersion,
+};
 use crate::{
-    certificate::inner::{Intermediate1, Leaf1, RequestBuilderInner, Root1},
+    certificate::inner::{Intermediate1, Leaf1, Root1},
     format::Formattable,
     key_state::{KeyAvailable, KeyMismatchError, KeyUnavailable},
     keypair::PublicKey,
@@ -17,20 +23,17 @@ use crate::{
         common::{Description, Id},
         role::Role,
     },
-    HierarchyKind, IssuerAdditionalFields, KeyPair,
+    Exemption, HierarchyKind, Infrastructure, IssuerAdditionalFields, KeyPair, Manufacturer,
 };
 
-use super::{
-    version_wrappers::{RequestBuilderVersion, RequestVersion},
-    Certificate, IssuanceError, RequestDigest,
-};
+use super::{Certificate, IssuanceError, RequestDigest};
 
 #[derive(Debug)]
 pub struct CertificateRequest<R, K>
 where
     R: Role,
 {
-    pub(crate) version: RequestVersion<R>,
+    pub(crate) version: R::ReqVersion,
     key_state: K,
 }
 
@@ -49,6 +52,12 @@ where
 
     pub fn public_key(&self) -> &PublicKey {
         self.version.public_key()
+    }
+}
+
+impl<K> CertificateRequest<Exemption, K> {
+    pub fn blinding_allowed(&self) -> bool {
+        self.version.blinding_allowed()
     }
 }
 
@@ -75,7 +84,7 @@ impl<R> CertificateRequest<R, KeyUnavailable>
 where
     R: Role,
 {
-    pub(crate) fn new(version: RequestVersion<R>) -> CertificateRequest<R, KeyUnavailable> {
+    pub(crate) fn new(version: R::ReqVersion) -> CertificateRequest<R, KeyUnavailable> {
         Self {
             version,
             key_state: KeyUnavailable,
@@ -145,8 +154,7 @@ where
         tag: Tag,
         constraints: Constraints,
     ) -> Result<Self, D::Error> {
-        let version =
-            RequestVersion::<R>::decode_with_tag_and_constraints(decoder, tag, constraints)?;
+        let version = R::ReqVersion::decode_with_tag_and_constraints(decoder, tag, constraints)?;
         Ok(Self::new(version))
     }
 }
@@ -190,43 +198,154 @@ where
     }
 }
 
-pub struct RequestBuilder<R>(RequestBuilderVersion<R>);
+pub struct RequestBuilder<R> {
+    pub public_key: PublicKey,
+    pub description: Option<Description>,
+    pub emails_to_notify: Vec<String>,
+    pub allow_blinding: bool,
+    pub hierarchy: HierarchyKind,
+    pub role: PhantomData<R>,
+}
 
-impl<R> RequestBuilder<R>
-where
-    R: Role,
-{
+impl<R> RequestBuilder<R> {
+    pub fn new(hierarchy: HierarchyKind, public_key: PublicKey) -> Self {
+        RequestBuilder {
+            public_key,
+            description: None,
+            hierarchy,
+            role: PhantomData::<R>,
+            emails_to_notify: vec![],
+            allow_blinding: false,
+        }
+    }
+
+    pub fn with_description(mut self, desc: Description) -> Self {
+        self.description = Some(desc);
+        self
+    }
+
     pub fn root_v1_builder(public_key: PublicKey) -> RequestBuilder<R> {
-        let b = RequestBuilderInner::new(Root1::new(), public_key);
-        let version = RequestBuilderVersion::RootV1(b);
-        RequestBuilder(version)
+        RequestBuilder::new(HierarchyKind::Root, public_key)
     }
     pub fn intermediate_v1_builder(public_key: PublicKey) -> RequestBuilder<R> {
-        let b = RequestBuilderInner::new(Intermediate1::new(), public_key);
-        let version = RequestBuilderVersion::IntermediateV1(b);
-        RequestBuilder(version)
+        RequestBuilder::new(HierarchyKind::Intermediate, public_key)
     }
     pub fn leaf_v1_builder(public_key: PublicKey) -> RequestBuilder<R> {
-        let b = RequestBuilderInner::new(Leaf1::new(), public_key);
-        let version = RequestBuilderVersion::LeafV1(b);
-        RequestBuilder(version)
+        RequestBuilder::new(HierarchyKind::Leaf, public_key)
+    }
+}
+
+impl RequestBuilder<Exemption> {
+    pub fn with_emails_to_notify<S: Into<String>>(
+        mut self,
+        emails: impl IntoIterator<Item = S>,
+    ) -> Self {
+        self.emails_to_notify = emails.into_iter().map(|x| x.into()).collect();
+        self
     }
 
-    pub fn with_description(self, desc: Description) -> RequestBuilder<R> {
-        let version = self.0.with_description(desc);
-        Self(version)
+    pub fn allow_blinding(mut self, allow: bool) -> Self {
+        self.allow_blinding = allow;
+        self
     }
+}
 
-    pub fn with_emails_to_notify<T: Into<String>>(
-        self,
-        emails: impl IntoIterator<Item = T>,
-    ) -> RequestBuilder<R> {
-        let version = self.0.with_emails_to_notify(emails);
-        Self(version)
+pub trait Builder {
+    type Item;
+    fn build(self) -> Self::Item;
+}
+
+impl Builder for RequestBuilder<Exemption> {
+    type Item = CertificateRequest<Exemption, KeyUnavailable>;
+    fn build(self) -> CertificateRequest<Exemption, KeyUnavailable> {
+        let desc = self.description.unwrap_or_default();
+
+        let version = match self.hierarchy {
+            HierarchyKind::Root => {
+                let subject = ExemptionSubject1::new(
+                    desc,
+                    self.public_key,
+                    self.emails_to_notify,
+                    self.allow_blinding,
+                );
+                let inner = RequestInner::<Root1, Exemption, ExemptionSubject1>::new(subject);
+                ExemptionRequestVersion::RootV1(inner)
+            }
+            HierarchyKind::Intermediate => {
+                let subject = ExemptionSubject1::new(
+                    desc,
+                    self.public_key,
+                    self.emails_to_notify,
+                    self.allow_blinding,
+                );
+                let inner =
+                    RequestInner::<Intermediate1, Exemption, ExemptionSubject1>::new(subject);
+                ExemptionRequestVersion::IntermediateV1(inner)
+            }
+            HierarchyKind::Leaf => {
+                let subject = ExemptionSubject1::new(
+                    desc,
+                    self.public_key,
+                    self.emails_to_notify,
+                    self.allow_blinding,
+                );
+                let inner = RequestInner::<Leaf1, Exemption, ExemptionSubject1>::new(subject);
+                ExemptionRequestVersion::LeafV1(inner)
+            }
+        };
+        CertificateRequest::new(version)
     }
+}
 
-    pub fn build(self) -> CertificateRequest<R, KeyUnavailable> {
-        let version = self.0.build();
+impl Builder for RequestBuilder<Infrastructure> {
+    type Item = CertificateRequest<Infrastructure, KeyUnavailable>;
+    fn build(self) -> CertificateRequest<Infrastructure, KeyUnavailable> {
+        let desc = self.description.unwrap_or_default();
+
+        let version = match self.hierarchy {
+            HierarchyKind::Root => {
+                let subject = Subject1::new(desc, self.public_key, vec![]);
+                let inner = RequestInner::<Root1, Infrastructure, Subject1>::new(subject);
+                InfrastructureRequestVersion::RootV1(inner)
+            }
+            HierarchyKind::Intermediate => {
+                let subject = Subject1::new(desc, self.public_key, vec![]);
+                let inner = RequestInner::<Intermediate1, Infrastructure, Subject1>::new(subject);
+                InfrastructureRequestVersion::IntermediateV1(inner)
+            }
+            HierarchyKind::Leaf => {
+                let subject = Subject1::new(desc, self.public_key, vec![]);
+                let inner = RequestInner::<Leaf1, Infrastructure, Subject1>::new(subject);
+                InfrastructureRequestVersion::LeafV1(inner)
+            }
+        };
+        CertificateRequest::new(version)
+    }
+}
+
+impl Builder for RequestBuilder<Manufacturer> {
+    type Item = CertificateRequest<Manufacturer, KeyUnavailable>;
+
+    fn build(self) -> CertificateRequest<Manufacturer, KeyUnavailable> {
+        let desc = self.description.unwrap_or_default();
+
+        let version = match self.hierarchy {
+            HierarchyKind::Root => {
+                let subject = Subject1::new(desc, self.public_key, vec![]);
+                let inner = RequestInner::<Root1, Manufacturer, Subject1>::new(subject);
+                ManufacturerRequestVersion::RootV1(inner)
+            }
+            HierarchyKind::Intermediate => {
+                let subject = Subject1::new(desc, self.public_key, vec![]);
+                let inner = RequestInner::<Intermediate1, Manufacturer, Subject1>::new(subject);
+                ManufacturerRequestVersion::IntermediateV1(inner)
+            }
+            HierarchyKind::Leaf => {
+                let subject = Subject1::new(desc, self.public_key, vec![]);
+                let inner = RequestInner::<Leaf1, Manufacturer, Subject1>::new(subject);
+                ManufacturerRequestVersion::LeafV1(inner)
+            }
+        };
         CertificateRequest::new(version)
     }
 }
@@ -241,7 +360,7 @@ mod tests {
         pem::PemDecodable,
         pem::PemEncodable,
         shared_components::role::{Exemption, Infrastructure, Manufacturer},
-        Issued, IssuerAdditionalFields, KeyPair,
+        Builder, Issued, IssuerAdditionalFields, KeyPair,
     };
 
     #[test]
@@ -311,7 +430,7 @@ mod tests {
         let encoded = req.to_pem().unwrap();
 
         let result = Certificate::<Manufacturer, KeyUnavailable>::from_pem(encoded);
-        assert!(matches!(result, Err(DecodeError::UnexpectedPEMTag(_, _))));
+        assert!(matches!(result, Err(DecodeError::UnexpectedPemTag(_, _))));
     }
 
     #[test]

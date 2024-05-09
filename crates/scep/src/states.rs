@@ -1,12 +1,12 @@
 // Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::cookie::SessionCookie;
 use crate::nonce::ServerNonce;
 use crate::types::OpenRequest;
-use certificates::{Id, Signature};
+use certificates::{ExemptionListTokenGroup, Id, Signature, TokenBundle};
 use shared_types::hash::HashSpec;
 
 #[derive(Debug, Clone)]
@@ -20,6 +20,7 @@ pub struct InitializedClientState {
 pub struct OpenedClientState {
     pub client_mutual_auth_sig: Signature,
     pub hash_spec: HashSpec,
+    pub server_version: u64,
 }
 
 /// Small wrapper for handling client session logic.
@@ -75,11 +76,38 @@ pub struct ServerStateForOpenedClient {
 }
 
 #[derive(Debug)]
+pub enum EltState {
+    /// This client is not using exemption lists (regular `screen` endpoint).
+    NoElt,
+    /// This client is screening with exemption lists, but has not hit
+    /// `screen-with-EL` yet to tell us the size.
+    AwaitingEltSize,
+    /// The client has promised to send an ELT of the given size.
+    PromisedElt { elt_size: u64, otp: String },
+    /// The client has sent an ELT, but it contains raw sequences, so we are
+    /// waiting for them to hit `ELT-seq-hashes`.
+    EltNeedsHashes {
+        elt: Box<TokenBundle<ExemptionListTokenGroup>>,
+        otp: String,
+    },
+    /// The client has sent all ELT data, and we are ready for ELT-screen-hashes.
+    ///
+    /// This can mean that there were no raw sequences (in which case `hashes` is empty)
+    /// or the hashes for raw sequences have been received (via `ELT-seq-hashes`).
+    EltReady {
+        elt: Box<TokenBundle<ExemptionListTokenGroup>>,
+        hashes: HashSet<[u8; 32]>,
+        otp: String,
+    },
+}
+
+#[derive(Debug)]
 pub struct ServerStateForAuthenticatedClient {
     pub cookie: SessionCookie,
     pub open_request: OpenRequest,
     pub server_nonce: ServerNonce,
     pub hash_total_count: u64,
+    pub elt_state: EltState,
 }
 
 impl ServerStateForClient {

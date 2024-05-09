@@ -9,13 +9,13 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Request, RequestCredentials, RequestInit, RequestMode, Response};
 
-use crate::error::HTTPError;
+use crate::error::HttpError;
 use shared_types::requests::RequestId;
 use streamed_ristretto::web_sys::check_content_type;
 
-impl From<wasm_bindgen::JsValue> for HTTPError {
+impl From<wasm_bindgen::JsValue> for HttpError {
     fn from(value: wasm_bindgen::JsValue) -> Self {
-        HTTPError::JsError {
+        HttpError::JsError {
             error: format!("{value:?}"),
         }
     }
@@ -64,7 +64,7 @@ impl ApiClientCore {
         content_type: &'static str,
         header_iter: &[(String, String)],
         expected_content_type: &'static str,
-    ) -> Result<bytes::Bytes, HTTPError> {
+    ) -> Result<bytes::Bytes, HttpError> {
         let length = match &body {
             Some(b) => b.len() as u32,
             None => 0,
@@ -101,18 +101,21 @@ impl ApiClientCore {
             (_, Ok(global)) => JsFuture::from(global.fetch_with_request(&request)).await,
             _ => panic!("No global object!"),
         }
-        .map_err(|_e| HTTPError::RequestError {
+        .map_err(|_e| HttpError::RequestError {
             ctx: format!("posting {content_type} from WebAssembly"),
+            status: None,
             retriable: true,
             source: Box::new(WebFetchError { status: None }),
         })?;
 
         assert!(resp_value.is_instance_of::<Response>());
         let resp: Response = resp_value.dyn_into().unwrap();
+        let status = resp.status();
 
-        if resp.status() >= 400 {
-            return Err(HTTPError::RequestError {
+        if status >= 400 {
+            return Err(HttpError::RequestError {
                 ctx: format!("posting {content_type} from WebAssembly"),
+                status: Some(status),
                 retriable: super::status_code::is_retriable(resp.status()),
                 source: Box::new(WebFetchError {
                     status: Some(resp.status()),
@@ -121,8 +124,9 @@ impl ApiClientCore {
         }
 
         check_content_type(&resp.headers(), expected_content_type).map_err(|e| {
-            HTTPError::RequestError {
+            HttpError::RequestError {
                 ctx: format!("got wrong content type back posting ristrettos to {url}"),
+                status: Some(status),
                 retriable: false,
                 source: e.into(),
             }

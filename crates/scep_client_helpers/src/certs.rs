@@ -30,7 +30,12 @@ impl ClientCerts {
             .with_context(|| format!("reading token from {:?}", token_path.as_ref()))?;
 
         let keypair = load_keypair_from_file(keypair_path.as_ref(), keypair_passphrase)
-            .with_context(|| format!("reading keypair from {:?}", keypair_path.as_ref()))?;
+            .with_context(|| {
+                format!(
+                    "reading keypair from {:?}. Consider checking if passphrase is correct.",
+                    keypair_path.as_ref()
+                )
+            })?;
 
         Ok(Self {
             issuer_pks,

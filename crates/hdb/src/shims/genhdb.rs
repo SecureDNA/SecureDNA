@@ -15,7 +15,7 @@ use rayon::prelude::*;
 use tracing::info;
 
 use crate::database::Database;
-use crate::hlt::{HLTEntry, HLTId, HazardLookupTable};
+use crate::hlt::{HazardLookupTable, HltEntry, HltId};
 use crate::{tags, Entry};
 use crate::{Metadata, Provenance};
 use doprf::prf::{KeyShare, Query};
@@ -403,23 +403,23 @@ fn generate(opts: &Opts, mut hlt: HazardLookupTable) -> anyhow::Result<HazardLoo
         // we group all the accessions together for this organism, since we want the an_subindex to
         // point to the whole organism, since we don't have per-hazard accession data currently.
         let entry = {
-            let mut hlt_id_group: Vec<HLTId> = hazard_meta
+            let mut hlt_id_group: Vec<HltId> = hazard_meta
                 .accessions
                 .iter()
-                .map(|s| HLTId::Accession(s.clone()))
+                .map(|s| HltId::Accession(s.clone()))
                 .collect();
 
-            hlt_id_group.push(HLTId::OrganismName(hazard_meta.common_name.clone()));
+            hlt_id_group.push(HltId::OrganismName(hazard_meta.common_name.clone()));
 
-            hlt_id_group.extend(hazard_meta.tags.iter().map(|s| HLTId::Tag(*s)));
+            hlt_id_group.extend(hazard_meta.tags.iter().map(|s| HltId::Tag(*s)));
 
             if hazard_meta.tiled {
-                hlt_id_group.push(HLTId::Tiled);
+                hlt_id_group.push(HltId::Tiled);
             }
 
-            hlt_id_group.push(HLTId::OrganismType(hazard_meta.organism_type));
+            hlt_id_group.push(HltId::OrganismType(hazard_meta.organism_type));
 
-            HLTEntry::new(vec![hlt_id_group])
+            HltEntry::new(vec![hlt_id_group])
         };
         let hazard_hlt_index = hlt.insert(entry);
         let an_subindex = 0_u8;
@@ -789,7 +789,7 @@ mod tests {
                 merged_hlt_entry
                     .get(merged_meta.an_subindex)
                     .expect("merged meta HLT entry missing merged an_subindex"),
-                &vec![HLTId::Accession("NC_00002".into())]
+                &vec![HltId::Accession("NC_00002".into())]
             );
             assert_eq!(hlt.get(&0), base_hlt.get(&0));
             assert_eq!(hlt.get(&198), base_hlt.get(&198));

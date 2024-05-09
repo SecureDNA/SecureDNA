@@ -31,6 +31,7 @@ use crate::error::DecodeError;
 use crate::error::EncodeError;
 use crate::pem::PemDecodable;
 use crate::pem::PemTaggable;
+use crate::shared_components::common::Signed;
 use crate::PemEncodable;
 
 #[derive(Clone)]
@@ -51,6 +52,15 @@ impl KeyPair {
         let sig = self.0.sign(message);
         let bytes: [u8; 64] = sig.to_bytes();
         Signature(bytes)
+    }
+
+    pub fn sign_asn_encodable_data<H: ToASN1DerBytes>(
+        &self,
+        data: H,
+    ) -> Result<Signed<H>, EncodeError> {
+        let bytes = data.to_der()?;
+        let signature = self.sign(&bytes);
+        Ok(Signed { data, signature })
     }
 
     pub fn write_key<W: Write, T: AsRef<[u8]>>(

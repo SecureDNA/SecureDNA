@@ -299,8 +299,8 @@ mod tests {
             load_cert_request_from_file, save_cert_request_to_file, save_token_request_to_file,
             FileError, CERT_REQUEST_EXT,
         },
-        CertificateBundle, CertificateChain, DatabaseTokenGroup, DatabaseTokenRequest, Exemption,
-        HltTokenGroup, HltTokenRequest, Infrastructure, IssuerAdditionalFields, KeyPair,
+        Builder, CertificateBundle, CertificateChain, DatabaseTokenGroup, DatabaseTokenRequest,
+        Exemption, HltTokenGroup, HltTokenRequest, Infrastructure, IssuerAdditionalFields, KeyPair,
         KeyserverTokenGroup, KeyserverTokenRequest, PublicKey, RequestBuilder,
         SynthesizerTokenGroup, SynthesizerTokenRequest,
     };
@@ -323,14 +323,15 @@ mod tests {
             .unwrap();
 
         let int_kp = KeyPair::new_random();
-        let int_req = RequestBuilder::intermediate_v1_builder(int_kp.public_key()).build();
+        let int_req =
+            RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
         let int_cert = root_cert
             .issue_cert(int_req, IssuerAdditionalFields::default())
             .unwrap();
 
-        let mut chain = CertificateChain::new();
-        chain.add_certificate(root_cert);
+        let mut chain = CertificateChain::<Exemption>::new();
+        chain.add_item(root_cert);
 
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("test_cert.cert");
@@ -341,7 +342,6 @@ mod tests {
         let cfc = load_certificate_bundle_from_file::<Exemption>(&path).unwrap();
 
         assert!(cfc.certs.contains(&int_cert));
-        assert_eq!(cfc.chain, chain);
     }
 
     #[test]
@@ -486,7 +486,11 @@ mod tests {
         let request_path = PathBuf::from("/dev/null");
 
         let kp = KeyPair::new_random();
-        let request = RequestBuilder::<Exemption>::intermediate_v1_builder(kp.public_key()).build();
+
+        let request = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
+            .allow_blinding(true)
+            .build();
+
         save_cert_request_to_file(request, &request_path)
             .expect_err("should error when trying to save to /dev/null");
     }

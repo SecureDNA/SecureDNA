@@ -8,17 +8,19 @@ use std::fmt::{Display, Formatter};
 pub const EXPIRED_TEXT: &str = "Expired";
 pub const NOT_YET_VALID_TEXT: &str = "Not yet valid";
 pub const INVALID_SIGNATURE_TEXT: &str = "The signature failed verification";
+pub const REVOKED_TEXT: &str = "Revoked";
 
 #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
-pub enum InvalidityReason {
+pub enum InvalidityCause {
     ValidityPeriod(OutsideValidityPeriod),
     SignatureFailure,
+    Revoked,
 }
 
-impl Display for InvalidityReason {
+impl Display for InvalidityCause {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            InvalidityReason::ValidityPeriod(reason) => match reason {
+            InvalidityCause::ValidityPeriod(reason) => match reason {
                 OutsideValidityPeriod::Expired => {
                     write!(f, "{}", EXPIRED_TEXT)
                 }
@@ -26,31 +28,36 @@ impl Display for InvalidityReason {
                     write!(f, "{}", NOT_YET_VALID_TEXT)
                 }
             },
-            InvalidityReason::SignatureFailure => {
+            InvalidityCause::SignatureFailure => {
                 write!(f, "{}", INVALID_SIGNATURE_TEXT)
+            }
+            InvalidityCause::Revoked => {
+                write!(f, "{}", REVOKED_TEXT)
             }
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
-pub struct ValidationFailure(Vec<InvalidityReason>);
+pub struct ValidationFailure {
+    pub causes: Vec<InvalidityCause>,
+}
 
 impl ValidationFailure {
-    pub fn new(validation_failures: Vec<InvalidityReason>) -> Self {
-        Self(validation_failures)
+    pub fn new(causes: Vec<InvalidityCause>) -> Self {
+        Self { causes }
     }
 }
 
 impl Display for ValidationFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0.len() == 1 {
-            writeln!(f, "INVALID: {}", self.0[0])?;
+        if self.causes.len() == 1 {
+            writeln!(f, "INVALID: {}", self.causes[0])?;
         }
-        if self.0.len() > 1 {
+        if self.causes.len() > 1 {
             writeln!(f, "INVALID:")?;
-            for reason in &self.0 {
-                writeln!(f, "{}", reason)?;
+            for cause in &self.causes {
+                writeln!(f, "{}", cause)?;
             }
         }
         Ok(())

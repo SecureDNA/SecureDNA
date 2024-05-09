@@ -25,9 +25,9 @@ pub struct RequestCommon {
     /// exempt this request from certain hazards.
     #[serde(default)]
     pub elt_pem: Option<String>,
-    /// A Yubico OTP for the Yubikey ID embedded in `elt_pem`.
+    /// A 2FA OTP for one of the authenticators embedded in `elt_pem`.
     #[serde(default)]
-    pub yubico_otp: Option<String>,
+    pub otp: Option<String>,
 }
 
 /// Region jurisdictions for handling requests. Controls e.g. what rules to use for setting
@@ -272,7 +272,7 @@ mod tests {
                 common: RequestCommon {
                     region: Region::All,
                     elt_pem: None,
-                    yubico_otp: None,
+                    otp: None,
                     provider_reference: None,
                 },
             }
@@ -298,7 +298,7 @@ mod tests {
                     region: Region::All,
                     provider_reference: None,
                     elt_pem: None,
-                    yubico_otp: None,
+                    otp: None,
                 },
             }
         )
@@ -322,7 +322,7 @@ mod tests {
                 common: RequestCommon {
                     region: Region::All,
                     elt_pem: None,
-                    yubico_otp: None,
+                    otp: None,
                     provider_reference: Some("arbitrary test #5824".into()),
                 }
             }
@@ -347,7 +347,7 @@ mod tests {
                 common: RequestCommon {
                     region: Region::All,
                     elt_pem: None,
-                    yubico_otp: None,
+                    otp: None,
                     provider_reference: Some("arbitrary test #5824".into()),
                 }
             }

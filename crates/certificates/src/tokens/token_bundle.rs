@@ -4,10 +4,11 @@
 use rasn::{AsnType, Decode, Encode};
 use thiserror::Error;
 
+use crate::chain::Chain;
 use crate::{
     asn::{FromASN1DerBytes, ToASN1DerBytes},
-    key_state::KeyUnavailable,
-    Certificate, CertificateChain, DecodeError, EncodeError, Issued, MultiItemPemBuilder,
+    ChainItem, ChainTraversal, DecodeError, EncodeError, Exemption, ExemptionListTokenGroup,
+    MultiItemPemBuilder,
 };
 
 use super::TokenGroup;
@@ -20,15 +21,18 @@ where
     T: TokenGroup,
 {
     pub token: T::Token,
-    pub chain: CertificateChain<T::AssociatedRole>,
+    pub(crate) chain: T::ChainType,
 }
 
 impl<T> TokenBundle<T>
 where
     T: TokenGroup,
 {
-    pub fn new(token: T::Token, chain: CertificateChain<T::AssociatedRole>) -> Self {
-        Self { token, chain }
+    pub fn new(token: T::Token, chain: impl Into<T::ChainType>) -> Self {
+        Self {
+            token,
+            chain: chain.into(),
+        }
     }
 
     /// Serializing for file storage
@@ -53,7 +57,7 @@ where
             .ok_or(TokenBundleError::NoTokenFound)?;
 
         let chain = pem_items
-            .find_all::<CertificateChain<T::AssociatedRole>>()?
+            .find_all::<T::ChainType>()?
             .into_iter()
             .next()
             .ok_or(TokenBundleError::NoChainFound)?;
@@ -70,14 +74,25 @@ where
     pub fn from_wire_format(data: impl AsRef<[u8]>) -> Result<Self, DecodeError> {
         Self::from_der(data)
     }
+}
 
-    pub fn issuers(&self) -> Vec<Certificate<T::AssociatedRole, KeyUnavailable>> {
-        self.chain
-            .items()
-            .into_iter()
-            .filter(|issuer| self.token.was_issued_by_cert(issuer) && issuer.validate().is_ok())
-            .cloned()
-            .collect()
+impl<T: TokenGroup> ChainTraversal for TokenBundle<T> {
+    type R = T::AssociatedRole;
+
+    fn chain(&self) -> Chain<Self::R> {
+        self.chain.clone().into()
+    }
+
+    fn bundle_subjects(&self) -> Vec<ChainItem<Self::R>> {
+        vec![self.token.clone().into()]
+    }
+}
+
+impl TokenBundle<ExemptionListTokenGroup> {
+    pub fn issue_chain(&self) -> Chain<Exemption> {
+        let mut new_chain = self.chain.clone();
+        new_chain.add_item(self.token.clone());
+        new_chain
     }
 }
 

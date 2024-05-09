@@ -3,10 +3,12 @@
 
 use clap::Parser;
 
+use minhttp::mpserver::common::run_server;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let opts = keyserver::Opts::parse();
-    keyserver::run(opts, async {}).await
+    run_server(opts.cfg_path, keyserver::server_setup()).await
 }

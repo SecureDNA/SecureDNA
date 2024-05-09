@@ -66,6 +66,7 @@ tempfile = { workspace = true }
 hdb = { path = "../hdb" }
 hdbserver = { path = "../hdbserver" }
 keyserver = { path = "../keyserver" }
+minhttp = { path = "../minhttp" }
 pipeline_bridge = { path = "../pipeline_bridge" }
 quickdna = { workspace = true, default-features = false, features = [
   "quickcheck",

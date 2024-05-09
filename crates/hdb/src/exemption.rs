@@ -4,7 +4,10 @@
 use std::collections::HashSet;
 
 use crate::{database::EntryHash, HdbOrganism};
-use certificates::{ExemptionListTokenGroup, SequenceIdentifier, TokenBundle};
+use certificates::{
+    test_helpers::create_elt_bundle_with_exemptions, ExemptionListTokenGroup, SequenceIdentifier,
+    TokenBundle,
+};
 
 #[derive(Default, Debug)]
 pub struct Exemptions {
@@ -46,43 +49,15 @@ impl Exemptions {
     }
 }
 
-#[cfg(test)]
-pub fn make_exemptions(organisms: Vec<certificates::Organism>) -> Exemptions {
-    use certificates::{
-        test_helpers::create_leaf_cert, CertificateBundle, Description, Exemption,
-        ExemptionListTokenRequest, Expiration,
-    };
-    let requestor = Description::default()
-        .with_name("some researcher")
-        .with_email("email@example.com");
+pub fn make_test_elt(
+    organisms: Vec<certificates::Organism>,
+) -> TokenBundle<ExemptionListTokenGroup> {
+    create_elt_bundle_with_exemptions(organisms).0
+}
 
-    let shipping_address = vec!["19 Some Street".to_string(), "Some City".to_string()];
-
-    let eltr = ExemptionListTokenRequest::v1_token_request(
-        organisms,
-        requestor,
-        vec![],
-        vec![shipping_address],
-    );
-
-    let leaf_cert = create_leaf_cert::<Exemption>();
-
-    let issuer_auth_devices = Vec::new();
-
-    let token = leaf_cert
-        .issue_elt(
-            eltr,
-            Expiration::expiring_in_days(90).unwrap(),
-            issuer_auth_devices,
-        )
-        .unwrap();
-
-    let leaf_cert_bundle = CertificateBundle::new(leaf_cert, None);
-    let chain = leaf_cert_bundle.issue_chain();
-    let token_bundle = TokenBundle { token, chain };
-
+pub fn make_test_exemptions(organisms: Vec<certificates::Organism>) -> Exemptions {
     Exemptions {
-        token_bundles: vec![token_bundle],
+        token_bundles: vec![make_test_elt(organisms)],
         hashes: HashSet::new(),
     }
 }
@@ -130,19 +105,19 @@ mod test {
         };
 
         // These ELs *don't* cover the organism:
-        assert!(!make_exemptions(vec![irrelevant.clone()]).is_organism_exempt(&test_organism));
-        assert!(!make_exemptions(vec![no_cover]).is_organism_exempt(&test_organism));
+        assert!(!make_test_exemptions(vec![irrelevant.clone()]).is_organism_exempt(&test_organism));
+        assert!(!make_test_exemptions(vec![no_cover]).is_organism_exempt(&test_organism));
 
         // This one covers the organism exactly:
-        assert!(make_exemptions(vec![exact.clone()]).is_organism_exempt(&test_organism));
+        assert!(make_test_exemptions(vec![exact.clone()]).is_organism_exempt(&test_organism));
 
         // This one contains superfluous ANs, but covers the organism:
-        assert!(make_exemptions(vec![superfluous]).is_organism_exempt(&test_organism));
+        assert!(make_test_exemptions(vec![superfluous]).is_organism_exempt(&test_organism));
 
         // It suffices for any entry of the EL to cover the organism:
-        assert!(make_exemptions(vec![exact, irrelevant]).is_organism_exempt(&test_organism));
+        assert!(make_test_exemptions(vec![exact, irrelevant]).is_organism_exempt(&test_organism));
 
         // Here the ANs don't quite match, but the organism name matches exactly:
-        assert!(make_exemptions(vec![by_name]).is_organism_exempt(&test_organism));
+        assert!(make_test_exemptions(vec![by_name]).is_organism_exempt(&test_organism));
     }
 }

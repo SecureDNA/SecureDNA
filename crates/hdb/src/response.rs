@@ -7,8 +7,8 @@ use pipeline_bridge::{OrganismType, Tag};
 use shared_types::synthesis_permission::{Region, SynthesisPermission};
 
 use crate::{
-    hlt::HLTLookupError, synthesis_permission::PermissionResult, tags, Exemptions, HLTId,
-    HazardLookupTable, Metadata, Provenance,
+    hlt::HltLookupError, synthesis_permission::PermissionResult, tags, Exemptions,
+    HazardLookupTable, HltId, Metadata, Provenance,
 };
 
 /// Note: if modifying this structure, make sure to also modify Hash impl!
@@ -55,10 +55,10 @@ pub enum HdbResponseError {
 
 impl HdbOrganism {
     pub fn from_ids(
-        ids: &[HLTId],
+        ids: &[HltId],
         hlt_index: u32,
         an_subindex: u8,
-    ) -> Result<Self, HLTLookupError> {
+    ) -> Result<Self, HltLookupError> {
         let mut name: Option<String> = None;
         let mut organism_type: Option<OrganismType> = None;
         let mut ans = vec![];
@@ -66,17 +66,17 @@ impl HdbOrganism {
 
         for id in ids {
             match id {
-                HLTId::OrganismName(s) => name = Some(s.clone()),
-                HLTId::Accession(an) => ans.push(an.clone()),
-                HLTId::Tag(tag) => tags.push(*tag),
-                HLTId::Tiled => {}
-                HLTId::OrganismType(t) => organism_type = Some(*t),
+                HltId::OrganismName(s) => name = Some(s.clone()),
+                HltId::Accession(an) => ans.push(an.clone()),
+                HltId::Tag(tag) => tags.push(*tag),
+                HltId::Tiled => {}
+                HltId::OrganismType(t) => organism_type = Some(*t),
             }
         }
 
-        let name = name.ok_or(HLTLookupError::MissingOrganismName(hlt_index, an_subindex))?;
+        let name = name.ok_or(HltLookupError::MissingOrganismName(hlt_index, an_subindex))?;
         let organism_type =
-            organism_type.ok_or(HLTLookupError::MissingOrganismType(hlt_index, an_subindex))?;
+            organism_type.ok_or(HltLookupError::MissingOrganismType(hlt_index, an_subindex))?;
         ans.sort();
         ans.dedup();
         tags.sort();
@@ -96,7 +96,7 @@ impl HdbResponse {
         region: Region,
         exemptions: &Exemptions,
         hlt: &HazardLookupTable,
-    ) -> Result<Self, HLTLookupError> {
+    ) -> Result<Self, HltLookupError> {
         let (hlt_entry, likely_hltids) =
             hlt.get_with_subindex(&metadata.hlt_index, &metadata.an_subindex)?;
 
@@ -124,7 +124,7 @@ impl HdbResponse {
 
         // It's unlikely that we'll cross major taxonomic boundaries, so we'd expect that if one
         // hazard is tiled, then all hazards should be tiled (same for hazard_type)
-        let tiled = likely_hltids.iter().any(HLTId::tiled);
+        let tiled = likely_hltids.iter().any(HltId::tiled);
         let window_gap = metadata.provenance.window_gap(tiled);
 
         let PermissionResult { permission, exempt } = crate::synthesis_permission::get_permission(
@@ -151,7 +151,7 @@ impl HdbResponse {
 mod tests {
     use certificates::{GenbankId, Organism, SequenceIdentifier};
 
-    use crate::exemption::make_exemptions;
+    use crate::exemption::make_test_exemptions;
 
     use super::*;
 
@@ -273,7 +273,7 @@ mod tests {
         insta::assert_yaml_snapshot!(HdbResponse::with_hlt(
             metadata,
             Region::Us,
-            &make_exemptions(vec![exemption]),
+            &make_test_exemptions(vec![exemption]),
             &hlt
         )
         .unwrap())
@@ -301,7 +301,7 @@ mod tests {
         insta::assert_yaml_snapshot!(HdbResponse::with_hlt(
             metadata,
             Region::Us,
-            &make_exemptions(vec![exemption]),
+            &make_test_exemptions(vec![exemption]),
             &hlt
         )
         .unwrap())

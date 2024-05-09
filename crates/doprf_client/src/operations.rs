@@ -1,14 +1,14 @@
 // Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::error::DOPRFError;
+use crate::error::DoprfError;
 use crate::instant::get_now;
 use crate::progress::report_progress;
 use doprf::active_security::ActiveSecurityKey;
 use doprf::party::KeyserverId;
 use doprf::prf::{HashPart, QueryStateSet};
 use doprf::tagged::{HashTag, TaggedHash};
-use packed_ristretto::PackedRistrettos;
+use packed_ristretto::{PackableRistretto, PackedRistrettos};
 
 use shared_types::debug_with_timestamp;
 use shared_types::requests::RequestContext;
@@ -54,7 +54,7 @@ pub fn make_keyserver_querysets(
     sequences: &[(HashTag, impl AsRef<str> + Sync)],
     num_required_keyshares: usize,
     target: &ActiveSecurityKey,
-) -> Result<QueryStateSet, DOPRFError> {
+) -> QueryStateSet {
     let now = get_now();
 
     assert!(!sequences.is_empty());
@@ -72,18 +72,22 @@ pub fn make_keyserver_querysets(
 
     let setup_duration = now.elapsed();
     debug_with_timestamp!("Setting up done. Took: {:.2?}", setup_duration);
-    Ok(querystates)
+    querystates
 }
 
 /// Given a QueryStateSet, and a Vec of keyserver responses,
 /// incorporate the responses into the querystate.
 /// Then compute packed Ristretto hashes for the QueryStateSet.
 /// The result is used to query HDB.
-pub async fn incorporate_responses_and_hash(
+pub async fn incorporate_responses_and_hash<R>(
     request_ctx: &RequestContext,
     mut querystate: QueryStateSet,
     keyserver_responses: Vec<(KeyserverId, PackedRistrettos<HashPart>)>,
-) -> Result<PackedRistrettos<TaggedHash>, DOPRFError> {
+) -> Result<PackedRistrettos<R>, DoprfError>
+where
+    R: From<TaggedHash> + PackableRistretto + 'static,
+    <R as PackableRistretto>::Array: Send + 'static,
+{
     let now = get_now();
     report_progress(request_ctx);
 
@@ -106,12 +110,12 @@ pub async fn incorporate_responses_and_hash(
 
     let now = get_now();
     report_progress(request_ctx);
-    let hash_values: PackedRistrettos<TaggedHash> = spawn_blocking(move || {
+    let hash_values: PackedRistrettos<R> = spawn_blocking(move || {
         querystate
             .get_hash_values()
             .expect("error processing keyserver responses")
             .into_iter()
-            .map(|(tag, hash)| TaggedHash { tag, hash })
+            .map(R::from)
             .collect()
     })
     .await

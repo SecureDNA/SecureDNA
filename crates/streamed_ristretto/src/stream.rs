@@ -10,12 +10,13 @@ use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 
 use bytes::{Buf, Bytes};
+use doprf::tagged::TaggedHash;
 use futures::{Stream, TryStream};
 use http::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use pin_project::pin_project;
 use thiserror::Error;
 
-use doprf::prf::Query;
+use doprf::prf::{CompletedHashValue, Query};
 
 use crate::util;
 use crate::HasContentType;
@@ -63,6 +64,26 @@ impl StreamableRistretto for Query {
     fn fit_error(error: &ShortErrorMsg) -> Self::Array {
         let mut data = [255; HASH_SIZE];
         data[1..HASH_SIZE - 1].copy_from_slice(error);
+        data
+    }
+}
+
+impl StreamableRistretto for CompletedHashValue {
+    type Array = [u8; HASH_SIZE];
+    type ConversionError = <Self::Array as TryInto<Self>>::Error;
+
+    fn fit_error(error: &ShortErrorMsg) -> Self::Array {
+        Query::fit_error(error)
+    }
+}
+
+impl StreamableRistretto for TaggedHash {
+    type Array = [u8; TaggedHash::SIZE];
+    type ConversionError = <Self::Array as TryInto<Self>>::Error;
+
+    fn fit_error(error: &ShortErrorMsg) -> Self::Array {
+        let mut data = [255; TaggedHash::SIZE];
+        data[4 + 1..TaggedHash::SIZE - 1].copy_from_slice(error);
         data
     }
 }

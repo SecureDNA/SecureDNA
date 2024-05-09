@@ -4,7 +4,7 @@
 use bytes::Bytes;
 use tracing::debug;
 
-use crate::error::HTTPError;
+use crate::error::HttpError;
 use shared_types::requests::RequestId;
 use streamed_ristretto::reqwest::check_content_type;
 
@@ -51,7 +51,7 @@ impl ApiClientCore {
         content_type: &'static str,
         header_iter: &[(String, String)],
         expected_content_type: &'static str,
-    ) -> Result<bytes::Bytes, HTTPError> {
+    ) -> Result<bytes::Bytes, HttpError> {
         let mut rb = match body {
             Some(b) => self
                 .client
@@ -67,8 +67,9 @@ impl ApiClientCore {
 
         debug!("http_client: requesting {url}");
 
-        let response = rb.send().await.map_err(|e| HTTPError::RequestError {
+        let response = rb.send().await.map_err(|e| HttpError::RequestError {
             ctx: format!("requesting {url}"),
+            status: None,
             retriable: true,
             source: Box::new(e),
         })?;
@@ -77,28 +78,39 @@ impl ApiClientCore {
 
         let retriable = super::status_code::is_retriable(response.status().as_u16());
 
-        let body = async {
-            let status = response.status();
-            let content_type_err = check_content_type(response.headers(), expected_content_type);
-            let bytes = response.bytes().await?;
+        let status = response.status();
+        let content_type_err = check_content_type(response.headers(), expected_content_type);
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| HttpError::RequestError {
+                ctx: format!("requesting {url}"),
+                status: Some(status.as_u16()),
+                retriable,
+                source: e.into(),
+            })?;
 
-            if content_type_err.is_err() {
-                Err(format!(
-                    "{status}: {}: {}",
+        if status.is_client_error() || status.is_server_error() {
+            Err(HttpError::RequestError {
+                ctx: format!("requesting {url}"),
+                status: Some(status.as_u16()),
+                retriable,
+                source: String::from_utf8_lossy(&bytes).into(),
+            })
+        } else if content_type_err.is_err() {
+            Err(HttpError::RequestError {
+                ctx: format!("requesting {url}"),
+                status: Some(status.as_u16()),
+                retriable,
+                source: format!(
+                    "{}: {}",
                     content_type_err.unwrap_err(),
                     String::from_utf8_lossy(&bytes)
                 )
-                .into())
-            } else if status.is_client_error() || status.is_server_error() {
-                Err(format!("{status}: {}", String::from_utf8_lossy(&bytes)).into())
-            } else {
-                Ok(bytes)
-            }
-        };
-        body.await.map_err(|e| HTTPError::RequestError {
-            ctx: format!("requesting {url}"),
-            retriable,
-            source: e,
-        })
+                .into(),
+            })
+        } else {
+            Ok(bytes)
+        }
     }
 }

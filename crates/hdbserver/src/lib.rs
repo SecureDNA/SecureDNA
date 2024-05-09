@@ -9,5 +9,5 @@ mod server;
 mod state;
 mod validation;
 
-pub use opts::Opts;
-pub use server::run;
+pub use opts::{Config, Opts};
+pub use server::server_setup;

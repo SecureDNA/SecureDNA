@@ -7,4 +7,4 @@ pub mod error;
 
 pub use api_client::{BaseApiClient, HttpsToHttpRewriter};
 pub use api_client_core::test_utils;
-pub use error::HTTPError;
+pub use error::HttpError;

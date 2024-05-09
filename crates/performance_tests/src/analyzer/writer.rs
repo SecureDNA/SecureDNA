@@ -5,7 +5,6 @@ use crate::shared::config::Config;
 use anyhow::Context;
 use csv::Writer;
 use itertools::Itertools;
-use serde_json;
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::path::PathBuf;

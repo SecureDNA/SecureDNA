@@ -7,7 +7,7 @@ profile = "default"
 components = ["rust-src"]
 
 # When changing, also change the default image in the Earthfile
-channel = "1.75.0"
+channel = "1.76.0"
 
 # Host platform included by default, this list is additive
 targets = [ "wasm32-unknown-unknown" ]

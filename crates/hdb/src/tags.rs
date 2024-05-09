@@ -5,7 +5,7 @@
 
 use pipeline_bridge::Tag;
 
-use crate::{hlt::HLTLookupError, HazardLookupTable, Metadata, Provenance};
+use crate::{hlt::HltLookupError, HazardLookupTable, Metadata, Provenance};
 
 /// Returns whether the metadata a) is DNA, and b) points to an HLT id_group containing
 /// the `SdnaLowRiskDNA` tag.
@@ -15,7 +15,7 @@ use crate::{hlt::HLTLookupError, HazardLookupTable, Metadata, Provenance};
 pub fn metadata_is_low_risk_dna(
     metadata: &Metadata,
     hlt: &HazardLookupTable,
-) -> Result<bool, HLTLookupError> {
+) -> Result<bool, HltLookupError> {
     if !metadata.provenance.is_dna() {
         return Ok(false);
     }

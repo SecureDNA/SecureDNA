@@ -15,33 +15,34 @@ import {
 } from "./sign_eltr";
 
 const cert1234Pem: string = `-----BEGIN SECUREDNA EXEMPTION CERTIFICATE-----
-MIIBWaKCAVUwggFRoIIBC6AHgAVMRUFGMYEJRVhFTVBUSU9OooH0oIGDgAhTVUJK
-RUNUMYEQ/UgmvvEfZtvnF8iFRIYYRoIghZfkNj2cXtdTsDDM4rErJIb/K8pIos3I
-ES+Z3na4HiajGoAESmFja4ESamFja0BzZWN1cmVkbmEub3JnpCcMEmJpbGxAc2Vj
-dXJlZG5hLm9yZwwRYm9iQHNlY3VyZWRuYS5vcmehbIAHSVNTVUVSMYEQYfMPUCf4
-6DXU0uTWnfSJh6I+gCAIEWRGwLD3YKNCOAhnx70ezVSKb7u9ykzmoPm/uuu9nIEa
-SmFtZXMsIGphbWVzQHNlY3VyZWRuYS5vcmejDYAEZS21/4EFASEl0/+kAIFAYLRH
-BqBaTNR5yYM8dzesiETrARChul/bQAYOaM+XjXACdWk+wuzGeCno548Nv90MWw1D
-Dn9Rphco1XkIwBVZDA==
+MIIBZqKCAWIwggFeoIIBGKAHgAVMRUFGMYEJRVhFTVBUSU9OooIBAKCBj4ARRVhF
+TVBUSU9OU1VCSkVDVDGBEH2isSL3AlXUZZg6D+t5sQCCIKQJCuWZRgfb7vnP9upJ
+YUewga1ITmzHx0SjwRl01R0aoxqABEphY2uBEmphY2tAc2VjdXJlZG5hLm9yZ6Qn
+DBJiaWxsQHNlY3VyZWRuYS5vcmcMEWJvYkBzZWN1cmVkbmEub3JnhQEAoWyAB0lT
+U1VFUjGBEBbfpiDooxMyAm+aPVLChhSiPoAgRZ3zAm9LbmDH/mNHCvxfSUg1epzm
+ywZ05H/hnlbVn7aBGkphbWVzLCBqYW1lc0BzZWN1cmVkbmEub3Jnow2ABGX+Z8GB
+BQEh9oXBpACBQFSQYFzeC/t3YzPBOxk7vYLAdloT5nkajifzPjPOhT1ztlnL85Kq
+BjAPwe3KrL+sLqKENxEENOxEM7Y5jMyRQwg=
 -----END SECUREDNA EXEMPTION CERTIFICATE-----
 
 -----BEGIN SECUREDNA EXEMPTION CERTIFICATE CHAIN-----
-MIIBMjCCAS6hggEqMIIBJqCB4aAGgARJTlQxgQlFWEVNUFRJT06igcugXoAIU1VC
-SkVDVDGBEKkUFj8BD9oqD9vYT6EaBgyCIAgRZEbAsPdgo0I4CGfHvR7NVIpvu73K
-TOag+b+6672coxyABUphbWVzgRNqYW1lc0BzZWN1cmVkbmEub3JnpAChaYAHSVNT
-VUVSMYEQAG/157+Qkx8m9fdLXxi7nqI8gCDcrRCouTGnQlh2aLVkGgqpPPM1/FhO
-xeRGQjPaFLyi34EYRnJhbiwgZnJhbkBzZWN1cmVkbmEub3JnowyABGUttfmBBGVS
-n/mkAIFALmF19OEK3iKCwKmSD66LidBwO1wVpKCe9KThDA///EhPSTHq68jXT8Le
-ERAvvFGsrxknK4+xbvFLns3TOiBYDw==
+MIIBPjCCATqhggE2MIIBMqCB7aAGgARJTlQxgQlFWEVNUFRJT06igdegaoARRVhF
+TVBUSU9OU1VCSkVDVDGBECDtc3kftVqNb1PX1OOYkGuCIEWd8wJvS25gx/5jRwr8
+X0lINXqc5ssGdOR/4Z5W1Z+2oxyABUphbWVzgRNqYW1lc0BzZWN1cmVkbmEub3Jn
+pACFAQChaYAHSVNTVUVSMYEQRJKrOx5j6IRTjanEd4pBPaI8gCCJmOdLRO1IN5iL
+j7+6zkLYr4TNeWdvhvlLZOQgP8SaXoEYRnJhbiwgZnJhbkBzZWN1cmVkbmEub3Jn
+owyABGX+Z7SBBGYjUbSkAIFAB1/9QSK1jo1rJZVqzyk2VxLxUquhSj5jdmWJqCPp
+OvgMHHvi8lyXBhJfFkgBzjJAhmzdhZD28nWM/IMRLEb3DA==
 -----END SECUREDNA EXEMPTION CERTIFICATE CHAIN-----`;
 
 const priv1234Pem: string = `-----BEGIN SECUREDNA ENCRYPTED PRIVATE KEY-----
-MIHEMGAGCSqGSIb3DQEFDTBTMDIGCSqGSIb3DQEFDDAlBBC5ZZyZbMvcN74ds0Oo
-FoiFAgMBhqAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEE6RlXGs1nI7E+lb
-MuKBkbMEYMT50QQ4Il2RO76+FyToMHvdBKVThU3dg0QBNBZPD/aLNdtjoqgHlMdx
-aOhiVXfB3H97IQCDtyZiy1XGYEKJodSCpP17uYGf7yink/8o9bgdIH1Jvo0TCycF
-dgJGjXsBrA==
------END SECUREDNA ENCRYPTED PRIVATE KEY-----`;
+MIHEMGAGCSqGSIb3DQEFDTBTMDIGCSqGSIb3DQEFDDAlBBB/EEX9YGLjm3Du5m2U
+rqVPAgMBhqAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEAxEM8fbSGJHgcAJ
+3huClX4EYBZo0rFJyrE+2+uAkaMaFIM/TSxsCrIFVWNzRMaGN90uYzfi/xNoJZ3E
+g/GzY8X1FE+QZmfY1xXOzVFqaC89FYJ41qqXAAXWfZ8kCF98zATSZLJ2WHihDNI2
+D1ibYopH3g==
+-----END SECUREDNA ENCRYPTED PRIVATE KEY-----
+`;
 
 const organism: OrganismWithSource = {
   name: "Test organism",
@@ -113,6 +114,7 @@ describe("certificates bindings", () => {
             },
           ],
           "guard": "ELTR1",
+          "public_key": undefined,
           "requestor": {
             "email": "j@example.com",
             "name": "John Doe",
@@ -180,7 +182,7 @@ describe("certificates bindings", () => {
               "guard": "ELTI1",
               "identity": {
                 "desc": "Jack, jack@securedna.org",
-                "pk": "8597e4363d9c5ed753b030cce2b12b2486ff2bca48a2cdc8112f99de76b81e26",
+                "pk": "a4090ae5994607dbeef9cff6ea496147b081ad484e6cc7c744a3c11974d51d1a",
               },
               "issuer_auth_devices": [],
             },
@@ -207,6 +209,7 @@ describe("certificates bindings", () => {
                 },
               ],
               "guard": "ELTR1",
+              "public_key": undefined,
               "requestor": {
                 "email": "j@example.com",
                 "name": "John Doe",

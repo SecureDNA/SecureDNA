@@ -21,6 +21,7 @@ use crate::{
     impl_encoding_boilerplate, impl_key_boilerplate_for_token,
     impl_key_boilerplate_for_token_request, impl_key_boilerplate_for_token_request_version,
     issued::Issued,
+    key_traits::HasAssociatedKey,
     keypair::{PublicKey, Signature},
     pem::PemTaggable,
     shared_components::{
@@ -30,11 +31,24 @@ use crate::{
         digest::{INDENT, INDENT2},
         role::Infrastructure,
     },
-    tokens::{HasAssociatedKey, TokenData, TokenGroup},
-    Formattable, KeyAvailable, KeyPair, KeyUnavailable,
+    tokens::{TokenData, TokenGroup},
+    CertificateChain, Formattable, KeyAvailable, KeyPair, KeyUnavailable,
 };
 
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[rasn(automatic_tags)]
 pub(crate) struct KeyserverTokenRequest1 {
     guard: ComponentVersionGuard<Self>,
@@ -110,7 +124,20 @@ impl Decode for KeyserverTokenRequest {
 }
 
 /// The data that will be signed by the issuer of the KeyserverRequest
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[rasn(automatic_tags)]
 pub(crate) struct KeyserverTokenIssuer1 {
     guard: ComponentVersionGuard<Self>,
@@ -138,7 +165,20 @@ impl VersionedComponent for KeyserverTokenIssuer1 {
 }
 
 /// Enum wrapping all keyserver token versions.
-#[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(
+    AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    Hash,
+)]
 #[rasn(automatic_tags)]
 #[rasn(choice)]
 pub(crate) enum KeyserverTokenVersion {
@@ -159,7 +199,7 @@ impl KeyserverTokenVersion {
 }
 
 /// Token for identifying keyservers
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct KeyserverToken<K> {
     pub(crate) version: KeyserverTokenVersion,
     key_state: K,
@@ -206,6 +246,7 @@ impl TokenGroup for KeyserverTokenGroup {
     type AssociatedRole = Infrastructure;
     type TokenRequest = KeyserverTokenRequest;
     type Token = KeyserverToken<KeyUnavailable>;
+    type ChainType = CertificateChain<Self::AssociatedRole>;
 }
 
 impl_boilerplate_for_token_request_version! {KeyserverTokenRequestVersion, V1}
@@ -283,7 +324,7 @@ pub struct KeyserverTokenDigest {
 
 impl<K> From<KeyserverToken<K>> for KeyserverTokenDigest {
     fn from(value: KeyserverToken<K>) -> Self {
-        let validation_failure = value.validate().err();
+        let validation_failure = value.check_signature_and_expiry().err();
         match value.version {
             KeyserverTokenVersion::V1(t) => {
                 let version = "V1".to_string();
@@ -337,11 +378,11 @@ impl Display for KeyserverTokenDigest {
 
 #[cfg(test)]
 mod test {
+    use crate::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
     use crate::test_helpers::BreakableSignature;
     use crate::{
         concat_with_newline,
         test_helpers::{create_leaf_cert, expected_keyserver_token_plaintext_display},
-        tokens::{CanLoadKey, HasAssociatedKey, KeyLoaded},
         Expiration, FormatMethod, Formattable, Infrastructure, Issued, KeyPair,
         KeyserverTokenRequest,
     };

@@ -130,7 +130,7 @@ let path_exists = leaf_bundle.path_to_issuers_exists_for_cert(
 
 ## Issuing Tokens
 
-Tokens are issued by leaf certificates. There are five different types of tokens, which are issued by certificates with roles as follows:.
+Tokens are issued by leaf certificates. There are five different types of tokens, which are issued by certificates with roles as follows:
 
 `Exemption` - Exemption List Tokens
 `Infrastructure` - Database Tokens, HLT Tokens, Keyserver Tokens
@@ -161,6 +161,7 @@ An ELTR can be created and issued by an exemption leaf certificate as follows:
     let shipping_address = vec!["19 Some Street".to_string(), "Some City".to_string()];
 
     let eltr = ExemptionListTokenRequest::v1_token_request(
+        None,
         vec![exemption],
         requestor,
         vec![auth_device],
@@ -174,6 +175,42 @@ An ELTR can be created and issued by an exemption leaf certificate as follows:
         .issue_elt(eltr, Expiration::expiring_in_days(90).unwrap(), issuer_auth_devices)?;
     
 ```
+
+#### Issuing 'child' exemption list tokens from a 'parent' exemption list token
+
+A 'parent' exemption list token which is capable of issuing further exemption list tokens can be created by supplying a public key when creating the exemption list token request. 
+The parent token should be issued as normal by an exemption leaf certificate.
+
+```rust
+    let keypair = KeyPair::new_random();
+    let parent_eltr = ExemptionListTokenRequest::v1_token_request(
+        Some(keypair.public_key()),
+        vec![exemption],
+        requestor,
+        vec![auth_device],
+        vec![shipping_address],
+    );
+```
+
+Tokens can be issued from this exemption list token as follows.
+
+```rust
+    let child_elt = parent_elt
+                    .load_key(keypair)
+                    .unwrap()
+                    .issue_elt(child_eltr, Expiration::expiring_in_days(90).unwrap(), issuer_auth_devices)?;
+```
+
+The child exemption list token will only be issued if the following requirements are fulfilled:
+
+    - the parent token has an associated keypair
+    - the child token request's exemptions are present on the parent token
+    - the child token request's shipping addresses are present on the parent token
+    - the child token request does not have an associated keypair of its own
+
+In addition, on issuing the child token, any 'emails to notify' (emails which should be notified when a token is used) which are present on the parent token are copied to the child, along with any email associated with the parent token.
+
+During validation of an exemption list token's chain, compliance with the above rules will be checked. The presence of the parent token's email address in the 'emails to notify' field is not checked however, as its absence would not violate the constraints of the parent token.
 
 ### Database Tokens
 

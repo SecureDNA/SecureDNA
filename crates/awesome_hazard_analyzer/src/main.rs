@@ -84,7 +84,7 @@ pub struct Opts {
     pub expansions_limit: NonZeroUsize,
 }
 
-pub struct AHACheckerConfiguration {
+pub struct AhaCheckerConfiguration {
     pub debug: bool,
     pub summary: bool,
     pub generate_dna_windows: bool,
@@ -93,9 +93,9 @@ pub struct AHACheckerConfiguration {
     pub max_expansions_per_window: NonZeroUsize,
 }
 
-impl Default for AHACheckerConfiguration {
+impl Default for AhaCheckerConfiguration {
     fn default() -> Self {
-        AHACheckerConfiguration {
+        AhaCheckerConfiguration {
             debug: false,
             summary: true,
             generate_dna_windows: true,
@@ -294,7 +294,7 @@ fn check_one_record(
     secret_key: &KeyShare,
     record: FastaRecord<DnaSequence<NucleotideAmbiguous>>,
     debug_dirs: Option<&DebugDirs>,
-    config: AHACheckerConfiguration,
+    config: AhaCheckerConfiguration,
 ) -> anyhow::Result<(Option<String>, Option<SummaryLine>)> {
     if record.contents.is_empty() {
         warn!("no contents received");
@@ -601,7 +601,7 @@ fn run(opts: &Opts) -> anyhow::Result<()> {
                     &opts.secret_key,
                     r,
                     debug_dirs.as_ref(),
-                    AHACheckerConfiguration {
+                    AhaCheckerConfiguration {
                         debug: opts.debug,
                         summary: opts.summary,
                         generate_dna_windows: !opts.no_dna,
@@ -683,7 +683,7 @@ mod tests {
             &ks,
             r,
             None,
-            AHACheckerConfiguration {
+            AhaCheckerConfiguration {
                 summary: false,
                 ..Default::default()
             },
@@ -709,7 +709,7 @@ GGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
             &ks,
             r,
             None,
-            AHACheckerConfiguration {
+            AhaCheckerConfiguration {
                 summary: false,
                 ..Default::default()
             },
@@ -733,7 +733,7 @@ ACGT",
             &ks,
             r,
             None,
-            AHACheckerConfiguration {
+            AhaCheckerConfiguration {
                 summary: false,
                 ..Default::default()
             },
@@ -758,7 +758,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 &ks,
                 r,
                 None,
-                AHACheckerConfiguration {
+                AhaCheckerConfiguration {
                     summary: false,
                     ..Default::default()
                 },
@@ -783,7 +783,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 &ks,
                 r,
                 None,
-                AHACheckerConfiguration::default(),
+                AhaCheckerConfiguration::default(),
             )
             .unwrap(),
             (
@@ -824,7 +824,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 &ks,
                 r.clone(),
                 None,
-                AHACheckerConfiguration::default(),
+                AhaCheckerConfiguration::default(),
             )
             .unwrap(),
             (
@@ -859,7 +859,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 &ks,
                 r.clone(),
                 None,
-                AHACheckerConfiguration {
+                AhaCheckerConfiguration {
                     generate_runt_windows: false,
                     generate_aa_windows: false,
                     ..Default::default()
@@ -900,7 +900,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 &ks,
                 r,
                 None,
-                AHACheckerConfiguration {
+                AhaCheckerConfiguration {
                     generate_dna_windows: false,
                     generate_runt_windows: false,
                     ..Default::default()

@@ -8,10 +8,12 @@ use crate::asn::{FromASN1DerBytes, ToASN1DerBytes};
 use crate::error::EncodeError;
 use crate::issued::Issued;
 use crate::pem::MultiItemPemBuilder;
-use crate::{error::DecodeError, shared_components::role::Role};
+use crate::{
+    error::DecodeError, shared_components::role::Role, CertificateChain, ChainItem, ChainTraversal,
+};
 
-use super::certificate_chain::CertificateChain;
 use crate::certificate::outer::Certificate;
+use crate::chain::Chain;
 use crate::key_state::KeyUnavailable;
 
 /// The contents of a .cert file. Holds the main certificate(s) (multiple in the case of cross signed certificates),
@@ -22,7 +24,7 @@ where
     R: Role,
 {
     pub certs: Vec<Certificate<R, KeyUnavailable>>,
-    pub chain: CertificateChain<R>,
+    chain: CertificateChain<R>,
 }
 
 #[derive(Debug, Error)]
@@ -59,7 +61,7 @@ where
     pub fn get_lead_cert(&self) -> Result<&Certificate<R, KeyUnavailable>, CertificateBundleError> {
         self.certs
             .iter()
-            .filter(|c| c.validate().is_ok())
+            .filter(|c| c.check_signature_and_expiry().is_ok())
             .max_by(|a, b| {
                 a.expiration()
                     .not_valid_after
@@ -71,7 +73,7 @@ where
     /// Chain provided to any certificate or token issued by this certificate.
     pub fn issue_chain(&self) -> CertificateChain<R> {
         let mut new_chain = self.chain.clone();
-        new_chain.add_certificates(self.certs.clone());
+        new_chain.add_items(self.certs.clone());
         new_chain
     }
 
@@ -142,14 +144,26 @@ where
     }
 }
 
+impl<R: Role> ChainTraversal for CertificateBundle<R> {
+    type R = R;
+
+    fn bundle_subjects(&self) -> Vec<ChainItem<Self::R>> {
+        self.certs.iter().map(|c| c.clone().into()).collect()
+    }
+
+    fn chain(&self) -> Chain<Self::R> {
+        self.chain.clone().into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::certificate::inner::IssuerAdditionalFields;
     use crate::certificate::RequestBuilder;
     use crate::keypair::KeyPair;
     use crate::shared_components::role::Exemption;
-    use crate::CertificateChain;
     use crate::Infrastructure;
+    use crate::{Builder, CertificateChain};
 
     use crate::test_helpers::create_leaf_bundle;
     use crate::CertificateBundle;
@@ -193,7 +207,7 @@ mod tests {
             .unwrap();
 
         let mut chain = CertificateChain::new();
-        chain.add_certificate(root_cert);
+        chain.add_item(root_cert);
 
         let encoded = CertificateBundle::new(int_cert.clone(), Some(chain.clone()))
             .to_file_contents()

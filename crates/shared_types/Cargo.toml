@@ -16,7 +16,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_plain = "1.0.1"
 thiserror = "1.0.47"
 time = { version = "0.3.28", features = ["local-offset", "formatting"] }
-uuid = {version = "1.7.0", features = ["v4"]}
+uuid = {version = "1.8.0", features = ["v4"]}
 doprf = {path = "../doprf"}
 pipeline_bridge = { path = "../pipeline_bridge" }
 log = "0.4.20"

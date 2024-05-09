@@ -39,6 +39,8 @@ pub enum SynthesisPermission {
     Denied,
 }
 
+serde_plain::derive_display_from_serialize!(SynthesisPermission);
+
 impl SynthesisPermission {
     /// Merge multiple `SynthesisPermission`s into one, returning
     /// `SynthesisPermission::Denied` if any are denials.

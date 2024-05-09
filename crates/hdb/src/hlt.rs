@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use pipeline_bridge::{OrganismType, Tag};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, Serialize, Deserialize)]
-pub enum HLTId {
+pub enum HltId {
     OrganismName(String),
     Accession(String),
     // Free-form tags per organism, intended for client-side users to enable custom logic.
@@ -29,7 +29,7 @@ pub enum HLTId {
     OrganismType(OrganismType),
 }
 
-impl HLTId {
+impl HltId {
     pub fn organism_name(&self) -> Option<&str> {
         match self {
             Self::OrganismName(s) => Some(s),
@@ -63,16 +63,16 @@ impl HLTId {
     }
 }
 
-type IdGroupsVec = Vec<Vec<HLTId>>;
+type IdGroupsVec = Vec<Vec<HltId>>;
 
-/// Hazard lookup table, which maps from u32 index to HLTEntry.
+/// Hazard lookup table, which maps from u32 index to HltEntry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct HazardLookupTable {
     /// Mapping from HLT index -> Entry. We use a HashMap instead of a Vec even
     /// though the indexes are numeric underlying-ly because indexes aren't contiguous,
     /// we assign them randomly so insertion order can't be determined if someone steals
     /// a database without the associated HLT (See [[Database storage and lookup]])
-    entries: HashMap<u32, HLTEntry>,
+    entries: HashMap<u32, HltEntry>,
     /// Cache for merging entries, so if the merge would result in something that already
     /// is in the table, we return that existing ID instead.
     /// This is only populated with merge results, so we're not maintaining a massive bidirectional
@@ -84,20 +84,20 @@ pub struct HazardLookupTable {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash)]
-pub struct HLTEntry {
+pub struct HltEntry {
     /// List of identifiers in this entry. The nested vec is so that identifiers can be grouped,
     /// for equivalence, or for grouping an organism's accessions together if hazards are only
     /// associated with an organism and not a specific accession.
     id_groups: IdGroupsVec,
 }
 
-impl HLTEntry {
-    /// Constructs a new HLTEntry from a list of ID groups. Panics if the number of groups is greater
+impl HltEntry {
+    /// Constructs a new HltEntry from a list of ID groups. Panics if the number of groups is greater
     /// than 256, since then some groups can't be indexed by a u8.
     pub fn new(id_groups: IdGroupsVec) -> Self {
         assert!(
             id_groups.len() <= 256,
-            "too many entries (> 256) in HLTEntry!"
+            "too many entries (> 256) in HltEntry!"
         );
         Self { id_groups }
     }
@@ -112,18 +112,18 @@ impl HLTEntry {
     }
 
     /// Index of an ID group in this entry
-    pub fn index_of(&self, item: &[HLTId]) -> Option<u8> {
+    pub fn index_of(&self, item: &[HltId]) -> Option<u8> {
         self.iter().find(|(_, o)| item == *o).map(|(idx, _)| idx)
     }
 
     /// Get an ID group by a u8 index
-    pub fn get(&self, an_subindex: u8) -> Option<&[HLTId]> {
+    pub fn get(&self, an_subindex: u8) -> Option<&[HltId]> {
         self.id_groups.get(an_subindex as usize).map(|v| &v[..])
     }
 
-    /// Merge an iterator of `HLTEntry`s into a new HLTEntry
+    /// Merge an iterator of `HltEntry`s into a new HltEntry
     /// Order is not guaranteed.
-    fn merge<'a>(entries: impl Iterator<Item = &'a HLTEntry>) -> Self {
+    fn merge<'a>(entries: impl Iterator<Item = &'a HltEntry>) -> Self {
         let mut ids = HashSet::new();
         for entry in entries {
             ids.extend(entry.id_groups.iter().cloned());
@@ -135,18 +135,18 @@ impl HLTEntry {
     }
 
     /// Iter over the (index, ID group)s of this entry
-    pub fn iter(&self) -> impl Iterator<Item = (u8, &[HLTId])> {
+    pub fn iter(&self) -> impl Iterator<Item = (u8, &[HltId])> {
         self.id_groups.iter().enumerate().map(|(idx, group)| {
             let idx: u8 = idx
                 .try_into()
-                .expect("too many entries (> 256) in HLTEntry!");
+                .expect("too many entries (> 256) in HltEntry!");
             (idx, &group[..])
         })
     }
 }
 
-impl<'a> FromIterator<&'a HLTEntry> for HLTEntry {
-    fn from_iter<T: IntoIterator<Item = &'a HLTEntry>>(iter: T) -> Self {
+impl<'a> FromIterator<&'a HltEntry> for HltEntry {
+    fn from_iter<T: IntoIterator<Item = &'a HltEntry>>(iter: T) -> Self {
         Self::merge(iter.into_iter())
     }
 }
@@ -160,7 +160,7 @@ pub enum HLTMergeError {
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
-pub enum HLTLookupError {
+pub enum HltLookupError {
     #[error("hlt index {0} missing")]
     MissingHLTIndex(u32),
     #[error("an subindex {1} missing for hlt index {0}")]
@@ -217,7 +217,7 @@ impl HazardLookupTable {
         }
     }
 
-    pub fn get(&self, index: &u32) -> Option<&HLTEntry> {
+    pub fn get(&self, index: &u32) -> Option<&HltEntry> {
         self.entries.get(index)
     }
 
@@ -227,18 +227,18 @@ impl HazardLookupTable {
         &self,
         hlt_index: &u32,
         an_subindex: &u8,
-    ) -> Result<(&HLTEntry, &[HLTId]), HLTLookupError> {
+    ) -> Result<(&HltEntry, &[HltId]), HltLookupError> {
         let entry = self
             .get(hlt_index)
-            .ok_or(HLTLookupError::MissingHLTIndex(*hlt_index))?;
+            .ok_or(HltLookupError::MissingHLTIndex(*hlt_index))?;
         let group = entry
             .get(*an_subindex)
-            .ok_or(HLTLookupError::MissingANSubindex(*hlt_index, *an_subindex))?;
+            .ok_or(HltLookupError::MissingANSubindex(*hlt_index, *an_subindex))?;
         Ok((entry, group))
     }
 
     /// Inserts a new entry, returning the chosen index
-    pub fn insert(&mut self, entry: HLTEntry) -> u32 {
+    pub fn insert(&mut self, entry: HltEntry) -> u32 {
         let index = self.new_index();
         let should_be_empty = self.entries.insert(index, entry);
         debug_assert!(should_be_empty.is_none());
@@ -276,7 +276,7 @@ impl HazardLookupTable {
                 let merged = indexes_uniq
                     .into_iter()
                     .map(|i| self.get(&i).ok_or(HLTMergeError::InvalidIndex))
-                    .collect::<Result<HLTEntry, _>>()?;
+                    .collect::<Result<HltEntry, _>>()?;
 
                 if let Some(&index) = self.merge_cache.get(&merged.id_groups) {
                     Ok(index)
@@ -312,12 +312,12 @@ impl HazardLookupTable {
     ///
     /// TODO: perhaps generate a warning if internal tags are being updated (added or removed)
     pub fn set_tags(&mut self, organism_name: &str, tags: impl IntoIterator<Item = Tag>) {
-        let new_tags: Vec<_> = tags.into_iter().map(HLTId::Tag).collect();
+        let new_tags: Vec<_> = tags.into_iter().map(HltId::Tag).collect();
 
         for hlt_entry in self.entries.values_mut() {
             for id_group in hlt_entry.id_groups.iter_mut() {
                 let matches_hazard = id_group.iter().any(|hlt_id| match hlt_id {
-                    HLTId::OrganismName(name) => organism_name == name,
+                    HltId::OrganismName(name) => organism_name == name,
                     _ => false,
                 });
                 if matches_hazard {
@@ -332,7 +332,7 @@ impl HazardLookupTable {
                     }
                     let mut new_id_group: Vec<_> = id_group
                         .iter()
-                        .filter(|hlt_id| !matches!(hlt_id, HLTId::Tag(_)))
+                        .filter(|hlt_id| !matches!(hlt_id, HltId::Tag(_)))
                         .cloned()
                         .collect();
                     new_id_group.extend_from_slice(&new_tags[..]);
@@ -349,16 +349,16 @@ impl HazardLookupTable {
     /// returns (added_tags, subtracted_tags) if either list is populated, but None if both are
     /// empty.
     fn check_internal_tag_change(
-        new_tags: &[HLTId],
-        old_id_group: &[HLTId],
-    ) -> Option<(Vec<HLTId>, Vec<HLTId>)> {
+        new_tags: &[HltId],
+        old_id_group: &[HltId],
+    ) -> Option<(Vec<HltId>, Vec<HltId>)> {
         let internal_new_tags: HashSet<_> = new_tags
             .iter()
-            .filter(|hlt_id| matches!(hlt_id, HLTId::Tag(tag) if tag.is_internal()))
+            .filter(|hlt_id| matches!(hlt_id, HltId::Tag(tag) if tag.is_internal()))
             .collect();
         let internal_old_id_group: HashSet<_> = old_id_group
             .iter()
-            .filter(|hlt_id| matches!(hlt_id, HLTId::Tag(tag) if tag.is_internal()))
+            .filter(|hlt_id| matches!(hlt_id, HltId::Tag(tag) if tag.is_internal()))
             .collect();
 
         let internal_tags_add = internal_new_tags.difference(&internal_old_id_group);
@@ -383,17 +383,17 @@ impl HazardLookupTable {
         for hlt_entry in self.entries.values_mut() {
             for id_group in hlt_entry.id_groups.iter_mut() {
                 let matches_hazard = id_group.iter().any(|hlt_id| match hlt_id {
-                    HLTId::OrganismName(name) => organism_name == name,
+                    HltId::OrganismName(name) => organism_name == name,
                     _ => false,
                 });
                 if matches_hazard {
                     let mut new_id_group: Vec<_> = id_group
                         .iter()
-                        .filter(|hlt_id| !matches!(hlt_id, HLTId::Tiled))
+                        .filter(|hlt_id| !matches!(hlt_id, HltId::Tiled))
                         .cloned()
                         .collect();
                     if tiled {
-                        new_id_group.push(HLTId::Tiled);
+                        new_id_group.push(HltId::Tiled);
                     }
                     *id_group = new_id_group;
                 }
@@ -409,16 +409,16 @@ impl HazardLookupTable {
         for hlt_entry in self.entries.values_mut() {
             for id_group in hlt_entry.id_groups.iter_mut() {
                 let matches_hazard = id_group.iter().any(|hlt_id| match hlt_id {
-                    HLTId::OrganismName(name) => organism_name == name,
+                    HltId::OrganismName(name) => organism_name == name,
                     _ => false,
                 });
                 if matches_hazard {
                     let mut new_id_group: Vec<_> = id_group
                         .iter()
-                        .filter(|hlt_id| !matches!(hlt_id, HLTId::OrganismType(_)))
+                        .filter(|hlt_id| !matches!(hlt_id, HltId::OrganismType(_)))
                         .cloned()
                         .collect();
-                    new_id_group.push(HLTId::OrganismType(organism_type));
+                    new_id_group.push(HltId::OrganismType(organism_type));
                     *id_group = new_id_group;
                 }
             }
@@ -431,7 +431,7 @@ mod test {
     use super::*;
 
     /// set_tags should completely replace tags for only the specified hazard
-    /// No other HLTId should be affected
+    /// No other HltId should be affected
     /// Currently set_tags implementation preserves hltid order and pushes tags on end.
     /// Test is order-dependent.
     #[test]
@@ -445,26 +445,26 @@ mod test {
             entries: [
                 (
                     1,
-                    HLTEntry::new(vec![vec![
-                        HLTId::OrganismName("Test Virus 1".into()),
-                        HLTId::Accession("AN010101".into()),
-                        HLTId::Tag(OLD_TAG_1),
-                        HLTId::Tag(OLD_TAG_2),
+                    HltEntry::new(vec![vec![
+                        HltId::OrganismName("Test Virus 1".into()),
+                        HltId::Accession("AN010101".into()),
+                        HltId::Tag(OLD_TAG_1),
+                        HltId::Tag(OLD_TAG_2),
                     ]]),
                 ),
                 (
                     2,
-                    HLTEntry::new(vec![
+                    HltEntry::new(vec![
                         vec![
-                            HLTId::OrganismName("Test Virus 2".into()),
-                            HLTId::Accession("AN020202".into()),
-                            HLTId::Tag(OLD_TAG_1),
-                            HLTId::Tag(OLD_TAG_2),
+                            HltId::OrganismName("Test Virus 2".into()),
+                            HltId::Accession("AN020202".into()),
+                            HltId::Tag(OLD_TAG_1),
+                            HltId::Tag(OLD_TAG_2),
                         ],
                         vec![
-                            HLTId::OrganismName("Test Virus 2".into()),
-                            HLTId::Accession("AN020202".into()),
-                            HLTId::Tag(OLD_TAG_1),
+                            HltId::OrganismName("Test Virus 2".into()),
+                            HltId::Accession("AN020202".into()),
+                            HltId::Tag(OLD_TAG_1),
                         ],
                     ]),
                 ),
@@ -478,29 +478,29 @@ mod test {
             entries: [
                 (
                     1,
-                    HLTEntry::new(vec![vec![
-                        HLTId::OrganismName("Test Virus 1".into()),
-                        HLTId::Accession("AN010101".into()),
-                        HLTId::Tag(OLD_TAG_1),
-                        HLTId::Tag(OLD_TAG_2),
+                    HltEntry::new(vec![vec![
+                        HltId::OrganismName("Test Virus 1".into()),
+                        HltId::Accession("AN010101".into()),
+                        HltId::Tag(OLD_TAG_1),
+                        HltId::Tag(OLD_TAG_2),
                     ]]),
                 ),
                 (
                     2,
-                    HLTEntry::new(vec![
+                    HltEntry::new(vec![
                         vec![
-                            HLTId::OrganismName("Test Virus 2".into()),
-                            HLTId::Accession("AN020202".into()),
-                            HLTId::Tag(NEW_TAG_1),
-                            HLTId::Tag(NEW_TAG_2),
-                            HLTId::Tag(Tag::SdnaLowRiskDNA),
+                            HltId::OrganismName("Test Virus 2".into()),
+                            HltId::Accession("AN020202".into()),
+                            HltId::Tag(NEW_TAG_1),
+                            HltId::Tag(NEW_TAG_2),
+                            HltId::Tag(Tag::SdnaLowRiskDNA),
                         ],
                         vec![
-                            HLTId::OrganismName("Test Virus 2".into()),
-                            HLTId::Accession("AN020202".into()),
-                            HLTId::Tag(NEW_TAG_1),
-                            HLTId::Tag(NEW_TAG_2),
-                            HLTId::Tag(Tag::SdnaLowRiskDNA),
+                            HltId::OrganismName("Test Virus 2".into()),
+                            HltId::Accession("AN020202".into()),
+                            HltId::Tag(NEW_TAG_1),
+                            HltId::Tag(NEW_TAG_2),
+                            HltId::Tag(Tag::SdnaLowRiskDNA),
                         ],
                     ]),
                 ),
@@ -527,32 +527,32 @@ mod test {
             entries: [
                 (
                     1,
-                    HLTEntry::new(vec![
+                    HltEntry::new(vec![
                         // Doubled to make sure it covers each hlt_id_group
-                        vec![HLTId::OrganismName("Test Virus 1".into()), HLTId::Tiled],
-                        vec![HLTId::OrganismName("Test Virus 1".into()), HLTId::Tiled],
+                        vec![HltId::OrganismName("Test Virus 1".into()), HltId::Tiled],
+                        vec![HltId::OrganismName("Test Virus 1".into()), HltId::Tiled],
                     ]),
                 ),
                 (
                     2,
-                    HLTEntry::new(vec![
-                        vec![HLTId::OrganismName("Test Virus 2".into()), HLTId::Tiled],
-                        vec![HLTId::OrganismName("Test Virus 2".into()), HLTId::Tiled],
+                    HltEntry::new(vec![
+                        vec![HltId::OrganismName("Test Virus 2".into()), HltId::Tiled],
+                        vec![HltId::OrganismName("Test Virus 2".into()), HltId::Tiled],
                     ]),
                 ),
                 (
                     3,
-                    HLTEntry::new(vec![
+                    HltEntry::new(vec![
                         // Doubled to make sure it covers each hlt_id_group
-                        vec![HLTId::OrganismName("Test Virus 3".into())],
-                        vec![HLTId::OrganismName("Test Virus 3".into())],
+                        vec![HltId::OrganismName("Test Virus 3".into())],
+                        vec![HltId::OrganismName("Test Virus 3".into())],
                     ]),
                 ),
                 (
                     4,
-                    HLTEntry::new(vec![
-                        vec![HLTId::OrganismName("Test Virus 4".into())],
-                        vec![HLTId::OrganismName("Test Virus 4".into())],
+                    HltEntry::new(vec![
+                        vec![HltId::OrganismName("Test Virus 4".into())],
+                        vec![HltId::OrganismName("Test Virus 4".into())],
                     ]),
                 ),
             ]
@@ -565,32 +565,32 @@ mod test {
             entries: [
                 (
                     1,
-                    HLTEntry::new(vec![
+                    HltEntry::new(vec![
                         // Doubled to make sure it covers each hlt_id_group
-                        vec![HLTId::OrganismName("Test Virus 1".into()), HLTId::Tiled],
-                        vec![HLTId::OrganismName("Test Virus 1".into()), HLTId::Tiled],
+                        vec![HltId::OrganismName("Test Virus 1".into()), HltId::Tiled],
+                        vec![HltId::OrganismName("Test Virus 1".into()), HltId::Tiled],
                     ]),
                 ),
                 (
                     2,
-                    HLTEntry::new(vec![
-                        vec![HLTId::OrganismName("Test Virus 2".into())],
-                        vec![HLTId::OrganismName("Test Virus 2".into())],
+                    HltEntry::new(vec![
+                        vec![HltId::OrganismName("Test Virus 2".into())],
+                        vec![HltId::OrganismName("Test Virus 2".into())],
                     ]),
                 ),
                 (
                     3,
-                    HLTEntry::new(vec![
+                    HltEntry::new(vec![
                         // Doubled to make sure it covers each hlt_id_group
-                        vec![HLTId::OrganismName("Test Virus 3".into()), HLTId::Tiled],
-                        vec![HLTId::OrganismName("Test Virus 3".into()), HLTId::Tiled],
+                        vec![HltId::OrganismName("Test Virus 3".into()), HltId::Tiled],
+                        vec![HltId::OrganismName("Test Virus 3".into()), HltId::Tiled],
                     ]),
                 ),
                 (
                     4,
-                    HLTEntry::new(vec![
-                        vec![HLTId::OrganismName("Test Virus 4".into())],
-                        vec![HLTId::OrganismName("Test Virus 4".into())],
+                    HltEntry::new(vec![
+                        vec![HltId::OrganismName("Test Virus 4".into())],
+                        vec![HltId::OrganismName("Test Virus 4".into())],
                     ]),
                 ),
             ]
@@ -615,36 +615,36 @@ mod test {
             entries: [
                 (
                     1,
-                    HLTEntry::new(vec![
+                    HltEntry::new(vec![
                         // Doubled to make sure it covers each hlt_id_group
-                        vec![HLTId::OrganismName("Test Virus 1".into())],
-                        vec![HLTId::OrganismName("Test Virus 1".into())],
+                        vec![HltId::OrganismName("Test Virus 1".into())],
+                        vec![HltId::OrganismName("Test Virus 1".into())],
                     ]),
                 ),
                 (
                     2,
-                    HLTEntry::new(vec![
+                    HltEntry::new(vec![
                         vec![
-                            HLTId::OrganismName("Test Virus 2".into()),
-                            HLTId::OrganismType(OrganismType::Toxin),
+                            HltId::OrganismName("Test Virus 2".into()),
+                            HltId::OrganismType(OrganismType::Toxin),
                         ],
                         vec![
-                            HLTId::OrganismName("Test Virus 2".into()),
-                            HLTId::OrganismType(OrganismType::Toxin),
+                            HltId::OrganismName("Test Virus 2".into()),
+                            HltId::OrganismType(OrganismType::Toxin),
                         ],
                     ]),
                 ),
                 (
                     3,
-                    HLTEntry::new(vec![
+                    HltEntry::new(vec![
                         // Doubled to make sure it covers each hlt_id_group
                         vec![
-                            HLTId::OrganismName("Test Virus 3".into()),
-                            HLTId::OrganismType(OrganismType::Virus),
+                            HltId::OrganismName("Test Virus 3".into()),
+                            HltId::OrganismType(OrganismType::Virus),
                         ],
                         vec![
-                            HLTId::OrganismName("Test Virus 3".into()),
-                            HLTId::OrganismType(OrganismType::Virus),
+                            HltId::OrganismName("Test Virus 3".into()),
+                            HltId::OrganismType(OrganismType::Virus),
                         ],
                     ]),
                 ),
@@ -658,42 +658,42 @@ mod test {
             entries: [
                 (
                     1,
-                    HLTEntry::new(vec![
+                    HltEntry::new(vec![
                         // Doubled to make sure it covers each hlt_id_group
                         vec![
-                            HLTId::OrganismName("Test Virus 1".into()),
-                            HLTId::OrganismType(OrganismType::Virus),
+                            HltId::OrganismName("Test Virus 1".into()),
+                            HltId::OrganismType(OrganismType::Virus),
                         ],
                         vec![
-                            HLTId::OrganismName("Test Virus 1".into()),
-                            HLTId::OrganismType(OrganismType::Virus),
+                            HltId::OrganismName("Test Virus 1".into()),
+                            HltId::OrganismType(OrganismType::Virus),
                         ],
                     ]),
                 ),
                 (
                     2,
-                    HLTEntry::new(vec![
+                    HltEntry::new(vec![
                         vec![
-                            HLTId::OrganismName("Test Virus 2".into()),
-                            HLTId::OrganismType(OrganismType::Virus),
+                            HltId::OrganismName("Test Virus 2".into()),
+                            HltId::OrganismType(OrganismType::Virus),
                         ],
                         vec![
-                            HLTId::OrganismName("Test Virus 2".into()),
-                            HLTId::OrganismType(OrganismType::Virus),
+                            HltId::OrganismName("Test Virus 2".into()),
+                            HltId::OrganismType(OrganismType::Virus),
                         ],
                     ]),
                 ),
                 (
                     3,
-                    HLTEntry::new(vec![
+                    HltEntry::new(vec![
                         // Doubled to make sure it covers each hlt_id_group
                         vec![
-                            HLTId::OrganismName("Test Virus 3".into()),
-                            HLTId::OrganismType(OrganismType::Virus),
+                            HltId::OrganismName("Test Virus 3".into()),
+                            HltId::OrganismType(OrganismType::Virus),
                         ],
                         vec![
-                            HLTId::OrganismName("Test Virus 3".into()),
-                            HLTId::OrganismType(OrganismType::Virus),
+                            HltId::OrganismName("Test Virus 3".into()),
+                            HltId::OrganismType(OrganismType::Virus),
                         ],
                     ]),
                 ),
@@ -717,12 +717,12 @@ mod test {
         assert_eq!(
             Hlt::check_internal_tag_change(
                 &[
-                    HLTId::Tag(Tag::SdnaLowRiskDNA),
-                    HLTId::Tag(Tag::HumanToHuman)
+                    HltId::Tag(Tag::SdnaLowRiskDNA),
+                    HltId::Tag(Tag::HumanToHuman)
                 ],
                 &[
-                    HLTId::Tag(Tag::SdnaLowRiskDNA),
-                    HLTId::Tag(Tag::ArthropodToHuman)
+                    HltId::Tag(Tag::SdnaLowRiskDNA),
+                    HltId::Tag(Tag::ArthropodToHuman)
                 ]
             ),
             None
@@ -730,20 +730,20 @@ mod test {
 
         {
             // change: sdna tag added
-            let new_tags = &[HLTId::Tag(Tag::SdnaLowRiskDNA)];
+            let new_tags = &[HltId::Tag(Tag::SdnaLowRiskDNA)];
             let old_id_group = &[];
             assert_eq!(
                 Hlt::check_internal_tag_change(new_tags, old_id_group),
-                Some((vec![HLTId::Tag(Tag::SdnaLowRiskDNA)], vec![],))
+                Some((vec![HltId::Tag(Tag::SdnaLowRiskDNA)], vec![],))
             );
         }
         {
             // change: sdna tag removed
             let new_tags = &[];
-            let old_id_group = &[HLTId::Tag(Tag::SdnaLowRiskDNA)];
+            let old_id_group = &[HltId::Tag(Tag::SdnaLowRiskDNA)];
             assert_eq!(
                 Hlt::check_internal_tag_change(new_tags, old_id_group),
-                Some((vec![], vec![HLTId::Tag(Tag::SdnaLowRiskDNA)]))
+                Some((vec![], vec![HltId::Tag(Tag::SdnaLowRiskDNA)]))
             );
         }
     }

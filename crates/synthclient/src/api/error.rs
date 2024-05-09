@@ -3,9 +3,12 @@
 
 use std::borrow::Cow;
 
+use certificates::TokenBundleError;
 use serde::{Deserialize, Serialize};
 
 use crate::{ncbi::NcbiError, parsefasta::CheckFastaError, rate_limiter::RateLimitExceeded};
+use doprf_client::error::DoprfError;
+use http_client::HttpError;
 
 /// Error type that will be serialized as API response, as opposed to logged.
 /// Internal errors should be transformed to this type with that in mind
@@ -129,7 +132,17 @@ impl From<CheckFastaError> for ApiError {
             }),
             CheckFastaError::EmptyFastaSequence(id) => ApiError::InvalidInput(Fields::new(format!("No sequences were specified in record {id}."))),
             CheckFastaError::WindowError(err) => ApiError::InternalServerError(Fields::new(format!("Unexpected response from internal server (hdb): {err}"))),
-            CheckFastaError::DOPRFError(err) => ApiError::InternalServerError(Fields::new(format!("Unexpected error while processing sequences: {err}"))),
+            CheckFastaError::DoprfError(err) => match err {
+                DoprfError::HttpError(ref err @ HttpError::RequestError { status: Some(status), .. }) if status == 413 || status == 429 => {
+                    // we return 413 for SCEP ratelimit overages as a non-retriable too many requests
+                    ApiError::TooManyRequests(Fields::new(if status == 413 {
+                        format!("certificate daily ratelimit exceeded: {err}")
+                    } else {
+                        err.to_string()
+                    }))
+                }
+                err => ApiError::InternalServerError(Fields::new(format!("Unexpected error while processing sequences: {err}")))
+            },
             CheckFastaError::RequestSizeTooBig(request_size, max_request_size) => ApiError::RequestTooBig(Fields::new(format!("Request of {request_size}bp exceeds configured limit of {max_request_size}bp."))),
             CheckFastaError::TemporaryMemoryLimitsReached(request_size, _max_system_size) => {
                 ApiError::InternalServerError(Fields::new(format!("Request of {request_size}bp exceeds current system memory capacity. Please try again later.")))
@@ -187,5 +200,11 @@ impl From<RateLimitExceeded> for ApiError {
 impl From<serde_json::Error> for ApiError {
     fn from(err: serde_json::Error) -> Self {
         ApiError::InvalidInput(Fields::new(format!("Couldn't parse request: {err}")))
+    }
+}
+
+impl From<TokenBundleError> for ApiError {
+    fn from(error: TokenBundleError) -> Self {
+        ApiError::InvalidInput(Fields::new(format!("Couldn't parse token: {error}")))
     }
 }

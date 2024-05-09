@@ -2,30 +2,28 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 #![cfg(feature = "centralized_keygen")]
 
-use std::cell::RefCell;
 use std::fs::File;
 use std::io::Write;
 use std::net::TcpListener;
 use std::num::NonZeroU32;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::{cell::RefCell, collections::HashMap};
+
+use futures::{future, pin_mut};
 
 use doprf::party::KeyserverId;
-use futures::{
-    future::{self, FutureExt},
-    pin_mut,
-};
-use tokio::sync::Barrier;
-
 use doprf::prf::KeyShare;
 use doprf::shims::{genkey, genkeyshares};
 use doprf::{active_security::Commitment, shims::genactivesecuritykey};
 use doprf_client::server_selection::{
     ServerEnumerationSource, ServerSelectionConfig, ServerSelector,
 };
-use doprf_client::DOPRFConfig;
+use doprf_client::{server_version_handler::LastServerVersionHandler, DoprfConfig};
 use hdb::shims::genhdb;
 use http_client::{BaseApiClient, HttpsToHttpRewriter};
+use minhttp::mpserver::common::{default_listen_fn, stub_cfg};
+use minhttp::mpserver::{traits::ValidServerSetup, ExternalWorld, PlaneConfig, ServerConfig};
 use pipeline_bridge::OrganismType;
 use quickdna::{DnaSequence, Nucleotide};
 use scep_client_helpers::ClientCerts;
@@ -208,20 +206,15 @@ async fn test_hdb() {
     let certs_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test/certs");
 
     let hdb_listener = find_unused_port();
-    let hdb_port = hdb_listener.local_addr().unwrap().port();
-
-    let barrier = Barrier::new(1 + 1 + NUM_KEYHOLDERS.get() as usize);
+    let address = hdb_listener.local_addr().unwrap();
+    let hdb_port = address.port();
 
     let mut servers = vec![];
     let mut listeners = vec![hdb_listener];
     let mut ks_ports = vec![];
 
-    let hdb_server_opts = hdbserver::Opts {
+    let app_cfg = hdbserver::Config {
         database: db_path,
-        port: hdb_port,
-        monitoring_plane_port: None,
-        max_clients: 1,
-        max_monitoring_plane_clients: 1,
         max_heavy_clients: 1,
         disk_parallelism_per_server: 1,
         disk_parallelism_per_request: 1,
@@ -229,31 +222,39 @@ async fn test_hdb() {
         yubico_api_client_id: None,
         yubico_api_secret_key: None,
         scep_json_size_limit: 100_000,
+        elt_size_limit: 1_000_000,
         manufacturer_roots: format!("{certs_dir}/manufacturer_roots").into(),
         token_file: format!("{certs_dir}/database-token.dt").into(),
         keypair_file: format!("{certs_dir}/database-token.priv").into(),
         keypair_passphrase_file: format!("{certs_dir}/database-passphrase.txt").into(),
         allow_insecure_cookie: true,
-        persistence_path: ":memory:".into(),
+        event_store_path: ":memory:".into(),
     };
-    servers.push(
-        hdbserver::run(hdb_server_opts, async {
-            barrier.wait().await;
-        })
-        .boxed(),
-    );
+    let server_config = Arc::new(ServerConfig {
+        main: PlaneConfig {
+            address,
+            max_connections: PlaneConfig::DEFAULT_MAX_CONNECTIONS,
+            custom: app_cfg,
+        },
+        monitoring: None,
+        control: None,
+    });
+    let external_world = ExternalWorld {
+        listen: default_listen_fn,
+        load_cfg: stub_cfg(move || (*server_config).clone()),
+    };
+    let server = hdbserver::server_setup()
+        .to_server_setup()
+        .build_with_external_world(external_world);
+    servers.push(server);
 
     for k in 0..NUM_KEYHOLDERS.get() {
         let listener = find_unused_port();
-        let port = listener.local_addr().unwrap().port();
-        let keyholder_opts = keyserver::Opts {
+        let address = listener.local_addr().unwrap();
+        let app_cfg = keyserver::Config {
             id: KeyserverId::try_from(k + 1).unwrap(),
             keyholders_required: KEYHOLDERS_REQUIRED.get(),
             keyshare: shares[k as usize],
-            port,
-            monitoring_plane_port: None,
-            max_clients: 1,
-            max_monitoring_plane_clients: 1,
             max_heavy_clients: 1,
             crypto_parallelism_per_server: None,
             crypto_parallelism_per_request: None,
@@ -264,29 +265,40 @@ async fn test_hdb() {
             keypair_file: format!("{certs_dir}/keyserver-token-{}.priv", k + 1).into(),
             keypair_passphrase_file: format!("{certs_dir}/keyserver-passphrase.txt").into(),
             allow_insecure_cookie: true,
+            event_store_path: ":memory:".into(),
         };
-        servers.push(
-            async {
-                keyserver::run(keyholder_opts, async {
-                    barrier.wait().await;
-                })
-                .await
-            }
-            .boxed(),
-        );
+        let server_config = Arc::new(ServerConfig {
+            main: PlaneConfig {
+                address,
+                max_connections: PlaneConfig::DEFAULT_MAX_CONNECTIONS,
+                custom: app_cfg,
+            },
+            monitoring: None,
+            control: None,
+        });
+        let external_world = ExternalWorld {
+            listen: default_listen_fn,
+            load_cfg: stub_cfg(move || (*server_config).clone()),
+        };
+        let server = keyserver::server_setup()
+            .to_server_setup()
+            .build_with_external_world(external_world);
+        servers.push(server);
         // maintain the TcpListener instances until all ports have been allocated
         listeners.push(listener);
-        ks_ports.push(port);
+        ks_ports.push(address.port());
     }
+
     // Now drop listeners so that the servers are able to listen on the assigned ports
     drop(listeners);
+    // Load all server configs; once this completes, all servers are listening on their assigned ports
+    future::try_join_all(servers.iter().map(|s| s.reload_cfg()))
+        .await
+        .expect("server was unable to load cfg");
 
-    let servers = future::try_join_all(servers);
+    let servers = future::join_all(servers.iter().map(|s| s.serve()));
 
     let tests = async {
-        // Wait for the server to start
-        barrier.wait().await;
-
         // 7. Use client to query for given strings
 
         // localhost.securedna.org and its subdomains simply resolve to 127.0.0.1,
@@ -324,6 +336,7 @@ async fn test_hdb() {
         );
 
         let client_certs = Arc::new(ClientCerts::load_test_certs());
+        let server_versions = Arc::new(tokio::sync::Mutex::new(HashMap::<String, u64>::new()));
 
         let run_query = |records: Vec<String>, region: Region| {
             let server_selector = &server_selector;
@@ -333,10 +346,11 @@ async fn test_hdb() {
                 .iter()
                 .map(|r| DnaSequence::<Nucleotide>::from_str(r).unwrap())
                 .collect::<Vec<_>>();
+            let server_versions = server_versions.clone();
 
             let certs = client_certs.clone();
             async move {
-                let output = doprf_client::process(DOPRFConfig {
+                let output = doprf_client::process(DoprfConfig {
                     api_client: &api_client,
                     server_selector: server_selector.clone(),
                     request_ctx,
@@ -346,6 +360,29 @@ async fn test_hdb() {
                     sequences: &sequences[..],
                     max_windows: u64::MAX,
                     version_hint: "integration_test".to_owned(),
+                    elt: None,
+                    otp: None,
+                    server_version_handler: &LastServerVersionHandler::new(
+                        {
+                            let server_versions = server_versions.clone();
+                            Box::new(move |domain| {
+                                let server_versions = server_versions.clone();
+                                Box::pin(async move {
+                                    Ok(server_versions.lock().await.get(&domain).copied())
+                                })
+                            })
+                        },
+                        {
+                            let server_versions = server_versions.clone();
+                            Box::new(move |domain, server_version| {
+                                let server_versions = server_versions.clone();
+                                Box::pin(async move {
+                                    server_versions.lock().await.insert(domain, server_version);
+                                    Ok(())
+                                })
+                            })
+                        },
+                    ),
                 })
                 .await
                 .unwrap();
@@ -588,10 +625,7 @@ async fn test_hdb() {
     let result = future::select(tests, servers).await;
 
     // there is something wrong if the servers future finishes first
-    if let future::Either::Right((servers_result, _)) = result {
-        match servers_result {
-            Err(err) => panic!("server error: {err:?}"),
-            Ok(_) => panic!("servers stopped running before the tests ended"),
-        }
+    if let future::Either::Right(_) = result {
+        panic!("servers stopped running before the tests ended");
     }
 }

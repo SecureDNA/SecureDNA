@@ -5,10 +5,10 @@
 //! TODO: should maybe be in `certificates`?
 
 use certificates::{
-    Certificate, CertificateBundle, CertificateChain, DatabaseTokenGroup, DatabaseTokenRequest,
-    Expiration, Infrastructure, IssuerAdditionalFields, KeyAvailable, KeyPair, KeyserverTokenGroup,
-    KeyserverTokenRequest, Manufacturer, RequestBuilder, SynthesizerTokenGroup,
-    SynthesizerTokenRequest, TokenBundle,
+    Builder, Certificate, CertificateBundle, CertificateChain, DatabaseTokenGroup,
+    DatabaseTokenRequest, Expiration, Infrastructure, IssuerAdditionalFields, KeyAvailable,
+    KeyPair, KeyserverTokenGroup, KeyserverTokenRequest, Manufacturer, RequestBuilder,
+    SynthesizerTokenGroup, SynthesizerTokenRequest, TokenBundle,
 };
 use doprf::party::KeyserverId;
 
@@ -93,7 +93,7 @@ pub fn make_certs(options: MakeCertsOptions) -> CreatedCerts {
         .unwrap();
     let infra_leaf_certbundle = CertificateBundle::<Infrastructure>::new(
         infra_leaf_cert.clone(),
-        Some(CertificateChain::from_certificates([
+        Some(CertificateChain::from_items([
             infra_root_cert.clone(),
             keyserver_inter_cert.clone(),
             infra_leaf_cert.clone(),
@@ -175,7 +175,7 @@ pub fn make_certs(options: MakeCertsOptions) -> CreatedCerts {
         .unwrap();
     let manu_leaf_certbundle = CertificateBundle::<Manufacturer>::new(
         manu_leaf_cert.clone(),
-        Some(CertificateChain::from_certificates([
+        Some(CertificateChain::from_items([
             manu_root_cert.clone(),
             manu_inter_cert.clone(),
             manu_leaf_cert.clone(),

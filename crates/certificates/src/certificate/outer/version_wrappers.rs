@@ -3,26 +3,26 @@
 
 //! Structs holding with certificates and certificate request versions.
 
+use std::fmt::Debug;
 use std::hash::Hash;
-use std::marker::PhantomData;
 
 use rasn::{AsnType, Decode, Encode};
 use serde::Serialize;
 use thiserror::Error;
 
 use crate::certificate::inner::{
-    CertificateInner, Intermediate1, Issuer1, Leaf1, RequestBuilderInner, RequestInner, Root1,
+    CertificateInner, ExemptionSubject1, Intermediate1, Issuer1, Leaf1, RequestInner, Root1,
     Subject1,
 };
 use crate::error::EncodeError;
 use crate::key_state::KeyUnavailable;
 use crate::keypair::{PublicKey, Signature};
-use crate::shared_components::common::{Description, Expiration, Id};
-use crate::shared_components::role::{Exemption, Infrastructure, Role, RoleGuard};
+use crate::shared_components::common::{Expiration, Id};
+use crate::shared_components::role::{Exemption, Infrastructure};
 use crate::tokens::exemption::authenticator::Authenticator;
 use crate::tokens::exemption::exemption_list::{
     ExemptionListToken, ExemptionListTokenRequest, ExemptionListTokenRequestVersion,
-    ExemptionListTokenVersion,
+    ExemptionListTokenVersion, NonCompliantEltr,
 };
 use crate::tokens::infrastructure::{
     database::{
@@ -37,171 +37,243 @@ use crate::tokens::manufacturer::synthesizer::{
     SynthesizerToken, SynthesizerTokenRequest, SynthesizerTokenRequestVersion,
     SynthesizerTokenVersion,
 };
-use crate::{HierarchyKind, IssuerAdditionalFields, KeyPair, Manufacturer};
+use crate::validation_failure::ValidationFailure;
+use crate::{
+    CertificateDigest, HierarchyKind, IssuerAdditionalFields, KeyPair, Manufacturer, RequestDigest,
+};
 
+/// Each role-specific implementor of `CertificateVersion` is an enum whose variants
+/// allow us to deserialize a certificate without knowing its hierarchy level or version.
+pub trait CertificateVersion:
+    Debug
+    + AsnType
+    + Encode
+    + Decode
+    + Serialize
+    + PartialEq
+    + Eq
+    + Hash
+    + PartialOrd
+    + Ord
+    + Clone
+    + Send
+    + Sync
+{
+    type ReqVersion: RequestVersion;
+
+    fn signature(&self) -> &Signature;
+    fn issuer_public_key(&self) -> &PublicKey;
+    fn issuer_description(&self) -> &str;
+    fn expiration(&self) -> &Expiration;
+    fn data(&self) -> Result<Vec<u8>, EncodeError>;
+    fn issuance_id(&self) -> &Id;
+    fn request_id(&self) -> &Id;
+    fn request(&self) -> Self::ReqVersion;
+    fn public_key(&self) -> &PublicKey;
+    fn hierarchy_level(&self) -> HierarchyKind;
+
+    fn issue_cert(
+        &self,
+        request: Self::ReqVersion,
+        additional_fields: IssuerAdditionalFields,
+        kp: &KeyPair,
+    ) -> Result<Self, IssuanceError>;
+
+    fn into_digest(self, role: &str, failure: Option<ValidationFailure>) -> CertificateDigest;
+}
+/// Allows exemption certificate versioning
 #[derive(
     Debug, AsnType, Encode, Decode, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord, Clone,
 )]
 #[rasn(automatic_tags)]
 #[rasn(choice)]
-pub(crate) enum CertificateVersion<R>
-where
-    R: Role,
-{
-    RootV1(CertificateInner<Root1, R, Subject1, Issuer1>),
-    IntermediateV1(CertificateInner<Intermediate1, R, Subject1, Issuer1>),
-    LeafV1(CertificateInner<Leaf1, R, Subject1, Issuer1>),
-    // LeafV2(CertificateInner<Leaf2, R, Subject1, Issuer1>)
+pub enum ExemptionCertificateVersion {
+    RootV1(CertificateInner<Root1, Exemption, ExemptionSubject1, Issuer1>),
+    IntermediateV1(CertificateInner<Intermediate1, Exemption, ExemptionSubject1, Issuer1>),
+    LeafV1(CertificateInner<Leaf1, Exemption, ExemptionSubject1, Issuer1>),
 }
 
-macro_rules! impl_issued_boilerplate {
-    ($name:ident, $($variant:ident),+) => {
-        impl<R> $name<R>  where R: Role {
-            pub(crate) fn signature(&self) -> &Signature {
+/// Allows manufacturer certificate versioning
+#[derive(
+    Debug, AsnType, Encode, Decode, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord, Clone,
+)]
+#[rasn(automatic_tags)]
+#[rasn(choice)]
+pub enum ManufacturerCertificateVersion {
+    RootV1(CertificateInner<Root1, Manufacturer, Subject1, Issuer1>),
+    IntermediateV1(CertificateInner<Intermediate1, Manufacturer, Subject1, Issuer1>),
+    LeafV1(CertificateInner<Leaf1, Manufacturer, Subject1, Issuer1>),
+}
+
+/// Allows infrastructure certificate versioning
+#[derive(
+    Debug, AsnType, Encode, Decode, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord, Clone,
+)]
+#[rasn(automatic_tags)]
+#[rasn(choice)]
+pub enum InfrastructureCertificateVersion {
+    RootV1(CertificateInner<Root1, Infrastructure, Subject1, Issuer1>),
+    IntermediateV1(CertificateInner<Intermediate1, Infrastructure, Subject1, Issuer1>),
+    LeafV1(CertificateInner<Leaf1, Infrastructure, Subject1, Issuer1>),
+}
+
+/// Provides an implementation of `CertificateVersion` in order to avoid boilerplate
+macro_rules! impl_certificate_version_boilerplate {
+    ($name:ident, $assoc_type:ty, $($variant:ident),+) => {
+
+        impl CertificateVersion for $name {
+            type ReqVersion = $assoc_type;
+            fn signature(&self) -> &Signature {
                 match self {
                     $(Self::$variant(c) => c.signature(),)+
                 }
             }
 
-            pub(crate) fn issuer_public_key(&self) -> &PublicKey {
+            fn issuer_public_key(&self) -> &PublicKey {
                 match self {
                     $(Self::$variant(c) => c.issuer_public_key(),)+
                 }
             }
 
-            pub(crate) fn issuer_description(&self) -> &str {
+            fn issuer_description(&self) -> &str {
                 match self {
                     $(Self::$variant(c) => c.issuer_description(),)+
                 }
             }
 
-            pub(crate) fn expiration(&self) -> &Expiration {
+            fn expiration(&self) -> &Expiration {
                 match self {
                     $(Self::$variant(c) => c.expiration(),)+
                 }
             }
 
-            pub(crate) fn data(&self) -> Result<Vec<u8>, EncodeError> {
+            fn data(&self) -> Result<Vec<u8>, EncodeError> {
                 match self {
                     $(Self::$variant(c) => c.data(),)+
                 }
             }
 
-            pub(crate) fn issuance_id(&self) -> &Id {
+            fn issuance_id(&self) -> &Id {
                 match self {
                     $(Self::$variant(c) => c.issuance_id(),)+
                 }
             }
 
-            pub(crate) fn request_id(&self) -> &Id {
+            fn request_id(&self) -> &Id {
                 match self {
                     $(Self::$variant(c) => c.request_id(),)+
+                }
+            }
+
+            fn request(&self) -> Self::ReqVersion {
+                match self {
+                    $(Self::$variant(c) => {
+                        let request = c.request();
+                        Self::ReqVersion::$variant(request.clone())
+                    })+
+                }
+            }
+
+            fn public_key(&self) -> &PublicKey {
+                match self {
+                    $(Self::$variant(c) => c.public_key(),)+
+                }
+            }
+
+            fn hierarchy_level(&self) -> HierarchyKind {
+                match self {
+                    Self::RootV1(_) => HierarchyKind::Root,
+                    Self::IntermediateV1(_) => HierarchyKind::Intermediate,
+                    Self::LeafV1(_) => HierarchyKind::Leaf,
+                }
+            }
+
+            fn issue_cert(
+                &self,
+                request: Self::ReqVersion,
+                additional_fields: IssuerAdditionalFields,
+                kp: &KeyPair,
+            ) -> Result<Self, IssuanceError> {
+                match (self, request) {
+                    (Self::RootV1(root), Self::ReqVersion::IntermediateV1(req)) => {
+                        let cert = root.issue_intermediate(req, additional_fields, kp)?;
+                        let version = Self::IntermediateV1(cert);
+                        Ok(version)
+                    }
+                    (Self::IntermediateV1(intermediate), Self::ReqVersion::IntermediateV1(req)) => {
+                        let cert = intermediate.issue_other_intermediate(req, additional_fields, kp)?;
+                        let version = Self::IntermediateV1(cert);
+                        Ok(version)
+                    }
+                    (Self::IntermediateV1(intermediate), Self::ReqVersion::LeafV1(req)) => {
+                        let cert = intermediate.issue_leaf(req, additional_fields, kp)?;
+                        let version = Self::LeafV1(cert);
+                        Ok(version)
+                    }
+                    (_, request) => Err(IssuanceError::HierarchyError(
+                        self.hierarchy_level().to_string(),
+                        request.hierarchy_level().to_string(),
+                    )),
+                }
+            }
+
+            fn into_digest(self, role: &str, validation_failure: Option<ValidationFailure>) -> CertificateDigest{
+                match self {
+                    Self::RootV1(inner) => {
+                        let version = format!("Root V1 {role}");
+                        CertificateDigest::new(version, inner, validation_failure)
+                    }
+                    Self::IntermediateV1(inner) => {
+                        let version = format!("Intermediate V1 {role}");
+                        CertificateDigest::new(version, inner, validation_failure)
+                    }
+                    Self::LeafV1(inner) => {
+                        let version = format!("Leaf V1 {role}");
+                        CertificateDigest::new(version, inner, validation_failure)
+                    }
                 }
             }
         }
     }
 }
 
-impl_issued_boilerplate!(CertificateVersion, LeafV1, IntermediateV1, RootV1);
+impl_certificate_version_boilerplate!(
+    ExemptionCertificateVersion,
+    ExemptionRequestVersion,
+    LeafV1,
+    IntermediateV1,
+    RootV1
+);
+impl_certificate_version_boilerplate!(
+    ManufacturerCertificateVersion,
+    ManufacturerRequestVersion,
+    LeafV1,
+    IntermediateV1,
+    RootV1
+);
+impl_certificate_version_boilerplate!(
+    InfrastructureCertificateVersion,
+    InfrastructureRequestVersion,
+    LeafV1,
+    IntermediateV1,
+    RootV1
+);
 
-impl<R> CertificateVersion<R>
-where
-    R: Role,
-{
-    pub(crate) fn public_key(&self) -> &PublicKey {
-        match self {
-            Self::RootV1(c) => c.public_key(),
-            Self::IntermediateV1(c) => c.public_key(),
-            Self::LeafV1(c) => c.public_key(),
-        }
-    }
-
-    pub(crate) fn hierarchy_level(&self) -> HierarchyKind {
-        match self {
-            Self::RootV1(_) => HierarchyKind::Root,
-            Self::IntermediateV1(_) => HierarchyKind::Intermediate,
-            Self::LeafV1(_) => HierarchyKind::Leaf,
-        }
-    }
-}
-
-impl<R> CertificateVersion<R>
-where
-    R: Role,
-{
-    pub(crate) fn issue_cert(
-        &self,
-        request: RequestVersion<R>,
-        additional_fields: IssuerAdditionalFields,
-        kp: &KeyPair,
-    ) -> Result<CertificateVersion<R>, IssuanceError> {
-        match (self, request) {
-            (Self::RootV1(root), RequestVersion::IntermediateV1(req)) => {
-                let cert = root.issue_intermediate(req, additional_fields, kp)?;
-                let version = CertificateVersion::IntermediateV1(cert);
-                Ok(version)
-            }
-            (Self::IntermediateV1(intermediate), RequestVersion::IntermediateV1(req)) => {
-                let cert = intermediate.issue_other_intermediate(req, additional_fields, kp)?;
-                let version = CertificateVersion::IntermediateV1(cert);
-                Ok(version)
-            }
-            (Self::IntermediateV1(intermediate), RequestVersion::LeafV1(req)) => {
-                let cert = intermediate.issue_leaf(req, additional_fields, kp)?;
-                let version = CertificateVersion::LeafV1(cert);
-                Ok(version)
-            }
-            (_, request) => Err(IssuanceError::HierarchyError(
-                self.hierarchy_level().to_string(),
-                request.hierarchy_level().to_string(),
-            )),
-        }
-    }
-
-    pub fn request(&self) -> RequestVersion<R> {
-        match self {
-            CertificateVersion::RootV1(root) => {
-                let request_subject = root.0.data.common.subject.clone();
-                RequestVersion::RootV1(RequestInner {
-                    hierarchy_level: Root1::new(),
-                    role: RoleGuard(PhantomData::<R>),
-                    subject: request_subject,
-                })
-            }
-            CertificateVersion::IntermediateV1(int) => {
-                let request_subject = int.0.data.common.subject.clone();
-                RequestVersion::IntermediateV1(RequestInner {
-                    hierarchy_level: Intermediate1::new(),
-                    role: RoleGuard(PhantomData::<R>),
-                    subject: request_subject,
-                })
-            }
-            CertificateVersion::LeafV1(leaf) => {
-                let request_subject = leaf.0.data.common.subject.clone();
-                RequestVersion::LeafV1(RequestInner {
-                    hierarchy_level: Leaf1::new(),
-                    role: RoleGuard(PhantomData::<R>),
-                    subject: request_subject,
-                })
-            }
-        }
-    }
-}
-impl CertificateVersion<Exemption> {
+impl ExemptionCertificateVersion {
     pub(crate) fn issue_elt(
         &self,
         token_request: ExemptionListTokenRequest,
         expiration: Expiration,
         issuer_auth_devices: Vec<Authenticator>,
         kp: &KeyPair,
-    ) -> Result<ExemptionListToken, IssuanceError> {
+    ) -> Result<ExemptionListToken<KeyUnavailable>, IssuanceError> {
         match self {
-            CertificateVersion::LeafV1(c) => match token_request.version {
+            Self::LeafV1(c) => match token_request.version {
                 ExemptionListTokenRequestVersion::V1(r) => {
                     let token = c.issue_elt(r, expiration, issuer_auth_devices, kp)?;
-                    Ok(ExemptionListToken {
-                        version: ExemptionListTokenVersion::V1(token),
-                    })
+                    Ok(ExemptionListToken::new(ExemptionListTokenVersion::V1(
+                        token,
+                    )))
                 }
             },
             _ => Err(IssuanceError::NonLeafIssuingToken(
@@ -210,9 +282,17 @@ impl CertificateVersion<Exemption> {
             )),
         }
     }
+
+    pub(crate) fn blinding_allowed(&self) -> bool {
+        match self {
+            Self::RootV1(c) => c.blinding_allowed(),
+            Self::IntermediateV1(c) => c.blinding_allowed(),
+            Self::LeafV1(c) => c.blinding_allowed(),
+        }
+    }
 }
 
-impl CertificateVersion<Infrastructure> {
+impl InfrastructureCertificateVersion {
     pub(crate) fn issue_keyserver_token(
         &self,
         token_request: KeyserverTokenRequest,
@@ -220,7 +300,7 @@ impl CertificateVersion<Infrastructure> {
         kp: &KeyPair,
     ) -> Result<KeyserverToken<KeyUnavailable>, IssuanceError> {
         match self {
-            CertificateVersion::LeafV1(c) => match token_request.version {
+            Self::LeafV1(c) => match token_request.version {
                 KeyserverTokenRequestVersion::V1(req) => {
                     let token = c.issue_keyserver_token(req, expiration, kp)?;
                     Ok(KeyserverToken::new(KeyserverTokenVersion::V1(token)))
@@ -240,7 +320,7 @@ impl CertificateVersion<Infrastructure> {
         kp: &KeyPair,
     ) -> Result<DatabaseToken<KeyUnavailable>, IssuanceError> {
         match self {
-            CertificateVersion::LeafV1(c) => match token_request.version {
+            Self::LeafV1(c) => match token_request.version {
                 DatabaseTokenRequestVersion::V1(req) => {
                     let token = c.issue_database_token(req, expiration, kp)?;
                     Ok(DatabaseToken::new(DatabaseTokenVersion::V1(token)))
@@ -260,7 +340,7 @@ impl CertificateVersion<Infrastructure> {
         kp: &KeyPair,
     ) -> Result<HltToken<KeyUnavailable>, IssuanceError> {
         match self {
-            CertificateVersion::LeafV1(c) => match token_request.version {
+            Self::LeafV1(c) => match token_request.version {
                 HltTokenRequestVersion::V1(req) => {
                     let token = c.issue_hlt_token(req, expiration, kp)?;
                     Ok(HltToken::new(HltTokenVersion::V1(token)))
@@ -274,7 +354,7 @@ impl CertificateVersion<Infrastructure> {
     }
 }
 
-impl CertificateVersion<Manufacturer> {
+impl ManufacturerCertificateVersion {
     pub(crate) fn issue_synthesizer_token(
         &self,
         token_request: SynthesizerTokenRequest,
@@ -282,7 +362,7 @@ impl CertificateVersion<Manufacturer> {
         kp: &KeyPair,
     ) -> Result<SynthesizerToken<KeyUnavailable>, IssuanceError> {
         match self {
-            CertificateVersion::LeafV1(c) => match token_request.version {
+            Self::LeafV1(c) => match token_request.version {
                 SynthesizerTokenRequestVersion::V1(req) => {
                     let token = c.issue_synthesizer_token(req, expiration, kp)?;
                     Ok(SynthesizerToken::new(SynthesizerTokenVersion::V1(token)))
@@ -296,117 +376,148 @@ impl CertificateVersion<Manufacturer> {
     }
 }
 
-#[derive(Debug, AsnType, Encode, Decode, Serialize, PartialEq, Eq, Clone)]
-#[rasn(automatic_tags)]
-#[rasn(choice)]
-pub(crate) enum RequestVersion<R>
-where
-    R: Role,
+/// Each role-specific implementor of `RequestVersion` is an enum whose variants allow
+/// us to deserialize a certificate request without knowing its hierarchy level or version.
+pub trait RequestVersion:
+    Debug + AsnType + Encode + Decode + Serialize + PartialEq + Eq + Clone
 {
-    RootV1(RequestInner<Root1, R, Subject1>),
-    IntermediateV1(RequestInner<Intermediate1, R, Subject1>),
-    LeafV1(RequestInner<Leaf1, R, Subject1>),
-    // LeafV2(RequestInner<Leaf2, R, Subject1>),
-}
-
-impl<R> RequestVersion<R>
-where
-    R: Role,
-{
-    pub(crate) fn request_id(&self) -> &Id {
-        match self {
-            Self::RootV1(c) => c.request_id(),
-            Self::IntermediateV1(c) => c.request_id(),
-            Self::LeafV1(c) => c.request_id(),
-        }
-    }
-
-    pub(crate) fn hierarchy_level(&self) -> HierarchyKind {
-        match self {
-            Self::RootV1(_) => HierarchyKind::Root,
-            Self::IntermediateV1(_) => HierarchyKind::Intermediate,
-            Self::LeafV1(_) => HierarchyKind::Leaf,
-        }
-    }
-
-    pub(crate) fn public_key(&self) -> &PublicKey {
-        match self {
-            RequestVersion::RootV1(c) => c.public_key(),
-            RequestVersion::IntermediateV1(c) => c.public_key(),
-            RequestVersion::LeafV1(c) => c.public_key(),
-        }
-    }
-}
-
-impl<R> RequestVersion<R>
-where
-    R: Role,
-{
-    pub(crate) fn self_sign(
+    type CertVersion: CertificateVersion;
+    fn request_id(&self) -> &Id;
+    /// Whether the certificate requests's type is root, intermediate or leaf.
+    fn hierarchy_level(&self) -> HierarchyKind;
+    fn public_key(&self) -> &PublicKey;
+    fn into_digest(self, role: &str) -> RequestDigest;
+    fn self_sign(
         self,
         additional_fields: IssuerAdditionalFields,
         kp: &KeyPair,
-    ) -> Result<CertificateVersion<R>, IssuanceError> {
-        match self {
-            Self::RootV1(root) => {
-                let inner = root.self_sign(additional_fields, kp)?;
-                Ok(CertificateVersion::RootV1(inner))
+    ) -> Result<Self::CertVersion, IssuanceError>;
+}
+
+/// Provides an implementation of `RequestVersion` in order to avoid boilerplate
+macro_rules! impl_request_version_boilerplate {
+    ($name:ident, $assoc_type:ty, $($variant:ident),+) => {
+        impl RequestVersion for $name {
+            type CertVersion = $assoc_type;
+            fn request_id(&self) -> &Id {
+                match self {
+                    $(Self::$variant(c) => c.request_id(),)+
+                }
             }
-            _ => Err(IssuanceError::NotAbleToSelfSign(
-                self.hierarchy_level().to_string(),
-            )),
+
+            fn public_key(&self) -> &PublicKey {
+            match self {
+                $(Self::$variant(c) => c.public_key(),)+
+                }
+            }
+
+            fn hierarchy_level(&self) -> HierarchyKind {
+                match self {
+                    Self::RootV1(_) => HierarchyKind::Root,
+                    Self::IntermediateV1(_) => HierarchyKind::Intermediate,
+                    Self::LeafV1(_) => HierarchyKind::Leaf,
+                }
+            }
+
+            fn into_digest(self, role: &str) -> RequestDigest {
+                match self {
+                    Self::RootV1(inner) => {
+                        let version = format!("Root V1 {role}");
+                        RequestDigest::from_version_and_request_inner(version, inner)
+                    }
+                    Self::IntermediateV1(inner) => {
+                        let version = format!("Intermediate V1 {role}");
+                        RequestDigest::from_version_and_request_inner(version, inner)
+                    }
+                    Self::LeafV1(inner) => {
+                        let version = format!("Leaf V1 {role}");
+                        RequestDigest::from_version_and_request_inner(version, inner)
+                    }
+                }
+            }
+
+            fn self_sign(
+                self,
+                additional_fields: IssuerAdditionalFields,
+                kp: &KeyPair,
+            ) -> Result<Self::CertVersion, IssuanceError> {
+                match self {
+                    Self::RootV1(root) => {
+                        let inner = root.self_sign(additional_fields, kp)?;
+                        Ok(Self::CertVersion::RootV1(inner))
+                    }
+                    _ => Err(IssuanceError::NotAbleToSelfSign(
+                            self.hierarchy_level().to_string(),
+                        )),
+                }
+            }
         }
     }
 }
 
-pub(crate) enum RequestBuilderVersion<R> {
-    RootV1(RequestBuilderInner<Root1, R>),
-    IntermediateV1(RequestBuilderInner<Intermediate1, R>),
-    LeafV1(RequestBuilderInner<Leaf1, R>),
+/// Allows exemption certificate request versioning
+#[derive(Debug, AsnType, Encode, Decode, Serialize, PartialEq, Eq, Clone)]
+#[rasn(automatic_tags)]
+#[rasn(choice)]
+pub enum ExemptionRequestVersion {
+    RootV1(RequestInner<Root1, Exemption, ExemptionSubject1>),
+    IntermediateV1(RequestInner<Intermediate1, Exemption, ExemptionSubject1>),
+    LeafV1(RequestInner<Leaf1, Exemption, ExemptionSubject1>),
 }
 
-impl<R> RequestBuilderVersion<R> {
-    pub(crate) fn with_description(self, desc: Description) -> RequestBuilderVersion<R> {
+impl ExemptionRequestVersion {
+    pub(crate) fn blinding_allowed(&self) -> bool {
         match self {
-            Self::RootV1(b) => RequestBuilderVersion::RootV1(b.with_description(desc)),
-            Self::IntermediateV1(b) => {
-                RequestBuilderVersion::IntermediateV1(b.with_description(desc))
-            }
-            Self::LeafV1(b) => RequestBuilderVersion::LeafV1(b.with_description(desc)),
-        }
-    }
-
-    pub fn with_emails_to_notify<T: Into<String>>(
-        self,
-        emails: impl IntoIterator<Item = T>,
-    ) -> RequestBuilderVersion<R> {
-        match self {
-            Self::RootV1(b) => Self::RootV1(b.with_emails_to_notify(emails)),
-            Self::IntermediateV1(b) => Self::IntermediateV1(b.with_emails_to_notify(emails)),
-            Self::LeafV1(b) => Self::LeafV1(b.with_emails_to_notify(emails)),
-        }
-    }
-
-    pub(crate) fn build(self) -> RequestVersion<R>
-    where
-        R: Role,
-    {
-        match self {
-            Self::RootV1(b) => {
-                let req = b.build();
-                RequestVersion::RootV1(req)
-            }
-            Self::IntermediateV1(b) => {
-                let req = b.build();
-                RequestVersion::IntermediateV1(req)
-            }
-            Self::LeafV1(b) => {
-                let req = b.build();
-                RequestVersion::LeafV1(req)
-            }
+            Self::RootV1(r) => r.blinding_allowed(),
+            Self::IntermediateV1(r) => r.blinding_allowed(),
+            Self::LeafV1(r) => r.blinding_allowed(),
         }
     }
 }
+
+/// Allows infrastructure certificate request versioning
+#[derive(Debug, AsnType, Encode, Decode, Serialize, PartialEq, Eq, Clone)]
+#[rasn(automatic_tags)]
+#[rasn(choice)]
+pub enum InfrastructureRequestVersion {
+    RootV1(RequestInner<Root1, Infrastructure, Subject1>),
+    IntermediateV1(RequestInner<Intermediate1, Infrastructure, Subject1>),
+    LeafV1(RequestInner<Leaf1, Infrastructure, Subject1>),
+}
+
+/// Allows manufacturer certificate request versioning
+#[derive(Debug, AsnType, Encode, Decode, Serialize, PartialEq, Eq, Clone)]
+#[rasn(automatic_tags)]
+#[rasn(choice)]
+pub enum ManufacturerRequestVersion {
+    RootV1(RequestInner<Root1, Manufacturer, Subject1>),
+    IntermediateV1(RequestInner<Intermediate1, Manufacturer, Subject1>),
+    LeafV1(RequestInner<Leaf1, Manufacturer, Subject1>),
+}
+
+impl_request_version_boilerplate!(
+    ExemptionRequestVersion,
+    ExemptionCertificateVersion,
+    LeafV1,
+    IntermediateV1,
+    RootV1
+);
+
+impl_request_version_boilerplate!(
+    InfrastructureRequestVersion,
+    InfrastructureCertificateVersion,
+    LeafV1,
+    IntermediateV1,
+    RootV1
+);
+
+impl_request_version_boilerplate!(
+    ManufacturerRequestVersion,
+    ManufacturerCertificateVersion,
+    LeafV1,
+    IntermediateV1,
+    RootV1
+);
 
 #[derive(Error, Debug, PartialEq)]
 pub enum IssuanceError {
@@ -416,6 +527,8 @@ pub enum IssuanceError {
     NonLeafIssuingToken(String, String),
     #[error("a {} certificate request cannot self sign", .0)]
     NotAbleToSelfSign(String),
+    #[error("the ELT cannot issue the ELTR due to {0}")]
+    Eltr(#[from] NonCompliantEltr),
     #[error(transparent)]
     Encode(#[from] EncodeError),
 }

@@ -19,7 +19,7 @@ pub enum DecodeError {
     #[error("could not ASN decode: {0}")]
     AsnDecode(String),
     #[error("unexpected tag, expected {0}, got {1}")]
-    UnexpectedPEMTag(String, String),
+    UnexpectedPemTag(String, String),
     #[error("unable to parse decoded bytes into required type")]
     ParseError,
 }

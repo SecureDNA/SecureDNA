@@ -1,0 +1,73 @@
+[main]
+address = "127.0.0.1:8080"
+# IPv6 addresses are supported
+#address = "[::1]:8080"
+
+# Maximum number of simultaneous HTTP connections
+# max_connections = 16384
+
+# Where to find the database
+database = "data/hdb"
+
+# (optional) Maximum simultaneous hashing/encryption requests before 503 unavailable is returned
+#max_heavy_clients = 512
+
+# (optional) Maximum parallel HDB queries
+#disk_parallelism_per_server = 4096
+
+# (optional) Size of query queue per request
+#disk_parallelism_per_request = 256
+
+# (optional) Path to a JSON file describing a hash spec
+#hash_spec_path = "hash_spec.json"
+
+# (optional) Yubico API client ID. This is a short digit string, used to verify YubiKey OTPs
+# when handling an order with a 2FA-enabled exemption list. If set to the string 'allow_all',
+# all YubiKey OTPs are treated as valid.
+#yubico_api_client_id = ""
+
+# (optional) Yubico API secret key. This is a base-64 string,
+# used to verify YubiKey OTPs when handling an order with a 2FA-enabled exemption list.
+#yubico_api_secret_key = ""
+
+# (optional) Size limit for JSON request bodies in SCEP
+#scep_json_size_limit = 100000
+
+# (optional) Size limit for exemption list tokens
+#elt_size_limit = 100000
+
+# Directory containing manufacturer root certs for SCEP client cert verification
+manufacturer_roots = "certs/manufacturer_roots/"
+
+# Path to the database's token and certificate chain bundle file, used for SCEP
+token_file = "database-token.dt"
+
+# Path to the database's .priv keypair file, used for SCEP
+keypair_file = "database-token.priv"
+
+# The file containing the passphrase to decrypt the database's .priv keypair file
+# (keypair_file setting)
+keypair_passphrase_file = "database-passphrase.txt"
+
+# (optional) Do not set the `secure` flag on session cookies, allowing them to be transported
+# over http://. This is useful for local testing.
+#allow_insecure_cookie = false
+
+# (optional) Writable path where the server can persist event store data (ratelimits, client
+# versions, etc). The default is :memory:, which is an in-memory store that will be erased on
+# shutdown.
+#event_store_path = ":memory:"
+
+
+#[monitoring]
+#address = "127.0.0.1:8081"
+
+# Maximum number of simultaneous HTTP connections
+# max_connections = 16384
+
+
+#[control]
+#address = "127.0.0.1:8082"
+
+# Maximum number of simultaneous HTTP connections
+# max_connections = 16384

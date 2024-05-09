@@ -9,9 +9,9 @@ This is the monorepo for the [SecureDNA](https://securedna.org) project.
 ## Requirements
 
 - You can find information about the project as a whole, including papers and a live demo, at the [main site](https://securedna.org).
-- This should work in any `linux-amd64` environment with a current Rust toolchain.  It has also been successfully built for `arm64`.
+- This should work in an up-to-date `linux-amd64` environment (tested on ubuntu 22.04, debian Bookworm) and recent Rust toolchain. Check the [toolchain file](./rust-toolchain.toml) for the current version. It has also been successfully built for `linux-arm64`.
 - Current precompiled `synthclient` binaries are available for [Ubuntu amd64](https://github.com/SecureDNA/ppa).
-- To use the production servers with real databases, you'll need to [obtain certificates](https://securedna.org/start/), but you can compile the entire system below and run test servers with test databases with your own certificates.
+- To use the production servers with real databases, you'll need to [obtain certificates](https://securedna.org/start/), but you can compile the entire system below and run test servers with test databases and your own certificates.
 
 ## Structure
 
@@ -71,7 +71,7 @@ If you want to use the test hdb for local dev, run `ln -s test/data data` in the
 
 A script to build and run w/out containerization: [local_test_environment.sh](./bin/local_test_environment.sh).
 
-To build the repository, install [Rust 1.75.0](https://www.rust-lang.org/) and run `cargo build`.
+To build the repository, install rust and run `cargo build`.
 
 To build the frontend, install [pnpm 8](https://pnpm.io/) and [wasm-pack 0.12.1+](https://rustwasm.github.io/wasm-pack/), then run `cargo build --features wasm`. Then follow the instructions in [the frontend README](./frontend/README.md).
 
@@ -98,3 +98,15 @@ As an example, to run the system tests:
 ### Nix
 
 For developers who use nix, there is a `flake.nix` which sets up a local dev environment that includes all dev dependencies and language toolchains, as well as miscellaneous tools. Note that `docker` is not included, it must be installed separately.
+
+## Packaging
+
+We currently package synthclient and cert tools for debian-based distros (ubuntu 22.04, debian Bookworm and later).
+
+### amd64
+
+We run this on github actions, and make it available on our own PPA.
+
+### arm64
+
+We run this manually, and make it available on our own PPA. In the future, we may also run it on github actions (once runners are available). For now, use `just build-arm <version>`

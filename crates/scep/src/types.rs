@@ -55,14 +55,16 @@ pub enum ClientRequestType {
     #[serde(rename = "screen")]
     Screen(ScreenCommon),
     #[serde(rename = "screen-with-EL")]
-    ScreenWithEL {
-        #[serde(flatten)]
-        common: ScreenCommon,
-        /// A 2FA one-time password that unlocks this request's exemption list tokens.
-        otp: String,
-    },
+    ScreenWithEl(ScreenCommon),
     #[serde(rename = "report-AS-failure")]
     ReportASFailure,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScreenWithElParams {
+    #[serde(rename = "ELT_size")]
+    pub elt_size: u64,
+    pub otp: String,
 }
 
 /// The server response to an `OpenRequest` during mutual authentication.
@@ -129,7 +131,7 @@ mod cert_chain_serde {
 mod keyserver_id_set_serde {
     use super::*;
 
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{Deserializer, Serializer};
 
     use doprf::party::KeyserverId;
 

@@ -47,7 +47,7 @@ pub struct SignCertOpts {
     #[clap(
         global = true,
         long,
-        help = "Email(s) to be notified when an ELT issued by this cert is used (optional, only for leaf certs)"
+        help = "Email(s) to be notified when an ELT issued by this cert is used (optional, only for exemption leaf certs)"
     )]
     pub notify: Vec<String>,
     #[clap(
@@ -167,6 +167,13 @@ fn sign_cert<R: Role, P: PassphraseReader>(
             };
             let request = load_cert_request_from_file::<R>(&request_file)?;
 
+            if !opts.notify.is_empty()
+                && (opts.role != RoleKind::Exemption
+                    || request.hierarchy_level() != HierarchyKind::Leaf)
+            {
+                return Err(CertCliError::EmailsToNotifyNotAllowed);
+            }
+
             let new_cert = issuing_cert.issue_cert(request, issuer_fields)?;
 
             // Root certs don't need to provide a certificate chain for the certificates they issue, because the root public keys will be known.
@@ -220,7 +227,7 @@ mod tests {
 
     use certificates::{
         file::{save_cert_request_to_file, save_keypair_to_file, FileError},
-        ChainTraversal, KeyPair, RequestBuilder,
+        Builder, ChainTraversal, KeyPair, RequestBuilder,
     };
     use tempfile::TempDir;
 
@@ -787,7 +794,8 @@ mod tests {
 
         let int_kp = KeyPair::new_random();
 
-        let int_req = RequestBuilder::intermediate_v1_builder(int_kp.public_key()).build();
+        let int_req =
+            RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
         save_keypair_to_file(int_kp, &passphrase_reader.passphrase, &int_key_path).unwrap();
 
         let int_cert = root_cert
@@ -818,7 +826,7 @@ mod tests {
         assert!(leaf_cert_path.exists());
         let leaf_cert = load_certificate_bundle_from_file::<Exemption>(&leaf_cert_path).unwrap();
         leaf_cert
-            .validate_path_to_issuers(&[root_public_key])
+            .validate_path_to_issuers(&[root_public_key], None)
             .expect("should find path to root")
     }
 
@@ -844,7 +852,8 @@ mod tests {
 
         let int_kp = KeyPair::new_random();
 
-        let int_req = RequestBuilder::intermediate_v1_builder(int_kp.public_key()).build();
+        let int_req =
+            RequestBuilder::<Infrastructure>::intermediate_v1_builder(int_kp.public_key()).build();
         save_keypair_to_file(int_kp, &passphrase_reader.passphrase, &int_key_path).unwrap();
 
         let int_cert = root_cert

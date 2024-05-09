@@ -5,6 +5,7 @@ use std::cmp::min;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use certificates::{ExemptionListTokenGroup, TokenBundle};
 use thiserror::Error;
 
 use crate::api::ApiWarning;
@@ -15,10 +16,10 @@ use crate::{
     },
     retry_if::retry_if,
 };
-use doprf_client::server_selection::ServerSelector;
-use doprf_client::windows::WindowsError;
-use doprf_client::DOPRFConfig;
-use doprf_client::{self, error::DOPRFError};
+use doprf_client::{
+    error::DoprfError, server_selection::ServerSelector,
+    server_version_handler::LastServerVersionHandler, windows::WindowsError, DoprfConfig,
+};
 use http_client::{BaseApiClient, HttpsToHttpRewriter};
 use quickdna::{
     BaseSequence, DnaSequence, FastaFile, FastaParseError, FastaParseSettings, FastaParser,
@@ -40,7 +41,7 @@ pub enum CheckFastaError {
     #[error("Failed to make DNA windows: {0}")]
     WindowError(#[from] WindowsError),
     #[error("Internal DOPRF error: {0}")]
-    DOPRFError(#[from] DOPRFError),
+    DoprfError(#[from] DoprfError),
     #[error("Request size too big: {0}bp. Max request size: {1}bp")]
     RequestSizeTooBig(usize, usize),
     #[error("Temporary memory limits reached: {0}bp. Max system size: {1}bp")]
@@ -75,6 +76,11 @@ pub struct CheckerConfiguration<'a> {
     pub provider_reference: Option<String>,
     /// `version_hint` we will pass to doprf_client
     pub synthclient_version_hint: &'a str,
+    /// An exemption list token.
+    pub elt: Option<TokenBundle<ExemptionListTokenGroup>>,
+    /// A 2FA one-time password for the exemption list token.
+    pub otp: Option<String>,
+    pub server_version_handler: LastServerVersionHandler,
 }
 
 pub struct LimitConfiguration<'a> {
@@ -194,7 +200,7 @@ fn check_system_limits<'a, T: NucleotideLike>(
 fn group_debug_hits<T: NucleotideLike>(
     debug_resp: Vec<DebugSeqHdbResponse>,
     records: &[FastaRecord<DnaSequence<T>>],
-) -> Result<Vec<DebugFastaRecordHits>, DOPRFError> {
+) -> Result<Vec<DebugFastaRecordHits>, DoprfError> {
     let mut debug_infos: Vec<_> = records
         .iter()
         .map(|record| DebugFastaRecordHits {
@@ -207,11 +213,11 @@ fn group_debug_hits<T: NucleotideLike>(
 
     for hdb_response in debug_resp.into_iter() {
         let record_index =
-            usize::try_from(hdb_response.record).map_err(|_| DOPRFError::InvalidRecord)?;
-        let record = records.get(record_index).ok_or(DOPRFError::InvalidRecord)?;
+            usize::try_from(hdb_response.record).map_err(|_| DoprfError::InvalidRecord)?;
+        let record = records.get(record_index).ok_or(DoprfError::InvalidRecord)?;
         let debug_info = debug_infos
             .get_mut(record_index)
-            .ok_or(DOPRFError::InvalidRecord)?;
+            .ok_or(DoprfError::InvalidRecord)?;
 
         let dna = record.contents.to_string();
         let hit = DebugHit::from_hdb_response(hdb_response, &dna);
@@ -225,7 +231,7 @@ fn group_debug_hits<T: NucleotideLike>(
 fn group_hits<T: NucleotideLike>(
     consolidated_hazard_results: Vec<ConsolidatedHazardResult>,
     records: &[FastaRecord<DnaSequence<T>>],
-) -> Result<Vec<FastaRecordHits>, DOPRFError> {
+) -> Result<Vec<FastaRecordHits>, DoprfError> {
     let mut hits_by_record: Vec<_> = records
         .iter()
         .map(|record| FastaRecordHits {
@@ -238,11 +244,11 @@ fn group_hits<T: NucleotideLike>(
 
     for grouped in consolidated_hazard_results {
         let record_index =
-            usize::try_from(grouped.record).map_err(|_| DOPRFError::InvalidRecord)?;
-        let record = records.get(record_index).ok_or(DOPRFError::InvalidRecord)?;
+            usize::try_from(grouped.record).map_err(|_| DoprfError::InvalidRecord)?;
+        let record = records.get(record_index).ok_or(DoprfError::InvalidRecord)?;
         let fasta_record_hits = hits_by_record
             .get_mut(record_index)
-            .ok_or(DOPRFError::InvalidRecord)?;
+            .ok_or(DoprfError::InvalidRecord)?;
 
         let dna = record.contents.to_string();
         let hit = HazardHits::from_consolidated_hazard_result(grouped, &dna);
@@ -288,7 +294,7 @@ pub async fn check_parsed_fasta<T: NucleotideLike>(
     let sequences: Vec<_> = records.iter().map(|record| &record.contents).collect();
     let output = retry_if(
         || {
-            doprf_client::process(DOPRFConfig {
+            doprf_client::process(DoprfConfig {
                 api_client: &api_client,
                 server_selector: config.server_selector.clone(),
                 request_ctx: &request_ctx,
@@ -298,9 +304,12 @@ pub async fn check_parsed_fasta<T: NucleotideLike>(
                 sequences: &sequences,
                 max_windows,
                 version_hint: config.synthclient_version_hint.to_owned(),
+                elt: config.elt.clone(),
+                otp: config.otp.clone(),
+                server_version_handler: &config.server_version_handler,
             })
         },
-        |err: &DOPRFError| {
+        |err: &DoprfError| {
             if err.is_retriable() {
                 info_with_timestamp!("{}: retrying after error: {}", request_ctx, err);
 

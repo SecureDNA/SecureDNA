@@ -1,0 +1,14 @@
+[main]
+address = "127.0.0.1:8080"
+# IPv6 addresses are supported
+#address = "[::1]:8080"
+
+# Application-specific config goes under [main]
+times = 5
+message = "Greetings, world.\n"
+
+[monitoring]
+address = "127.0.0.1:8081"
+
+[control]
+address = "127.0.0.1:8082"

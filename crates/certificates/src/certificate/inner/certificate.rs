@@ -39,6 +39,7 @@ use super::{
     common::{Common, Issuer, Issuer1, IssuerAdditionalFields, Subject},
     hierarchy::{HierarchyLevel, Intermediate, Leaf, Root},
     request::RequestInner,
+    ExemptionSubject1,
 };
 
 /// Contains the data that is held by a certificate, including fields added by the certificate issuer.
@@ -117,22 +118,9 @@ where
     pub(crate) fn expiration(&self) -> &Expiration {
         self.0.data.common.issuer.expiration()
     }
-}
 
-impl<T, R, S, I> CertificateInner<T, R, S, I>
-where
-    T: HierarchyLevel,
-    R: Role,
-    S: Subject,
-{
-    fn sign_asn_encodable_data<H: ToASN1DerBytes>(
-        &self,
-        data: H,
-        kp: &KeyPair,
-    ) -> Result<Signed<H>, EncodeError> {
-        let bytes = data.to_der()?;
-        let signature = kp.sign(&bytes);
-        Ok(Signed { data, signature })
+    pub(crate) fn request(&self) -> RequestInner<T, R, S> {
+        RequestInner::new(self.0.data.common.subject.clone())
     }
 }
 
@@ -168,7 +156,7 @@ where
             role: RoleGuard(PhantomData::<R>),
             common,
         };
-        let signed_data = self.sign_asn_encodable_data(data, kp)?;
+        let signed_data = kp.sign_asn_encodable_data(data)?;
         Ok(CertificateInner(signed_data))
     }
 }
@@ -246,7 +234,16 @@ where
             request,
             issuer_fields,
         };
-        self.sign_asn_encodable_data(elt, kp)
+        kp.sign_asn_encodable_data(elt)
+    }
+}
+
+impl<T, I> CertificateInner<T, Exemption, ExemptionSubject1, I>
+where
+    I: Issuer,
+{
+    pub(crate) fn blinding_allowed(&self) -> bool {
+        self.0.data.common.subject.allow_blinding
     }
 }
 
@@ -270,7 +267,7 @@ where
             request,
             issuer_fields,
         };
-        self.sign_asn_encodable_data(kt, kp)
+        kp.sign_asn_encodable_data(kt)
     }
 
     pub(crate) fn issue_database_token(
@@ -287,7 +284,7 @@ where
             request,
             issuer_fields,
         };
-        self.sign_asn_encodable_data(kt, kp)
+        kp.sign_asn_encodable_data(kt)
     }
 
     pub(crate) fn issue_hlt_token(
@@ -304,7 +301,7 @@ where
             request,
             issuer_fields,
         };
-        self.sign_asn_encodable_data(kt, kp)
+        kp.sign_asn_encodable_data(kt)
     }
 }
 
@@ -329,6 +326,6 @@ where
             request,
             issuer_fields,
         };
-        self.sign_asn_encodable_data(kt, kp)
+        kp.sign_asn_encodable_data(kt)
     }
 }

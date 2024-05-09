@@ -7,6 +7,7 @@ import { ExemptionListTokenRequest } from "@securedna/frontend_common";
 import { OrganismCard } from "./OrganismCard";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faWarning } from "@fortawesome/free-solid-svg-icons";
+import { authenticatorCode, authenticatorName } from "src/util/authenticator";
 
 export interface EltrDetailProps {
   eltr: ExemptionListTokenRequest;
@@ -67,7 +68,7 @@ export const EltrDetail = (props: EltrDetailProps) => {
           <ul className="ml-12">
             {eltr.V1.requestor_auth_devices.map((device, i) => (
               <li key={i}>
-                Yubikey: <b>{device.Yubikey.join("").toLowerCase()}</b>
+                {authenticatorName(device)}: <b>{authenticatorCode(device)}</b>
               </li>
             ))}
           </ul>

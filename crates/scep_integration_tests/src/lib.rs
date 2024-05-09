@@ -2,4 +2,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 pub mod make_certs;
+pub mod mock_screening;
 pub mod server;

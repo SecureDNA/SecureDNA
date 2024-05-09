@@ -8,5 +8,9 @@ mod version_wrappers;
 
 pub use certificate::Certificate;
 pub use digest::{CertificateDigest, RequestDigest};
-pub use request::{CertificateRequest, RequestBuilder};
-pub use version_wrappers::IssuanceError;
+pub use request::{Builder, CertificateRequest, RequestBuilder};
+pub use version_wrappers::{
+    CertificateVersion, ExemptionCertificateVersion, ExemptionRequestVersion,
+    InfrastructureCertificateVersion, InfrastructureRequestVersion, IssuanceError,
+    ManufacturerCertificateVersion, ManufacturerRequestVersion, RequestVersion,
+};

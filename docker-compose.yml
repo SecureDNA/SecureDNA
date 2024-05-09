@@ -1,9 +1,10 @@
 version: '3'
 
+# SecureDNA env vars are picked up through `.env` in the repo root.
+
 x-environment: &keyserver-common-env
-    "SECUREDNA_KEYSERVER_KEYHOLDERS_REQUIRED": 3
-    "SECUREDNA_KEYSERVER_ALLOW_INSECURE_COOKIE": true
-    "SECUREDNA_KEYSERVER_ACTIVE_SECURITY_KEY": $SECUREDNA_KEYSERVER_ACTIVE_SECURITY_KEY
+    {}
+    #"RUST_LOG": "info"
 
 services:
   client:
@@ -16,8 +17,8 @@ services:
       - keyserver3
     command: [
       "./synthclient",
-      "--hdb-domains", "hdbserver",
-      "--keyserver-domains", "keyserver1,keyserver2,keyserver3",
+      "--hdb-domains", "hdbserver:5300",
+      "--keyserver-domains", "keyserver1:5301,keyserver2:5302,keyserver3:5303",
       "--use-http",
       "--use-test-roots-do-not-use-this-in-prod",
     ]
@@ -30,55 +31,40 @@ services:
   hdbserver:
     image: ghcr.io/securedna/hdbserver:${SECUREDNA_TAG}
     ports:
-      - "5300:80"
+      - "5300:5300"
     volumes:
-      - "${TEST_HDB_PATH:-./data/hdb}:/hdb/hdb"
+      - "${TEST_HDB_PATH:-./data/hdb}:/data/hdb"
       - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
     environment:
-      "SECUREDNA_HDBSERVER_MANUFACTURER_ROOTS": "/certs/manufacturer_roots/"
-      "SECUREDNA_HDBSERVER_TOKEN_FILE": "/certs/database-token.dt"
-      "SECUREDNA_HDBSERVER_KEYPAIR_FILE": "/certs/database-token.priv"
-      "SECUREDNA_HDBSERVER_KEYPAIR_PASSPHRASE_FILE": "/certs/database-passphrase.txt"
-      "SECUREDNA_HDBSERVER_ALLOW_INSECURE_COOKIE": true
+      "SECUREDNA_HDBSERVER_CFG_PATH": "/cfg/database.toml"
   keyserver1:
     image: ghcr.io/securedna/keyserver:${SECUREDNA_TAG}
     ports:
-      - "5301:80"
+      - "5301:5301"
     volumes:
       - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
     environment:
       <<: *keyserver-common-env
-      "SECUREDNA_KEYSERVER_KEYSHARE": $SECUREDNA_KEYSERVER_KEYSHARE_1
-      "SECUREDNA_KEYSERVER_ID": 1
-      "SECUREDNA_KEYSERVER_MANUFACTURER_ROOTS": "/certs/manufacturer_roots/"
-      "SECUREDNA_KEYSERVER_TOKEN_FILE": "/certs/keyserver-token-1.kt"
-      "SECUREDNA_KEYSERVER_KEYPAIR_FILE": "/certs/keyserver-token-1.priv"
-      "SECUREDNA_KEYSERVER_KEYPAIR_PASSPHRASE_FILE": "/certs/keyserver-passphrase.txt"
+      "SECUREDNA_KEYSERVER_CFG_PATH": "/cfg/keyserver1.toml"
   keyserver2:
     image: ghcr.io/securedna/keyserver:${SECUREDNA_TAG}
     ports:
-      - "5302:80"
+      - "5302:5302"
     volumes:
       - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
     environment:
       <<: *keyserver-common-env
-      "SECUREDNA_KEYSERVER_KEYSHARE": $SECUREDNA_KEYSERVER_KEYSHARE_2
-      "SECUREDNA_KEYSERVER_ID": 2
-      "SECUREDNA_KEYSERVER_MANUFACTURER_ROOTS": "/certs/manufacturer_roots/"
-      "SECUREDNA_KEYSERVER_TOKEN_FILE": "/certs/keyserver-token-2.kt"
-      "SECUREDNA_KEYSERVER_KEYPAIR_FILE": "/certs/keyserver-token-2.priv"
-      "SECUREDNA_KEYSERVER_KEYPAIR_PASSPHRASE_FILE": "/certs/keyserver-passphrase.txt"
+      "SECUREDNA_KEYSERVER_CFG_PATH": "/cfg/keyserver2.toml"
   keyserver3:
     image: ghcr.io/securedna/keyserver:${SECUREDNA_TAG}
     ports:
-      - "5303:80"
+      - "5303:5303"
     volumes:
       - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
     environment:
       <<: *keyserver-common-env
-      "SECUREDNA_KEYSERVER_KEYSHARE": $SECUREDNA_KEYSERVER_KEYSHARE_3
-      "SECUREDNA_KEYSERVER_ID": 3
-      "SECUREDNA_KEYSERVER_MANUFACTURER_ROOTS": "/certs/manufacturer_roots/"
-      "SECUREDNA_KEYSERVER_TOKEN_FILE": "/certs/keyserver-token-3.kt"
-      "SECUREDNA_KEYSERVER_KEYPAIR_FILE": "/certs/keyserver-token-3.priv"
-      "SECUREDNA_KEYSERVER_KEYPAIR_PASSPHRASE_FILE": "/certs/keyserver-passphrase.txt"
+      "SECUREDNA_KEYSERVER_CFG_PATH": "/cfg/keyserver3.toml"

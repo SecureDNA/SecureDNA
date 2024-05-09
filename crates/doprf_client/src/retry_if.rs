@@ -5,7 +5,7 @@ use again::RetryPolicy;
 use futures::{Future, FutureExt};
 use std::time::Duration;
 
-use crate::error::DOPRFError;
+use crate::error::DoprfError;
 
 const PHI_OVER_SQRT_5: f64 = 0.72360679775;
 const PHI: f64 = 1.61803398875;
@@ -40,18 +40,18 @@ where
     policy.retry_if(action, should_retry).await
 }
 
-/// Add a timeout of `duration` to the given `DOPRFError`-returning future.
-/// If the timeout is exceeded, a retriable "timed out" `DOPRFError::RequestError`
+/// Add a timeout of `duration` to the given `DoprfError`-returning future.
+/// If the timeout is exceeded, a retriable "timed out" `DoprfError::RequestError`
 /// will be returned.
-pub async fn with_timeout<F, Value>(duration: Duration, future: F) -> Result<Value, DOPRFError>
+pub async fn with_timeout<F, Value>(duration: Duration, future: F) -> Result<Value, DoprfError>
 where
-    F: Future<Output = Result<Value, DOPRFError>>,
+    F: Future<Output = Result<Value, DoprfError>>,
 {
     let mut future = Box::pin(future).fuse();
     let mut delay = futures_timer::Delay::new(duration).fuse();
     futures::select_biased! {
         res = future => res,
-        _ = delay => Err(DOPRFError::Timeout { after: duration })
+        _ = delay => Err(DoprfError::Timeout { after: duration })
     }
 }
 
