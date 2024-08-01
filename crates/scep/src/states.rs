@@ -6,7 +6,8 @@ use std::collections::{HashMap, HashSet};
 use crate::cookie::SessionCookie;
 use crate::nonce::ServerNonce;
 use crate::types::OpenRequest;
-use certificates::{ExemptionListTokenGroup, Id, Signature, TokenBundle};
+use certificates::{ExemptionTokenGroup, Id, Signature, TokenBundle};
+use shared_types::et::WithOtps;
 use shared_types::hash::HashSpec;
 
 #[derive(Debug, Clone)]
@@ -76,28 +77,26 @@ pub struct ServerStateForOpenedClient {
 }
 
 #[derive(Debug)]
-pub enum EltState {
-    /// This client is not using exemption lists (regular `screen` endpoint).
-    NoElt,
-    /// This client is screening with exemption lists, but has not hit
-    /// `screen-with-EL` yet to tell us the size.
-    AwaitingEltSize,
-    /// The client has promised to send an ELT of the given size.
-    PromisedElt { elt_size: u64, otp: String },
-    /// The client has sent an ELT, but it contains raw sequences, so we are
-    /// waiting for them to hit `ELT-seq-hashes`.
-    EltNeedsHashes {
-        elt: Box<TokenBundle<ExemptionListTokenGroup>>,
-        otp: String,
+pub enum EtState {
+    /// This client is not using exemptions (regular `screen` endpoint).
+    NoEt,
+    /// This client is screening with exemptions, but has not hit
+    /// `screen-with-exemption` yet to tell us the size.
+    AwaitingEtSize,
+    /// The client has promised to send exemption tokens of the given total size.
+    PromisedEt { et_size: u64 },
+    /// The client has sent exemption tokens, but some of them contain raw sequences, so we
+    /// are waiting for them to hit `exemption-seq-hashes`.
+    EtNeedsHashes {
+        ets: Vec<WithOtps<TokenBundle<ExemptionTokenGroup>>>,
     },
-    /// The client has sent all ELT data, and we are ready for ELT-screen-hashes.
+    /// The client has sent all exemption token data, and we are ready for `exemption-screen-hashes`.
     ///
     /// This can mean that there were no raw sequences (in which case `hashes` is empty)
-    /// or the hashes for raw sequences have been received (via `ELT-seq-hashes`).
-    EltReady {
-        elt: Box<TokenBundle<ExemptionListTokenGroup>>,
+    /// or the hashes for raw sequences have been received (via `exemption-seq-hashes`).
+    EtReady {
+        ets: Vec<WithOtps<TokenBundle<ExemptionTokenGroup>>>,
         hashes: HashSet<[u8; 32]>,
-        otp: String,
     },
 }
 
@@ -107,7 +106,7 @@ pub struct ServerStateForAuthenticatedClient {
     pub open_request: OpenRequest,
     pub server_nonce: ServerNonce,
     pub hash_total_count: u64,
-    pub elt_state: EltState,
+    pub et_state: EtState,
 }
 
 impl ServerStateForClient {

@@ -135,10 +135,11 @@ fn select_best_metadata(
         (
             // 1. aren't reversed screened (highest priority)
             !metadata.reverse_screened,
-            // 2. aren't low risk DNA
+            // 2. aren't low risk DNA or low risk peptide
             // (panic safety: it would be a bug for the metadata to be invalid here,
             //  it would mean we had generated an inconsistent HLT)
             !tags::metadata_is_low_risk_dna(metadata, hlt).unwrap(),
+            !tags::metadata_is_low_risk_peptide(metadata, hlt).unwrap(),
             // 3. have higher an_likelihood (lowest priority)
             metadata.an_likelihood,
         )
@@ -336,7 +337,7 @@ fn hash_file(opts: &Opts, fraglist: &Path, hlt_index: u32, an_subindex: u8) -> a
     let reader = open_file_maybe_gz(fraglist)?;
     let mut entries_by_prefix: Vec<Vec<Entry>> = vec![vec![]; 256];
 
-    info!("* Hashing {:?}", fraglist);
+    info!("* Hashing {fraglist:?}");
     for (idx, line_iter) in reader.lines().chunks(BATCH_SIZE).into_iter().enumerate() {
         info!("Reading a batch ({} lines)", (idx + 1) * BATCH_SIZE);
         let mut handles = vec![];
@@ -673,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_entries_prefers_low_risk_over_rs() {
+    fn merge_entries_prefers_low_risk_dna_over_rs() {
         let base_hlt: HazardLookupTable = serde_json::from_str(
             r#"
             {
@@ -704,7 +705,38 @@ mod tests {
     }
 
     #[test]
-    fn merge_entries_prefers_non_low_risk() {
+    fn merge_entries_prefers_low_risk_peptide_over_rs() {
+        let base_hlt: HazardLookupTable = serde_json::from_str(
+            r#"
+            {
+                "entries": {
+                    "0": { "id_groups": [
+                        [{"OrganismName": "Hyperplague"}, {"Accession": "NC_019843.3"}],
+                        [{"OrganismName": "Mehplague"}, {"Accession": "NC_020843.3"}, {"Tag": "SdnaLowRiskPeptide"}]
+                    ] }
+                }
+            }
+            "#,
+        )
+        .unwrap();
+
+        let hdb = vec![
+            Entry::new(hash(1), meta(0, 0, 0.0, Provenance::AAWildType, true)),
+            Entry::new(hash(1), meta(0, 1, 0.0, Provenance::AAWildType, false)),
+        ];
+
+        db_shuffle_runner(&base_hlt, hdb, |mut hlt, hdb| {
+            let merged = merge_entries(&hdb[..], &mut hlt).expect("failed to merge");
+            assert_eq!(base_hlt.len(), hlt.len()); // shouldn't make a new entry since indices are the same
+            assert_eq!(
+                merged,
+                Entry::new(hash(1), meta(0, 1, 0.0, Provenance::AAWildType, false))
+            );
+        });
+    }
+
+    #[test]
+    fn merge_entries_prefers_non_low_risk_dna() {
         let base_hlt: HazardLookupTable = serde_json::from_str(
             r#"
             {
@@ -730,6 +762,37 @@ mod tests {
             assert_eq!(
                 merged,
                 Entry::new(hash(1), meta(0, 0, 0.0, Provenance::DnaNormal, false))
+            );
+        });
+    }
+
+    #[test]
+    fn merge_entries_prefers_non_low_risk_peptide() {
+        let base_hlt: HazardLookupTable = serde_json::from_str(
+            r#"
+            {
+                "entries": {
+                    "0": { "id_groups": [
+                        [{"OrganismName": "Hyperplague"}, {"Accession": "NC_019843.3"}],
+                        [{"OrganismName": "Mehplague"}, {"Accession": "NC_020843.3"}, {"Tag": "SdnaLowRiskPeptide"}]
+                    ] }
+                }
+            }
+            "#,
+        )
+        .unwrap();
+
+        let hdb = vec![
+            Entry::new(hash(1), meta(0, 0, 0.0, Provenance::AAWildType, false)),
+            Entry::new(hash(1), meta(0, 1, 0.1, Provenance::AAWildType, false)),
+        ];
+
+        db_shuffle_runner(&base_hlt, hdb, |mut hlt, hdb| {
+            let merged = merge_entries(&hdb[..], &mut hlt).expect("failed to merge");
+            assert_eq!(base_hlt.len(), hlt.len()); // shouldn't make a new entry since indices are the same
+            assert_eq!(
+                merged,
+                Entry::new(hash(1), meta(0, 0, 0.0, Provenance::AAWildType, false))
             );
         });
     }

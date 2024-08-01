@@ -21,7 +21,7 @@ impl Display for Expiration {
         writeln!(f, "{:INDENT$}Issued on:", "")?;
         writeln!(f, "{:INDENT2$}{}", "", issued_on.format(&Rfc2822).unwrap())?;
         writeln!(f, "{:INDENT$}Expires:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", expires.format(&Rfc2822).unwrap())?;
+        write!(f, "{:INDENT2$}{}", "", expires.format(&Rfc2822).unwrap())?;
         Ok(())
     }
 }

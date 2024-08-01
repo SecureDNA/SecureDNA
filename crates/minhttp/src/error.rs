@@ -45,3 +45,9 @@ impl From<anyhow::Error> for ErrWrapper {
         Self(err.into())
     }
 }
+
+impl From<std::convert::Infallible> for ErrWrapper {
+    fn from(_: std::convert::Infallible) -> Self {
+        unreachable!()
+    }
+}

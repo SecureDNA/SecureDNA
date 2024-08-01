@@ -109,11 +109,11 @@ impl HierarchyLevel for Leaf1 {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HierarchyKind {
-    Root,
-    Intermediate,
     Leaf,
+    Intermediate,
+    Root,
 }
 
 impl HierarchyKind {
@@ -177,6 +177,7 @@ impl FromStr for HierarchyKind {
 mod test {
     use crate::asn::{FromASN1DerBytes, ToASN1DerBytes};
     use crate::certificate::inner::HierarchyLevel;
+    use crate::HierarchyKind;
 
     use super::{Leaf1, Root1};
 
@@ -185,5 +186,10 @@ mod test {
         let leaf = Leaf1::new();
         let encoded_leaf = leaf.to_der().unwrap();
         assert!(Root1::from_der(encoded_leaf).is_err());
+    }
+
+    #[test]
+    fn hierarchy_is_ordered_correctly() {
+        assert!(HierarchyKind::Leaf < HierarchyKind::Root);
     }
 }

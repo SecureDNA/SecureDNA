@@ -3,6 +3,15 @@ address = "127.0.0.1:8080"
 # IPv6 addresses are supported
 #address = "[::1]:8080"
 
+# (optional) Address to listen on for incoming TLS connections.
+#tls_address = "127.0.0.1:8090"
+
+# (optional) Path to TLS certificate in PEM format.
+#tls_certificate = "tls/cert.pem"
+
+# (optional) Path to TLS private key in PEM format.
+#tls_private_key = "tls/key.pem"
+
 # Maximum number of simultaneous HTTP connections
 # max_connections = 16384
 
@@ -35,7 +44,10 @@ active_security_key = [
 #scep_json_size_limit = 100000
 
 # Directory containing manufacturer root certs for SCEP client cert verification
-manufacturer_roots = "certs/manufacturer_roots/"
+manufacturer_roots = "certs/manufacturer-roots/"
+
+# (optional) Path to certificate revocation list TOML file
+#revocation_list = "revocation_list.toml"
 
 # Path to the server's token and certificate chain bundle file, used for SCEP
 token_file = "keyserver-token.kt"
@@ -45,7 +57,7 @@ keypair_file = "keyserver-token.priv"
 
 # The file containing the passphrase to decrypt the server's .priv keypair file
 # (keypair_file setting)
-keypair_passphrase_file = "keyserver-passphrase.txt"
+keypair_passphrase_file = "keyserver.passphrase"
 
 # (optional) Do not set the `secure` flag on session cookies, allowing them to be transported
 # over http://. This is useful for local testing.
@@ -60,12 +72,30 @@ keypair_passphrase_file = "keyserver-passphrase.txt"
 #[monitoring]
 #address = "127.0.0.1:8081"
 
+# (optional) Address to listen on for incoming TLS connections.
+#tls_address = "127.0.0.1:8091"
+
+# (optional) Path to TLS certificate in PEM format.
+#tls_certificate = "tls/cert.pem"
+
+# (optional) Path to TLS private key in PEM format.
+#tls_private_key = "tls/key.pem"
+
 # Maximum number of simultaneous HTTP connections
 # max_connections = 16384
 
 
 #[control]
 #address = "127.0.0.1:8082"
+
+# (optional) Address to listen on for incoming TLS connections.
+#tls_address = "127.0.0.1:8092"
+
+# (optional) Path to TLS certificate in PEM format.
+#tls_certificate = "tls/cert.pem"
+
+# (optional) Path to TLS private key in PEM format.
+#tls_private_key = "tls/key.pem"
 
 # Maximum number of simultaneous HTTP connections
 # max_connections = 16384

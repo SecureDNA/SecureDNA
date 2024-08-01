@@ -48,23 +48,20 @@ async function getUid(accession: string): Promise<string> {
     return accession;
   }
   const response = await fetchRetry(
-    baseUrl + `esearch.fcgi?db=assembly&term=${accession}[AssemblyAccession]`
+    `${baseUrl}esearch.fcgi?db=assembly&term=${accession}[AssemblyAccession]`,
   );
   const text = await response.text();
   const doc = new window.DOMParser().parseFromString(text, "text/xml");
   const id = doc.querySelector("Id");
-  if (id && id.textContent) {
+  if (id?.textContent) {
     return id.textContent;
-  } else {
-    throw new Error("Assembly not found");
   }
+  throw new Error("Assembly not found");
 }
 
 export async function summary(accession: string): Promise<Document> {
   const response = await fetchRetry(
-    baseUrl +
-      `esummary.fcgi?db=${db(accession)}&id=` +
-      window.encodeURIComponent(await getUid(accession))
+    `${baseUrl}esummary.fcgi?db=${db(accession)}&id=${window.encodeURIComponent(await getUid(accession))}`,
   );
   const text = await response.text();
   return new window.DOMParser().parseFromString(text, "text/xml");
@@ -85,27 +82,24 @@ export async function length(accession: string): Promise<number | undefined> {
 
 const fastaCache: Map<string, string> = new Map();
 export async function downloadFasta(
-  accession: string
+  accession: string,
 ): Promise<string | undefined> {
   if (fastaCache.has(accession)) {
     return fastaCache.get(accession);
   }
   const response = await fetchRetry(
-    baseUrl +
-      `efetch.fcgi?db=${db(accession)}&rettype=fasta&id=` +
-      window.encodeURIComponent(await getUid(accession))
+    `${baseUrl}efetch.fcgi?db=${db(accession)}&rettype=fasta&id=${window.encodeURIComponent(await getUid(accession))}`,
   );
   if (response.status === 200) {
     const text = await response.text();
     fastaCache.set(accession, text);
     return text;
-  } else {
-    return undefined;
   }
+  return undefined;
 }
 
 export async function title(accession: string): Promise<string | undefined> {
-  const key = "ncbi-title-" + accession;
+  const key = `ncbi-title-${accession}`;
   const cached = localStorage.getItem(key);
   if (cached) {
     return cached;

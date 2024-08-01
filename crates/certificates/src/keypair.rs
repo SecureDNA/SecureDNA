@@ -208,6 +208,17 @@ impl PublicKey {
         pk.verify_strict(message, &sig)
             .map_err(|_| SignatureVerificationError::NotVerifiedError)
     }
+
+    pub fn to_file_contents(&self) -> Result<String, EncodeError> {
+        let pub_hex = self.to_string();
+        let pem = self.to_pem()?;
+        let contents = format!("{}\n{}", pub_hex, pem);
+        Ok(contents)
+    }
+
+    pub fn from_file_contents(contents: impl AsRef<[u8]>) -> Result<Self, DecodeError> {
+        Self::from_pem(contents)
+    }
 }
 
 asn_encode_as_octet_string_impl!(PublicKey, PublicKey::LEN);

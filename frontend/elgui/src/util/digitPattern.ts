@@ -33,17 +33,18 @@ export interface DigitPattern {
  */
 export function fitToDigitPattern(
   input: string,
-  digitPattern: DigitPattern
+  digitPattern: DigitPattern,
 ): string {
   if (!input) return "";
   const { pattern, digitRegex, transform } = digitPattern;
-  if (transform === "uppercase") {
-    input = input.toUpperCase();
-  } else if (transform === "lowercase") {
-    input = input.toLowerCase();
-  }
+  const transformed =
+    transform === "uppercase"
+      ? input.toUpperCase()
+      : transform === "lowercase"
+        ? input.toLowerCase()
+        : input;
   const re = digitRegex ?? /[0-9]/g;
-  const digits = [...input.matchAll(re)].join("");
+  const digits = [...transformed.matchAll(re)].join("");
   let i = 0;
   let output = "";
   for (const character of pattern) {

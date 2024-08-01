@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use crate::CertificateBundle;
 use crate::CertificateRequest;
 use crate::DatabaseTokenGroup;
-use crate::ExemptionListTokenGroup;
+use crate::ExemptionTokenGroup;
 use crate::HltTokenGroup;
 use crate::KeyLoadError;
 use crate::KeyPair;
@@ -28,8 +28,8 @@ use crate::TokenGroup;
 
 pub const CERT_EXT: &str = "cert";
 pub const CERT_REQUEST_EXT: &str = "certr";
-pub const EL_TOKEN_EXT: &str = "elt";
-pub const EL_TOKEN_REQUEST_EXT: &str = "eltr";
+pub const EL_TOKEN_EXT: &str = "et";
+pub const EL_TOKEN_REQUEST_EXT: &str = "etr";
 pub const KEYSERVER_TOKEN_EXT: &str = "kt";
 pub const KEYSERVER_TOKEN_REQUEST_EXT: &str = "ktr";
 pub const DATABASE_TOKEN_EXT: &str = "dt";
@@ -46,7 +46,7 @@ pub trait TokenExtension {
     const REQUEST_EXT: &'static str;
 }
 
-impl TokenExtension for ExemptionListTokenGroup {
+impl TokenExtension for ExemptionTokenGroup {
     const TOKEN_EXT: &'static str = EL_TOKEN_EXT;
     const REQUEST_EXT: &'static str = EL_TOKEN_REQUEST_EXT;
 }
@@ -187,20 +187,17 @@ pub fn load_keypair_from_file(
 
 pub fn save_public_key_to_file(public_key: PublicKey, path: &Path) -> Result<(), FileError> {
     validate_extension(path, KEY_PUB_EXT)?;
-    let pub_hex = public_key.to_string();
-    let pem = public_key
-        .to_pem()
+    let contents = public_key
+        .to_file_contents()
         .map_err(|_| FileError::CouldNotSaveKey)?;
-    let pub_contents = format!("{}\n{}", pub_hex, pem);
-
-    save_to_file(pub_contents, path)?;
+    save_to_file(contents, path)?;
     Ok(())
 }
 
 pub fn load_public_key_from_file(path: &Path) -> Result<PublicKey, FileError> {
     validate_extension(path, KEY_PUB_EXT)?;
     let contents = fs::read(path).map_err(|_| FileError::CouldNotReadFromFile(path.to_owned()))?;
-    let key = PublicKey::from_pem(contents).map_err(|_| FileError::PublicKeyError)?;
+    let key = PublicKey::from_file_contents(contents).map_err(|_| FileError::PublicKeyError)?;
     Ok(key)
 }
 

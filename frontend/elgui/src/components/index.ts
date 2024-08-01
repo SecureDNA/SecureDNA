@@ -7,9 +7,9 @@ export { AddTotp } from "./AddTotp";
 export { AuthCard } from "./AuthCard";
 export type { AuthFileResult } from "./AuthCard";
 export { Button } from "./Button";
-export { EltSummary } from "./EltSummary";
-export { EltrDetail } from "./EltrDetail";
-export { EltrSummary } from "./EltrSummary";
+export { EtSummary } from "./EtSummary";
+export { EtrDetail } from "./EtrDetail";
+export { EtrSummary } from "./EtrSummary";
 export { ExemptionTable } from "./ExemptionTable";
 export { FastaField } from "./FastaField";
 export {

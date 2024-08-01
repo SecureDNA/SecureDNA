@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+import { TextEncoder } from "node:util";
+import type { Sequence } from "@securedna/frontend_common";
+import type { OrganismWithSource } from "src/types";
 import { describe, expect, test } from "vitest";
-import { Sequence } from "@securedna/frontend_common";
-import { OrganismWithSource } from "src/types";
-import { TextEncoder } from "util";
 import { parseExemptionsFromSpreadsheetData } from "./spreadsheet";
 
 function parseCsv(csv: string): OrganismWithSource[] {
@@ -43,7 +43,7 @@ name3,GGG,another comment`);
   });
 
   test("parses a single-column csv file", () => {
-    expect(parseCsv(`AAA\nCCC\nGGG`)).toEqual([
+    expect(parseCsv("AAA\nCCC\nGGG")).toEqual([
       { name: "", sequences: [dna("AAA"), dna("CCC"), dna("GGG")] },
     ]);
   });
@@ -52,7 +52,7 @@ name3,GGG,another comment`);
     expect(() =>
       parseCsv(`name1,comment
 name2,comment
-name3,another comment`)
+name3,another comment`),
     ).toThrow(/does not seem to contain a column of FASTA data/);
   });
 
@@ -60,7 +60,7 @@ name3,another comment`)
     expect(() =>
       parseCsv(`name1,AAA,CCC,comment
 name2,GGG,TTT,comment
-name3,ACG,CGT,another comment`)
+name3,ACG,CGT,another comment`),
     ).toThrow(/Columns.* contain FASTA data/);
   });
 
@@ -69,7 +69,7 @@ name3,ACG,CGT,another comment`)
       parseCsv(`Name,FASTA,Comment
 name1,AAACAT,comment
 name2,GGG,comment
-name3,ACG,another comment`)
+name3,ACG,another comment`),
     ).toEqual([
       { name: "name1", sequences: [dna("AAACAT")] },
       { name: "name2", sequences: [dna("GGG")] },
@@ -83,7 +83,7 @@ name3,ACG,another comment`)
 Name,FASTA,Comment
 name1,AAA,comment
 name2,GGG,comment
-name3,GAGAGA,another comment`)
+name3,GAGAGA,another comment`),
     ).toThrow(/contains FASTA data, but it could not be parsed completely/);
   });
 
@@ -93,7 +93,7 @@ name3,GAGAGA,another comment`)
 name1,AAA,comment
 name2,,comment
 name3,ACGACGA,
-,,`)
+,,`),
     ).toEqual([
       { name: "name1", sequences: [dna("AAA")] },
       { name: "name3", sequences: [dna("ACGACGA")] },
@@ -104,21 +104,21 @@ name3,ACGACGA,
     expect(
       parseCsv(`Name,Id,FASTA,Comment
 name1,19191,AAA,comment
-name2,19192,ACGACGA,blah`)
+name2,19192,ACGACGA,blah`),
     ).toEqual([
       { name: "name1", sequences: [dna("AAA")] },
       { name: "name2", sequences: [dna("ACGACGA")] },
     ]);
     expect(
       parseCsv(`name1,19191,AAA,comment
-name2,19192,ACGACGA,blah`)
+name2,19192,ACGACGA,blah`),
     ).toEqual([
       { name: "name1", sequences: [dna("AAA")] },
       { name: "name2", sequences: [dna("ACGACGA")] },
     ]);
     expect(
       parseCsv(`AAA,name1,comment
-ACGACGA,name2,blah`)
+ACGACGA,name2,blah`),
     ).toEqual([
       { name: "name1", sequences: [dna("AAA")] },
       { name: "name2", sequences: [dna("ACGACGA")] },

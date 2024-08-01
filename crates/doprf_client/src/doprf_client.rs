@@ -10,7 +10,7 @@ use crate::scep_client::{ClientConfig, HdbClient, KeyserverSetClient};
 use crate::server_selection::{ChosenSelectionSubset, SelectedKeyserver, ServerSelector};
 use crate::server_version_handler::LastServerVersionHandler;
 use crate::windows::Windows;
-use certificates::{ExemptionListTokenGroup, TokenBundle};
+use certificates::{ExemptionTokenGroup, TokenBundle};
 use doprf::active_security::ActiveSecurityKey;
 use doprf::party::KeyserverIdSet;
 use doprf::prf::Query;
@@ -19,11 +19,13 @@ use http_client::BaseApiClient;
 use packed_ristretto::{PackableRistretto, PackedRistrettos};
 use quickdna::ToNucleotideLike;
 use scep_client_helpers::ClientCerts;
+use shared_types::et::WithOtps;
 use shared_types::hash::HashSpec;
 use shared_types::hdb::HdbScreeningResult;
+use shared_types::requests::RequestContext;
 use shared_types::requests::RequestId;
 use shared_types::synthesis_permission::Region;
-use shared_types::{debug_with_timestamp, info_with_timestamp, requests::RequestContext};
+use tracing::{debug, info};
 
 pub struct DoprfConfig<'a, S> {
     pub api_client: &'a BaseApiClient,
@@ -31,16 +33,15 @@ pub struct DoprfConfig<'a, S> {
     pub request_ctx: &'a RequestContext,
     pub certs: Arc<ClientCerts>,
     pub region: Region,
-    pub debug: bool,
+    /// Whether to request debug_info from the servers
+    pub debug_info: bool,
     pub sequences: &'a [S],
     pub max_windows: u64,
     /// A freeform version hint for the caller, used for tracking client
     /// distribution (similar to User-Agent in HTTP)
     pub version_hint: String,
-    /// An exemption list token.
-    pub elt: Option<TokenBundle<ExemptionListTokenGroup>>,
-    /// A 2FA one-time password for the exemption list token.
-    pub otp: Option<String>,
+    /// Exemption tokens.
+    pub ets: Vec<WithOtps<TokenBundle<ExemptionTokenGroup>>>,
     pub server_version_handler: &'a LastServerVersionHandler,
 }
 
@@ -50,6 +51,7 @@ impl<'a, S> DoprfConfig<'a, S> {
             api_client: self.api_client.clone(),
             certs: self.certs.clone(),
             version_hint: self.version_hint.clone(),
+            debug_info: self.debug_info,
         }
     }
 
@@ -168,7 +170,7 @@ impl<'a, S> DoprfClient<'a, S> {
         let keyserver_id_set: KeyserverIdSet =
             keyservers.iter().map(|ks| ks.id).collect::<Vec<_>>().into();
 
-        info_with_timestamp!(
+        info!(
             "{}: selected keyservers=[{}], hdb={}",
             config.request_ctx.id,
             keyservers
@@ -206,7 +208,7 @@ impl<'a, S> DoprfClient<'a, S> {
             last_hdbserver_version,
             keyserver_id_set.clone(),
             config.region,
-            config.elt.is_some(),
+            !config.ets.is_empty(),
         )
         .await?;
 
@@ -302,7 +304,7 @@ impl<'a, S> DoprfClient<'a, S> {
         let querystate_ristrettos = PackedRistrettos::<Query>::from(&querystate);
         let keyserver_responses = ks.query(hash_total_count, &querystate_ristrettos).await?;
         let querying_duration = now.elapsed();
-        debug_with_timestamp!("Querying key servers done. Took: {:.2?}", querying_duration);
+        debug!("Querying key servers done. Took: {:.2?}", querying_duration);
 
         incorporate_responses_and_hash(self.config.request_ctx, querystate, keyserver_responses)
             .await
@@ -321,7 +323,7 @@ where
     let nucleotide_total_count = config.nucleotide_total_count()?;
 
     if nucleotide_total_count == 0 {
-        info_with_timestamp!("{}: all sequences were empty", config.request_ctx.id);
+        info!("{}: all sequences were empty", config.request_ctx.id);
         return Ok(DoprfOutput::too_short());
     }
 
@@ -334,7 +336,7 @@ where
     let windows = client.window(client.config.sequences.iter())?;
 
     if windows.count == 0 {
-        info_with_timestamp!("{}: didn't generate any windows", client.id());
+        info!("{}: didn't generate any windows", client.id());
         return Ok(DoprfOutput {
             n_hashes: 0,
             too_short: false,
@@ -342,28 +344,27 @@ where
         });
     }
 
-    info_with_timestamp!("{}: generated {} windows", client.id(), windows.count);
+    info!("{}: generated {} windows", client.id(), windows.count);
     let hashes = client.hash(&windows).await?;
 
-    let mut response = match &client.config.elt {
-        Some(elt) => {
-            let elt_windows = client.window(elt.token.dna_sequences())?;
-            let elt_hashes = client.hash(&elt_windows).await?;
-            let otp = client.config.otp.unwrap_or_default();
+    let mut response = match &client.config.ets {
+        ets if !ets.is_empty() => {
+            let et_windows = client.window(ets.iter().flat_map(|w| w.et.token.dna_sequences()))?;
+            let et_hashes = client.hash(&et_windows).await?;
             let now = get_now();
             let response = client
                 .hdb_client
-                .query_with_elt(&hashes, elt, elt_hashes, otp)
+                .query_with_ets(&hashes, ets, et_hashes)
                 .await?;
             let hdb_duration = now.elapsed();
-            debug_with_timestamp!("Querying HDB done. Took: {:.2?}", hdb_duration);
+            debug!("Querying HDB done. Took: {:.2?}", hdb_duration);
             response
         }
-        None => {
+        _ => {
             let now = get_now();
             let response = client.hdb_client.query(&hashes).await?;
             let hdb_duration = now.elapsed();
-            debug_with_timestamp!("Querying HDB done. Took: {:.2?}", hdb_duration);
+            debug!("Querying HDB done. Took: {:.2?}", hdb_duration);
             response
         }
     };
@@ -459,12 +460,11 @@ mod tests {
             request_ctx: &request_ctx,
             certs: certs.clone(),
             region: Region::All,
-            debug: false,
+            debug_info: false,
             sequences: &[dna.as_slice()],
             max_windows: u64::MAX,
             version_hint: "test".to_owned(),
-            elt: None,
-            otp: None,
+            ets: vec![],
             server_version_handler: &Default::default(),
         })
         .await

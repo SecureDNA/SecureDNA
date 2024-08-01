@@ -6,14 +6,14 @@
 use std::path::Path;
 use std::{io::Write, path::PathBuf};
 
-use crate::default_filename::set_appropriate_filepath_and_create_default_dir_if_required;
+use crate::default_filepath::set_appropriate_filepath_and_create_default_dir_if_required;
 use certificates::file::{
     load_certificate_bundle_from_file, load_keypair_from_file, load_token_request_from_file,
     save_token_bundle_to_file, TokenExtension, CERT_EXT, KEY_PRIV_EXT,
 };
 use certificates::{
-    Certificate, DatabaseTokenGroup, Expiration, HltTokenGroup, IssuanceError, KeyAvailable,
-    KeyserverTokenGroup, SynthesizerTokenGroup, TokenBundle, TokenGroup, TokenKind,
+    CertificateBundle, CertificateBundleError, DatabaseTokenGroup, Expiration, HltTokenGroup,
+    KeyPair, KeyserverTokenGroup, SynthesizerTokenGroup, TokenBundle, TokenGroup, TokenKind,
 };
 use clap::{crate_version, Parser};
 
@@ -90,35 +90,35 @@ fn run<P: PassphraseReader>(
     match opts.token_type {
         // Leaving as TODO for now
         // See https://github.com/SecureDNA/SecureDNA/issues/1342
-        TokenKind::ExemptionList => {
+        TokenKind::Exemption => {
             todo!()
         }
         TokenKind::Keyserver => issue_token::<_, KeyserverTokenGroup, _>(
             opts,
             passphrase_reader,
             &key_path,
-            |cert, req| cert.issue_keyserver_token(req, expiration),
+            |bundle, req, kp| bundle.issue_keyserver_token_bundle(req, expiration, kp),
             default_directory,
         ),
         TokenKind::Database => issue_token::<_, DatabaseTokenGroup, _>(
             opts,
             passphrase_reader,
             &key_path,
-            |cert, req| cert.issue_database_token(req, expiration),
+            |bundle, req, kp| bundle.issue_database_token_bundle(req, expiration, kp),
             default_directory,
         ),
         TokenKind::Hlt => issue_token::<_, HltTokenGroup, _>(
             opts,
             passphrase_reader,
             &key_path,
-            |cert, req| cert.issue_hlt_token(req, expiration),
+            |bundle, req, kp| bundle.issue_hlt_token_bundle(req, expiration, kp),
             default_directory,
         ),
         TokenKind::Synthesizer => issue_token::<_, SynthesizerTokenGroup, _>(
             opts,
             passphrase_reader,
             &key_path,
-            |cert, req| cert.issue_synthesizer_token(req, expiration),
+            |bundle, req, kp| bundle.issue_synthesizer_token_bundle(req, expiration, kp),
             default_directory,
         ),
     }
@@ -135,15 +135,16 @@ where
     P: PassphraseReader,
     T: TokenGroup + TokenExtension,
     F: FnOnce(
-        Certificate<T::AssociatedRole, KeyAvailable>,
+        CertificateBundle<T::AssociatedRole>,
         T::TokenRequest,
-    ) -> Result<T::Token, IssuanceError>,
+        KeyPair,
+    ) -> Result<TokenBundle<T>, CertificateBundleError>,
 {
     let cert = match opts.cert.extension() {
         Some(_) => opts.cert.to_owned(),
         None => opts.cert.with_extension(CERT_EXT),
     };
-    let issuing_cb = load_certificate_bundle_from_file::<T::AssociatedRole>(&cert)?;
+    let issuing_bundle = load_certificate_bundle_from_file::<T::AssociatedRole>(&cert)?;
 
     let (cert_passphrase, passphrase_source) = passphrase_reader
         .read_passphrase()
@@ -155,20 +156,12 @@ where
     };
     let keypair = load_keypair_from_file(&key_path, cert_passphrase)?;
 
-    let issuing_cert = issuing_cb
-        .get_lead_cert()
-        .map_err(|_| CertCliError::NoSuitableCertificate)?
-        .to_owned()
-        .load_key(keypair)?;
-
     let request_file = match opts.token_request.extension() {
         Some(_) => opts.token_request.to_owned(),
         None => opts.token_request.with_extension(T::REQUEST_EXT),
     };
     let request = load_token_request_from_file::<T>(&request_file)?;
-    let token = token_issuer(issuing_cert, request)?;
-    let chain = issuing_cb.issue_chain();
-    let token_bundle = TokenBundle::<T>::new(token, chain);
+    let token_bundle = token_issuer(issuing_bundle, request, keypair)?;
 
     // If no path is provided for token destination we will derive it from the token request filepath.
     let token_path = set_appropriate_filepath_and_create_default_dir_if_required(

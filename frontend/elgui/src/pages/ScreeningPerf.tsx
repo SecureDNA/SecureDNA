@@ -4,13 +4,14 @@
  */
 
 import { useEffect } from "react";
-import { ScreeningProgress, performScreening } from "src/screening/screening";
-
-interface ScreeningPerfProps {}
+import {
+  type ScreeningProgress,
+  performScreening,
+} from "src/screening/screening";
 
 function randomSequence(length: number): string {
   let s = "";
-  while (length--) s += "ACTG"[(Math.random() * 4) | 0];
+  for (let i = 0; i < length; ++i) s += "ACTG"[(Math.random() * 4) | 0];
   return s;
 }
 
@@ -18,7 +19,7 @@ function randomSequence(length: number): string {
  * A test page that measures how long it takes to screen 1, 2, ... 12 sequences
  * of 100 bp each at the same time. The results are logged to the console.
  */
-export default function ScreeningPerf(props: ScreeningPerfProps) {
+export default function ScreeningPerf() {
   useEffect(() => {
     async function go() {
       for (let n = 1; n <= 12; n++) {
@@ -39,9 +40,8 @@ export default function ScreeningPerf(props: ScreeningPerfProps) {
               {
                 // sequence: randomSequence(((1000 / n) | 0) + 42),
                 sequence: randomSequence(100),
-                apiKey: "bigyellowyeti",
               },
-              f
+              f,
             );
         });
       }

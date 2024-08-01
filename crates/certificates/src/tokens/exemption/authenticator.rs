@@ -1,10 +1,11 @@
 // Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
 
 use rasn::{types::*, Decode, Encode};
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 use thiserror::Error;
 
 #[derive(
@@ -18,10 +19,9 @@ use thiserror::Error;
     PartialOrd,
     Ord,
     Hash,
-    Deserialize,
-    Serialize,
+    SerializeDisplay,
+    DeserializeFromStr,
 )]
-// tsgen
 #[rasn(automatic_tags)]
 pub struct YubikeyId([ModhexCharacter; Self::LEN]);
 
@@ -43,18 +43,27 @@ impl Display for YubikeyId {
 
 #[derive(Error, Debug)]
 pub enum ParseYubikeyIdError {
-    #[error(transparent)]
     InvalidEntry(#[from] ParseModhexCharacterError),
-    #[error("Invalid, should contain {} characters", YubikeyId::LEN)]
     InvalidLength,
 }
 
-impl TryFrom<String> for YubikeyId {
-    type Error = ParseYubikeyIdError;
+impl Display for ParseYubikeyIdError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseYubikeyIdError::InvalidEntry(e) => e.fmt(f),
+            ParseYubikeyIdError::InvalidLength => {
+                write!(f, "Invalid, should contain {} characters", YubikeyId::LEN)
+            }
+        }
+    }
+}
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+impl FromStr for YubikeyId {
+    type Err = ParseYubikeyIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Check length is correct
-        let set: [ModhexCharacter; Self::LEN] = value
+        let set: [ModhexCharacter; Self::LEN] = s
             .chars()
             .map(|c| c.try_into())
             .collect::<Result<Vec<ModhexCharacter>, ParseModhexCharacterError>>()?
@@ -62,6 +71,14 @@ impl TryFrom<String> for YubikeyId {
             .map_err(|_| ParseYubikeyIdError::InvalidLength)?;
 
         Ok(Self(set))
+    }
+}
+
+impl TryFrom<String> for YubikeyId {
+    type Error = ParseYubikeyIdError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
     }
 }
 
@@ -81,7 +98,6 @@ impl TryFrom<String> for YubikeyId {
     Deserialize,
     Serialize,
 )]
-// tsgen
 #[rasn(automatic_tags)]
 #[rasn(choice)]
 pub enum ModhexCharacter {
@@ -145,12 +161,21 @@ impl TryFrom<char> for ModhexCharacter {
     Deserialize,
     Serialize,
 )]
-// tsgen
+// tsgen = {Yubikey: string} | {Totp: string}
 #[rasn(automatic_tags)]
 #[rasn(choice)]
 pub enum Authenticator {
     Yubikey(YubikeyId),
     Totp(String),
+}
+
+impl Display for Authenticator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Authenticator::Yubikey(id) => write!(f, "Yubikey: {}", id),
+            Authenticator::Totp(key) => write!(f, "TOTP: {}", key),
+        }
+    }
 }
 
 #[derive(Error, Debug)]
@@ -159,6 +184,9 @@ pub struct ParseModhexCharacterError(char);
 
 #[cfg(test)]
 mod tests {
+
+    use crate::asn::{FromASN1DerBytes, ToASN1DerBytes};
+
     use super::*;
 
     #[test]
@@ -184,11 +212,10 @@ mod tests {
     }
 
     #[test]
-    fn can_ber_encode_yubikey_id() {
+    fn can_encode_yubikey_id() {
         let id = YubikeyId::try_new("cccjgjgkhcbb").expect("could not parse");
-        let encoded = rasn::der::encode(&id).unwrap();
-        let id_decoded =
-            rasn::der::decode::<YubikeyId>(&encoded).expect("could not decode yubikey");
+        let encoded = id.to_der().unwrap();
+        let id_decoded = YubikeyId::from_der(encoded).expect("could not decode yubikey");
         assert_eq!(id, id_decoded);
     }
 

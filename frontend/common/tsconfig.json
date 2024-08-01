@@ -3,7 +3,7 @@
     "target": "ESNext",
     "module": "ESNext",
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
-    "jsx": "react",
+    "jsx": "react-jsx",
     "composite": true,
     "declaration": true,
     "declarationMap": true,

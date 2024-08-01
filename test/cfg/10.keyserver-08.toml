@@ -1,0 +1,11 @@
+[main]
+address = "0.0.0.0:5308"
+id = 8
+keyholders_required = 10
+keyshare = "adddf8fee6cd19a6bfb664f88041149dce2e3c77ce78eea04fddf1ef100b5305"
+active_security_key = ["3ec06d4dd53cda99961a28931dbec75d5b771ee38d624b99fb23a3ccc6043751","fac1fd909d95ef77a27381759e4d30ed0c1400035b085a70e99411dfab5dbe7f","f89534e7f589f0a62080db6f2f24cac3c275991e8835d3f3c726eed2fb40f03d","9017c028e21f5b3f38512d77061c61a0c313fce0e6b78733abdf635b2c5c630d","78d6b7929c61f103411dd4c8dc3fefae5f5ac7f6aded9304bc53ac96e5c2b320","906aa1a35d5a00167f6602dd28b46a11f9f71a6f3e5aff26e1e265d34f20e765","a4413e5d51c3dbc393cfb8a47506f15be7bb3768939a2a4e78a67b6446130d1d","c61152e950c6a32d3c9af355ab2b10302b7e774d41d3cd68a9d799774a3e8167","ecc2c9743658e63530dbd3f9785eb153b3df6705285697d9afce6e7241eec76b","6a8bdaeade5b2a77628b2adc5765d7ba18b2144745a0e65d000081705a5f9d28"]
+manufacturer_roots = "../certs/manufacturer-roots"
+token_file = "../certs/keyserver-token-08.kt"
+keypair_file = "../certs/keyserver-token-08.priv"
+keypair_passphrase_file = "../certs/keyserver-token-08.passphrase"
+allow_insecure_cookie = true

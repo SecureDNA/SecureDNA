@@ -17,12 +17,12 @@ use crate::certificate::inner::{
 use crate::error::EncodeError;
 use crate::key_state::KeyUnavailable;
 use crate::keypair::{PublicKey, Signature};
-use crate::shared_components::common::{Expiration, Id};
+use crate::shared_components::common::{Description, Expiration, Id};
 use crate::shared_components::role::{Exemption, Infrastructure};
 use crate::tokens::exemption::authenticator::Authenticator;
-use crate::tokens::exemption::exemption_list::{
-    ExemptionListToken, ExemptionListTokenRequest, ExemptionListTokenRequestVersion,
-    ExemptionListTokenVersion, NonCompliantEltr,
+use crate::tokens::exemption::et::{
+    ExemptionToken, ExemptionTokenRequest, ExemptionTokenRequestVersion, ExemptionTokenVersion,
+    NonCompliantChildToken,
 };
 use crate::tokens::infrastructure::{
     database::{
@@ -37,7 +37,6 @@ use crate::tokens::manufacturer::synthesizer::{
     SynthesizerToken, SynthesizerTokenRequest, SynthesizerTokenRequestVersion,
     SynthesizerTokenVersion,
 };
-use crate::validation_failure::ValidationFailure;
 use crate::{
     CertificateDigest, HierarchyKind, IssuerAdditionalFields, KeyPair, Manufacturer, RequestDigest,
 };
@@ -64,6 +63,7 @@ pub trait CertificateVersion:
     fn signature(&self) -> &Signature;
     fn issuer_public_key(&self) -> &PublicKey;
     fn issuer_description(&self) -> &str;
+    fn requestor_description(&self) -> &Description;
     fn expiration(&self) -> &Expiration;
     fn data(&self) -> Result<Vec<u8>, EncodeError>;
     fn issuance_id(&self) -> &Id;
@@ -79,7 +79,7 @@ pub trait CertificateVersion:
         kp: &KeyPair,
     ) -> Result<Self, IssuanceError>;
 
-    fn into_digest(self, role: &str, failure: Option<ValidationFailure>) -> CertificateDigest;
+    fn into_digest(self, role: &str) -> CertificateDigest;
 }
 /// Allows exemption certificate versioning
 #[derive(
@@ -138,6 +138,12 @@ macro_rules! impl_certificate_version_boilerplate {
             fn issuer_description(&self) -> &str {
                 match self {
                     $(Self::$variant(c) => c.issuer_description(),)+
+                }
+            }
+
+            fn requestor_description(&self) -> &Description {
+                match self {
+                    $(Self::$variant(c) => c.requestor_description(),)+
                 }
             }
 
@@ -217,19 +223,19 @@ macro_rules! impl_certificate_version_boilerplate {
                 }
             }
 
-            fn into_digest(self, role: &str, validation_failure: Option<ValidationFailure>) -> CertificateDigest{
+            fn into_digest(self, role: &str) -> CertificateDigest{
                 match self {
                     Self::RootV1(inner) => {
                         let version = format!("Root V1 {role}");
-                        CertificateDigest::new(version, inner, validation_failure)
+                        CertificateDigest::new(version, inner)
                     }
                     Self::IntermediateV1(inner) => {
                         let version = format!("Intermediate V1 {role}");
-                        CertificateDigest::new(version, inner, validation_failure)
+                        CertificateDigest::new(version, inner)
                     }
                     Self::LeafV1(inner) => {
                         let version = format!("Leaf V1 {role}");
-                        CertificateDigest::new(version, inner, validation_failure)
+                        CertificateDigest::new(version, inner)
                     }
                 }
             }
@@ -260,25 +266,23 @@ impl_certificate_version_boilerplate!(
 );
 
 impl ExemptionCertificateVersion {
-    pub(crate) fn issue_elt(
+    pub(crate) fn issue_exemption_token(
         &self,
-        token_request: ExemptionListTokenRequest,
+        token_request: ExemptionTokenRequest,
         expiration: Expiration,
         issuer_auth_devices: Vec<Authenticator>,
         kp: &KeyPair,
-    ) -> Result<ExemptionListToken<KeyUnavailable>, IssuanceError> {
+    ) -> Result<ExemptionToken<KeyUnavailable>, IssuanceError> {
         match self {
             Self::LeafV1(c) => match token_request.version {
-                ExemptionListTokenRequestVersion::V1(r) => {
-                    let token = c.issue_elt(r, expiration, issuer_auth_devices, kp)?;
-                    Ok(ExemptionListToken::new(ExemptionListTokenVersion::V1(
-                        token,
-                    )))
+                ExemptionTokenRequestVersion::V1(r) => {
+                    let token = c.issue_exemption_token(r, expiration, issuer_auth_devices, kp)?;
+                    Ok(ExemptionToken::new(ExemptionTokenVersion::V1(token)))
                 }
             },
             _ => Err(IssuanceError::NonLeafIssuingToken(
                 self.hierarchy_level().to_string(),
-                "exemption list".to_owned(),
+                "exemption".to_owned(),
             )),
         }
     }
@@ -527,8 +531,8 @@ pub enum IssuanceError {
     NonLeafIssuingToken(String, String),
     #[error("a {} certificate request cannot self sign", .0)]
     NotAbleToSelfSign(String),
-    #[error("the ELT cannot issue the ELTR due to {0}")]
-    Eltr(#[from] NonCompliantEltr),
+    #[error("cannot issue a new token:\n{0}")]
+    Etr(#[from] NonCompliantChildToken),
     #[error(transparent)]
     Encode(#[from] EncodeError),
 }

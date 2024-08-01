@@ -179,10 +179,10 @@ xxTl0mzFl6wm56U+mbJ9Qgo=
     })
 }
 
-/// Contains baked-in test root certs from test/certs/infrastructure_roots
+/// Contains baked-in test root certs from test/certs/infrastructure-roots
 fn test_infrastructure_root_keys() -> &'static [PublicKey] {
     const KEY_DIR: include_dir::Dir<'static> =
-        include_dir::include_dir!("test/certs/infrastructure_roots");
+        include_dir::include_dir!("test/certs/infrastructure-roots");
 
     static KEYS: OnceCell<Vec<PublicKey>> = OnceCell::new();
     KEYS.get_or_init(|| {

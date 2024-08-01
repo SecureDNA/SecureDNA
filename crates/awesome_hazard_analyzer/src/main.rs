@@ -58,7 +58,7 @@ pub struct Opts {
     #[clap(long, help = "HDB directory")]
     pub hdb_dir: PathBuf,
 
-    #[clap(long, help = "Generator secret key")]
+    #[clap(long, env = "SECUREDNA_AHA_SECRET_KEY", help = "Generator secret key")]
     pub secret_key: KeyShare,
 
     #[clap(long, required = false, help = "Write debug files")]
@@ -120,11 +120,15 @@ pub struct SummaryLine {
     true_likely_ans: String,
     rs_likely_organisms: String,
     rs_likely_ans: String,
+    // sorted (by enum variant) and deduplicated list of all tags from
+    // full list of organisms hit (not just most_likely_organism) used
+    // for determining synthesis permission.
+    tags_for_permissions: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SummaryPermissions {
-    no_region: SynthesisPermission,
+    all_region: SynthesisPermission,
     us: SynthesisPermission,
     prc: SynthesisPermission,
     eu: SynthesisPermission,
@@ -133,7 +137,7 @@ pub struct SummaryPermissions {
 impl SummaryPermissions {
     pub fn header() -> [&'static str; 4] {
         [
-            "SDNA PERMISSION",
+            "SDNA PERMISSION (ALL)",
             "SDNA PERMISSION (US)",
             "SDNA PERMISSION (PRC)",
             "SDNA PERMISSION (EU)",
@@ -142,7 +146,7 @@ impl SummaryPermissions {
 
     pub fn values(&self) -> [&'static str; 4] {
         [
-            self.no_region.into(),
+            self.all_region.into(),
             self.us.into(),
             self.prc.into(),
             self.eu.into(),
@@ -161,6 +165,7 @@ impl SummaryLine {
             "RS DNA HITS",
             "RS AA HITS",
             "RED NAME",
+            "TAGS FOR PERMISSIONS",
             "TRUE LIKELY ORGANISMS",
             "TRUE LIKELY ANS",
             "RS LIKELY ORGANISMS",
@@ -179,6 +184,7 @@ impl SummaryLine {
             self.rs_dna_hits.to_string().as_str(),
             self.rs_aa_hits.to_string().as_str(),
             self.red_name.as_str(),
+            self.tags_for_permissions.as_str(),
             self.true_likely_organisms.as_str(),
             self.true_likely_ans.as_str(),
             self.rs_likely_organisms.as_str(),
@@ -187,10 +193,7 @@ impl SummaryLine {
         .with_context(|| format!("writing record: {}", self.red_name))
     }
 
-    /// Currently takes `&[DebugSeqHdbResponse]`, but once hit region consolidation moves to hdb,
-    /// this will take a slice of HdbResponse again.
-    ///
-    /// It's expected that this will take in the debug version of the consolidated hit regions,
+    /// Takes `&[DebugSeqHdbResponse]`, the debug version of the consolidated hit regions,
     /// which treats each hit as a separate hit region.
     fn new_with_responses(
         synthesis_permission: SummaryPermissions,
@@ -210,6 +213,8 @@ impl SummaryLine {
         let mut rs_likely_organisms = HashSet::new();
         let mut rs_likely_ans = HashSet::new();
 
+        let mut tags_for_permissions = HashSet::new();
+
         for dhr in doprf_hit_results {
             let response = &dhr.hdb_response;
             if response.reverse_screened {
@@ -224,10 +229,15 @@ impl SummaryLine {
                 true_aa_hits += u32::from(!response.provenance.is_dna());
                 true_likely_organisms.insert(&response.most_likely_organism.name);
                 true_likely_ans.extend(&response.most_likely_organism.ans);
+                for o in &response.organisms {
+                    for tag in &o.tags {
+                        tags_for_permissions.insert(format!("{:?}", &tag));
+                    }
+                }
             }
         }
 
-        fn joined_sorted(h: HashSet<&String>) -> String {
+        fn joined_sorted(h: HashSet<impl std::fmt::Display + Ord>) -> String {
             let mut v = Vec::from_iter(h);
             v.sort_unstable();
             v.iter().join(";")
@@ -246,6 +256,7 @@ impl SummaryLine {
             true_likely_ans: joined_sorted(true_likely_ans),
             rs_likely_organisms: joined_sorted(rs_likely_organisms),
             rs_likely_ans: joined_sorted(rs_likely_ans),
+            tags_for_permissions: joined_sorted(tags_for_permissions),
         }
     }
 }
@@ -381,7 +392,7 @@ fn check_one_record(
     // Calculate synthesis_permission for each region
     let entries = || hdb_entries.iter().map(|(_, e)| *e);
     let permissions = SummaryPermissions {
-        no_region: calculate_synthesis_permission(entries(), Region::All, hlt)?,
+        all_region: calculate_synthesis_permission(entries(), Region::All, hlt)?,
         us: calculate_synthesis_permission(entries(), Region::Us, hlt)?,
         prc: calculate_synthesis_permission(entries(), Region::Prc, hlt)?,
         eu: calculate_synthesis_permission(entries(), Region::Eu, hlt)?,
@@ -790,7 +801,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 Some("Nonmatching".into()),
                 Some(SummaryLine {
                     synthesis_permission: SummaryPermissions {
-                        no_region: SynthesisPermission::Granted,
+                        all_region: SynthesisPermission::Granted,
                         us: SynthesisPermission::Granted,
                         prc: SynthesisPermission::Granted,
                         eu: SynthesisPermission::Granted,
@@ -805,7 +816,8 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                     true_likely_organisms: "".into(),
                     true_likely_ans: "".into(),
                     rs_likely_organisms: "".into(),
-                    rs_likely_ans: "".into()
+                    rs_likely_ans: "".into(),
+                    tags_for_permissions: "".into()
                 })
             )
         );
@@ -831,7 +843,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 None,
                 Some(SummaryLine {
                     synthesis_permission: SummaryPermissions {
-                        no_region: SynthesisPermission::Denied,
+                        all_region: SynthesisPermission::Denied,
                         us: SynthesisPermission::Granted,
                         prc: SynthesisPermission::Granted,
                         eu: SynthesisPermission::Denied,
@@ -846,7 +858,8 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                     true_likely_organisms: "Minimal organism".into(),
                     true_likely_ans: "AN1000000.1".into(),
                     rs_likely_organisms: "".into(),
-                    rs_likely_ans: "".into()
+                    rs_likely_ans: "".into(),
+                    tags_for_permissions: "EuropeanUnion".into()
                 })
             )
         );
@@ -870,7 +883,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 None,
                 Some(SummaryLine {
                     synthesis_permission: SummaryPermissions {
-                        no_region: SynthesisPermission::Denied,
+                        all_region: SynthesisPermission::Denied,
                         us: SynthesisPermission::Granted,
                         prc: SynthesisPermission::Granted,
                         eu: SynthesisPermission::Denied,
@@ -885,7 +898,8 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                     true_likely_organisms: "Minimal organism".into(),
                     true_likely_ans: "AN1000000.1".into(),
                     rs_likely_organisms: "".into(),
-                    rs_likely_ans: "".into()
+                    rs_likely_ans: "".into(),
+                    tags_for_permissions: "EuropeanUnion".into()
                 })
             )
         );
@@ -911,7 +925,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 None,
                 Some(SummaryLine {
                     synthesis_permission: SummaryPermissions {
-                        no_region: SynthesisPermission::Denied,
+                        all_region: SynthesisPermission::Denied,
                         us: SynthesisPermission::Granted,
                         prc: SynthesisPermission::Granted,
                         eu: SynthesisPermission::Denied,
@@ -926,7 +940,8 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                     true_likely_organisms: "Minimal organism".into(),
                     true_likely_ans: "AN1000000.1".into(),
                     rs_likely_organisms: "".into(),
-                    rs_likely_ans: "".into()
+                    rs_likely_ans: "".into(),
+                    tags_for_permissions: "EuropeanUnion".into()
                 })
             )
         );
@@ -936,7 +951,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
     fn test_csv_output() {
         let summary_line = SummaryLine {
             synthesis_permission: SummaryPermissions {
-                no_region: SynthesisPermission::Denied,
+                all_region: SynthesisPermission::Denied,
                 us: SynthesisPermission::Denied,
                 prc: SynthesisPermission::Granted,
                 eu: SynthesisPermission::Denied,
@@ -952,6 +967,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
             true_likely_ans: "AN_12345".into(),
             rs_likely_organisms: "rs likely".into(),
             rs_likely_ans: "AN_56789".into(),
+            tags_for_permissions: "EuropeanUnion".into(),
         };
 
         let csv = {
@@ -964,7 +980,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
 
         assert_eq!(
             csv,
-            "denied,denied,granted,denied,123,4,56,78,9,0,\"red,name\",true likely;organisms,AN_12345,rs likely,AN_56789\n",
+            "denied,denied,granted,denied,123,4,56,78,9,0,\"red,name\",EuropeanUnion,true likely;organisms,AN_12345,rs likely,AN_56789\n",
         );
     }
 }

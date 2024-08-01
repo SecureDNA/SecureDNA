@@ -1,7 +1,7 @@
 // Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::validation_failure::{InvalidityCause, ValidationFailure};
+use crate::validation_error::{InvalidityCause, ValidationError};
 use crate::{
     certificate::Certificate,
     error::EncodeError,
@@ -30,18 +30,18 @@ pub trait Issued {
     }
 
     /// Validates the signature and expiry information. Does not check for revocation.
-    fn check_signature_and_expiry(&self) -> Result<(), ValidationFailure> {
-        let mut validation_failures = vec![];
+    fn check_signature_and_expiry(&self) -> Result<(), ValidationError> {
+        let mut causes = vec![];
         if let Err(details) = self.expiration().validate() {
-            validation_failures.push(InvalidityCause::ValidityPeriod(details))
+            causes.push(InvalidityCause::ValidityPeriod(details))
         };
         if !self.signature_verifies() {
-            validation_failures.push(InvalidityCause::SignatureFailure);
+            causes.push(InvalidityCause::SignatureFailure);
         }
-        if validation_failures.is_empty() {
+        if causes.is_empty() {
             Ok(())
         } else {
-            Err(ValidationFailure::new(validation_failures))
+            Err(ValidationError::new(causes))
         }
     }
 

@@ -1,0 +1,11 @@
+[main]
+address = "0.0.0.0:5301"
+id = 1
+keyholders_required = 5
+keyshare = "674340eb1fd6f0a7353b07cc3f73c8450df8e1353c91c4c78c0bf7ceb3e8ea0f"
+active_security_key = ["3ec06d4dd53cda99961a28931dbec75d5b771ee38d624b99fb23a3ccc6043751","283061a2ac18d4f25bea4ce64656e95ce3ef661c954b8296d12b68410e95cd2b","28997cba2d8d95d787bdb3ee59477db8a1395175139386c3ece296da0f981f65","3c37b70d8f4dfeefdef66bcd59a26e6e2d5cc9b3e43f6d808bba3893b098ae25","04aa479a4ee697a90368c10db9d635f86e98084dcde846e67b351005905fbb6b"]
+manufacturer_roots = "../certs/manufacturer-roots"
+token_file = "../certs/keyserver-token-01.kt"
+keypair_file = "../certs/keyserver-token-01.priv"
+keypair_passphrase_file = "../certs/keyserver-token-01.passphrase"
+allow_insecure_cookie = true

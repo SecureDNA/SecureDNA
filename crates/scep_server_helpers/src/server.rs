@@ -3,6 +3,7 @@
 
 use std::future::Future;
 
+use certificates::revocation::RevocationList;
 use certificates::{
     key_traits::CanLoadKey, KeyPair, PublicKey, SynthesizerTokenGroup, TokenBundle, TokenGroup,
 };
@@ -18,6 +19,7 @@ pub struct ServerState<T: TokenGroup> {
     pub clients: RwLock<ServerSessions<ServerStateForClient>>,
     pub json_size_limit: u64,
     pub manufacturer_roots: Vec<PublicKey>,
+    pub revocation_list: RevocationList,
     pub token_bundle: TokenBundle<T>,
     pub keypair: KeyPair,
     /// Do not set the `secure` flag on session cookies, so they can be transported over http://
@@ -141,6 +143,8 @@ where
         authenticate_request,
         client_state,
         server_version,
+        &server_state.manufacturer_roots,
+        &server_state.revocation_list,
         get_client_screened_last_day,
         record_rate_limit_exceedance,
     )

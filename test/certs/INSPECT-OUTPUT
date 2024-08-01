@@ -1,12 +1,845 @@
-*** ./synthesizer-token.st ***
 
-V1 Synthesizer Token
-  Issuance ID:
-    37f9d37acb17f675e479358c89b08379
+*** ./infrastructure-root.certr ***
+
+Root V1 Infrastructure Certificate Request
   Request ID:
-    946648d2fda716665777a5b99493cd10
+    674f2051931e7c755d03bf5939b401a1
+  Subject:
+    SecureDNA-infrastructure-root, ca-infrastructure-root@securedna.org (public key: def1280c4636b188743841c2d23d138272624b42e2d10610c57a5c135e641b6c)
+
+*** ./infrastructure-root.cert ***
+
+Root V1 Infrastructure Certificate
+  Issuance ID:
+    f8115b7db8080f2133301984b7c5838b
+  Request ID:
+    674f2051931e7c755d03bf5939b401a1
+  Issued to:
+    SecureDNA-infrastructure-root, ca-infrastructure-root@securedna.org (public key: def1280c4636b188743841c2d23d138272624b42e2d10610c57a5c135e641b6c)
+  Issued by:
+    SecureDNA-infrastructure-root, ca-infrastructure-root@securedna.org (public key: def1280c4636b188743841c2d23d138272624b42e2d10610c57a5c135e641b6c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:08 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:08 +0000
+  Signature:
+    1f946e3638847443efcb849a2f9dadc6cb6105fe9fb83d12d42d7b6b950ebbf6c5eb2500505e143a09f6acae1cd4c0d434bc4eea04a492a260f811c5d329350c
+
+*** ./infrastructure-intermediate.certr ***
+
+Intermediate V1 Infrastructure Certificate Request
+  Request ID:
+    0a2304841083c7891867216bc8a9a5cf
+  Subject:
+    SecureDNA-infrastructure-intermediate, ca-infrastructure-intermediate@securedna.org (public key: dbea1dabe69416304559f956a7fa9fd3b615667466c021bd5263d98a9a6598d3)
+
+*** ./infrastructure-intermediate.cert ***
+
+Intermediate V1 Infrastructure Certificate
+  Issuance ID:
+    ec7193eca3687dbb563afe589435fbc6
+  Request ID:
+    0a2304841083c7891867216bc8a9a5cf
+  Issued to:
+    SecureDNA-infrastructure-intermediate, ca-infrastructure-intermediate@securedna.org (public key: dbea1dabe69416304559f956a7fa9fd3b615667466c021bd5263d98a9a6598d3)
+  Issued by:
+    SecureDNA-infrastructure-root, ca-infrastructure-root@securedna.org (public key: def1280c4636b188743841c2d23d138272624b42e2d10610c57a5c135e641b6c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:08 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:08 +0000
+  Signature:
+    16ecb853b75cfea0015318995a7d20e19d5c8c6f8a503e992f3ff3894c6eaba71febd371f70f25e725b05b2b44e0a63f2de70e55894dd4117fcfb639dc573d0a
+
+*** ./infrastructure-int-int.certr ***
+
+Intermediate V1 Infrastructure Certificate Request
+  Request ID:
+    54a6b9f3679c7553968ab08e484afc07
+  Subject:
+    SecureDNA-infrastructure-int-int, ca-infrastructure-int-int@securedna.org (public key: 7cebab623105341c3aba6dc5e99d857eed1346e010af0c30d6d8bf3b12ef3c84)
+
+*** ./infrastructure-int-int.cert ***
+
+Intermediate V1 Infrastructure Certificate
+  Issuance ID:
+    4c8f3b77789ce607343e5e3e86b53134
+  Request ID:
+    54a6b9f3679c7553968ab08e484afc07
+  Issued to:
+    SecureDNA-infrastructure-int-int, ca-infrastructure-int-int@securedna.org (public key: 7cebab623105341c3aba6dc5e99d857eed1346e010af0c30d6d8bf3b12ef3c84)
+  Issued by:
+    SecureDNA-infrastructure-intermediate, ca-infrastructure-intermediate@securedna.org (public key: dbea1dabe69416304559f956a7fa9fd3b615667466c021bd5263d98a9a6598d3)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:08 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:08 +0000
+  Signature:
+    49b4158dedf6b24cca0cb2b57ce7c070b41afa06596da0f8deeca42f581a612182594160f247cb21ebd92ae39828682d5d7d01209bda46aaea64eebccba4a208
+
+*** ./infrastructure-leaf.certr ***
+
+Leaf V1 Infrastructure Certificate Request
+  Request ID:
+    abde80d5f596e42dc747b0018aed9afc
+  Subject:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+
+*** ./infrastructure-leaf.cert ***
+
+Leaf V1 Infrastructure Certificate
+  Issuance ID:
+    5c878e632cd72766d3576d714e5f3a4a
+  Request ID:
+    abde80d5f596e42dc747b0018aed9afc
+  Issued to:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued by:
+    SecureDNA-infrastructure-int-int, ca-infrastructure-int-int@securedna.org (public key: 7cebab623105341c3aba6dc5e99d857eed1346e010af0c30d6d8bf3b12ef3c84)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:08 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:08 +0000
+  Signature:
+    873feb993d2a0cf6f6d49d1414535426e1a372a27721d0e44a362aee3a9075ff1ac8876ed27c21ae78ed6c8e6da4234a6b2e76e1c374b239966e69fc4d91f208
+
+*** ./database-token.dtr ***
+
+V1 Database Token Request
+  Request ID:
+    37dec6b5d5cfcb093110b72e19739d01
   Public Key:
-    094af9af0b7c2f237393fd5d57597766875fdb26e068162eb8713f42793bed18
+    d154b6808a6e5e5dfc9b34506c78a7586c090c9bb3e1388e811e514977ef5dad
+
+*** ./keyserver-token-01.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    be69f1e4a4f308e2c0d2247764fdc1b9
+  Public Key:
+    253b55ac8da2b9bd2270c2d1b7f6d77f74079149768aebb8e192f349f5f481b3
+  Keyserver ID:
+    1
+
+*** ./keyserver-token-02.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    58c5a812e542f06a7f8d1e8c5a773f16
+  Public Key:
+    202cb56e2871c73444ef2a3cdbb1790dee1cbb0cea04dbbdffb085078637952f
+  Keyserver ID:
+    2
+
+*** ./keyserver-token-03.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    1a833ea5736c7653a295119ee9cce5a7
+  Public Key:
+    64631a19b6ac115379e6f1645dad3cb3a3bcef9034e9e01b16a6ab6d9dfb539b
+  Keyserver ID:
+    3
+
+*** ./keyserver-token-04.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    7c6184bfb88c1af670c1b5add9f3da82
+  Public Key:
+    e50f9a5b4ad0be96b2180e9cf3743e8b82b2820f174d3a7f50b13653373ce2f5
+  Keyserver ID:
+    4
+
+*** ./keyserver-token-05.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    29fce6ac96262d6bf0e70bc72812a8df
+  Public Key:
+    dfe5512796b4ee9f815ef8dd3bd09c7ce7b93b6a9ca48412a9ce331187405f4f
+  Keyserver ID:
+    5
+
+*** ./keyserver-token-06.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    d3293b1b98277f18c4085275075d81b5
+  Public Key:
+    722cb35808aeaa64994b59bc9b11cd21e499f6e50eb592fbeb3b8a70ce3045f7
+  Keyserver ID:
+    6
+
+*** ./keyserver-token-07.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    2a7b539f2c339a17aeab51af58d282cc
+  Public Key:
+    d92c966003294e6fa25aac381ebe6578c299908a3241036fe0b81447149e9c0f
+  Keyserver ID:
+    7
+
+*** ./keyserver-token-08.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    c7ca177a741a3be7541ab96726191c34
+  Public Key:
+    7988cb3aed37b02615548cb4d28676ab2119248a3fbedf1b7b988abfca4d3d30
+  Keyserver ID:
+    8
+
+*** ./keyserver-token-09.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    2cf86dda5a962f8ed2583d03cf08a9ba
+  Public Key:
+    658352ba7415d61bbb73140df4e9e1ab83503ce2b513e162f117328069899e11
+  Keyserver ID:
+    9
+
+*** ./keyserver-token-10.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    db9c8af8a61cf17626a50e8737daf784
+  Public Key:
+    991c9ba6e31e8934548e474da681a7f9cb2c4903b53820bc21c045693ffca83e
+  Keyserver ID:
+    10
+
+*** ./keyserver-token-11.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    7b6ed5076d081efbd39075fa647200ac
+  Public Key:
+    1a8959ee91f4d2d590ab8e70e7ec5e22300021ff149dc58efe989bd57422edce
+  Keyserver ID:
+    11
+
+*** ./keyserver-token-12.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    98cfe2b69569ea8eb30614408e702856
+  Public Key:
+    ac0f512503bcc45208ea534c0d81ea5dbdedd55f735a951a749bc01c0b10bb6f
+  Keyserver ID:
+    12
+
+*** ./keyserver-token-13.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    f0d953706d5ebb97d6c20fb2c5b516b5
+  Public Key:
+    e95574a3661627c5aa58b6a5e3112398e6019dc4eb5c7122902071759547f021
+  Keyserver ID:
+    13
+
+*** ./keyserver-token-14.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    81f26c8f69619760f880d025184757fd
+  Public Key:
+    85f60aacfe6d60e0b8881b0c2867f6272e76ff9c0702ad42f1c7d0b9507ae83e
+  Keyserver ID:
+    14
+
+*** ./keyserver-token-15.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    a975669f5d6587b9b97895f781f94955
+  Public Key:
+    5b73130ab593666f5ca7a8c2dbbed44ad9546b679643b019d072338e7440a99a
+  Keyserver ID:
+    15
+
+*** ./keyserver-token-16.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    86ffd73b48141b99a15942614c53687f
+  Public Key:
+    42720f86027e7bf77a35d650aaf3bf4db0fcc7c5d86eca69cd59bc1dcbda9d1a
+  Keyserver ID:
+    16
+
+*** ./keyserver-token-17.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    e83aaa8564b3f3fc833c2abc92522f7e
+  Public Key:
+    80da49dec191d987ed9992cc82a9c6b73f6e468bb73941f61150c291a78d25de
+  Keyserver ID:
+    17
+
+*** ./keyserver-token-18.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    4b296e12d3aa70c87318ca09a5365674
+  Public Key:
+    1bc0a79d993d634b13e689f07a885748c6c67c3e69a1113ea0d55a771aed9d68
+  Keyserver ID:
+    18
+
+*** ./keyserver-token-19.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    4fb13116bd72e76aa636b314b3f3006a
+  Public Key:
+    b1aaa3de44768a82773ee14c98cb7045b1118aa83b080c15c9cda14cf773c8d8
+  Keyserver ID:
+    19
+
+*** ./keyserver-token-20.ktr ***
+
+V1 Keyserver Token Request
+  Request ID:
+    d245df9dacead0ac26f9e870716c8a37
+  Public Key:
+    24aa0f9a544175b53eb8bcec0dc61810cd947a842840bb0b766871576234101e
+  Keyserver ID:
+    20
+
+*** ./database-token.dt ***
+
+V1 Database Token
+  Issuance ID:
+    9be68d76938531ba81ea0a186422e121
+  Request ID:
+    37dec6b5d5cfcb093110b72e19739d01
+  Public Key:
+    d154b6808a6e5e5dfc9b34506c78a7586c090c9bb3e1388e811e514977ef5dad
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:08 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:08 +0000
+  Signature:
+    db5f6fa0bc25eecba10c31fd4f2c8ef48fac2c8fbca6e1bed5c4973f470c44ab85d72adea8e042b06e72d2cfd8d3589684fa2abeedd1745fe2b84e5145e92600
+
+*** ./keyserver-token-01.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    69b9371c44208629578fd304406f06c4
+  Request ID:
+    be69f1e4a4f308e2c0d2247764fdc1b9
+  Public Key:
+    253b55ac8da2b9bd2270c2d1b7f6d77f74079149768aebb8e192f349f5f481b3
+  Keyserver ID:
+    1
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    7eba9940cc1642f876e4a4a6853e339dab9481900ad183478fee6b9f9e3213acfa17562338fdc41acb7f51a14e15280ff983804ba4a41fc03f4fe91e2c6e810d
+
+*** ./keyserver-token-02.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    b03d25e1382c2737b047660e8551b200
+  Request ID:
+    58c5a812e542f06a7f8d1e8c5a773f16
+  Public Key:
+    202cb56e2871c73444ef2a3cdbb1790dee1cbb0cea04dbbdffb085078637952f
+  Keyserver ID:
+    2
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    d0d1f5d08ec873306f2ec61fdfa23a9d5a2fa16233d99d0d62febfd8b5e4b530f9832fb413434647c3fc1c5383b33671b670e7727448ec2b742dc4855e1aa206
+
+*** ./keyserver-token-03.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    f798c20a5d909cf5412372ae3a7d9075
+  Request ID:
+    1a833ea5736c7653a295119ee9cce5a7
+  Public Key:
+    64631a19b6ac115379e6f1645dad3cb3a3bcef9034e9e01b16a6ab6d9dfb539b
+  Keyserver ID:
+    3
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    79be9ecdd4fee12ceeb959f84ec4afef248dee966d7ec7d0e215281d727c3740027626ebaffcfa0b36a3c0d767aad201daed1d658f49b9a9070b1054c5df9f02
+
+*** ./keyserver-token-04.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    15052050bccc6002e0f414df2a8ab8d2
+  Request ID:
+    7c6184bfb88c1af670c1b5add9f3da82
+  Public Key:
+    e50f9a5b4ad0be96b2180e9cf3743e8b82b2820f174d3a7f50b13653373ce2f5
+  Keyserver ID:
+    4
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    51674397a262f9550a8e337205b82451176c068cf6535aa72b3778299056b2c2fb9bf093cca7f95452f400718087538ce6efc5c8c42b70f8f287c11ca06a0907
+
+*** ./keyserver-token-05.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    a850af2cb2cdda2d97ea52eb4e737c95
+  Request ID:
+    29fce6ac96262d6bf0e70bc72812a8df
+  Public Key:
+    dfe5512796b4ee9f815ef8dd3bd09c7ce7b93b6a9ca48412a9ce331187405f4f
+  Keyserver ID:
+    5
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    410bfafceae56b79a9a6e0ec0e78abc66af5f1b147aaac75ae43fcac48edcdabd23095f96334037e1a54c7e188d364875ba21b44fe03d80ac2e87cb5eca55904
+
+*** ./keyserver-token-06.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    516e7931b70120426684a2ca47283faa
+  Request ID:
+    d3293b1b98277f18c4085275075d81b5
+  Public Key:
+    722cb35808aeaa64994b59bc9b11cd21e499f6e50eb592fbeb3b8a70ce3045f7
+  Keyserver ID:
+    6
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    f49319c2ca2f4bb76215b08574e271c57ae77b5f8634c5a856d4616d3c538f49ef70e68441d86f426960268602f79103153ef126df60b212bc8609143962fc02
+
+*** ./keyserver-token-07.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    5e1b3f812f49bbda032da764cd3dfe1f
+  Request ID:
+    2a7b539f2c339a17aeab51af58d282cc
+  Public Key:
+    d92c966003294e6fa25aac381ebe6578c299908a3241036fe0b81447149e9c0f
+  Keyserver ID:
+    7
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    35f94e7f265186924fe050f9dd319dda1531babc9160e4bc1ea8fa5300bc273c6684a9f06c9c81b72eb42dfda87d7beddde248998f48b30e28bfd254752d2a0a
+
+*** ./keyserver-token-08.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    e71d4d494d4cfc47b6d892346e0413e8
+  Request ID:
+    c7ca177a741a3be7541ab96726191c34
+  Public Key:
+    7988cb3aed37b02615548cb4d28676ab2119248a3fbedf1b7b988abfca4d3d30
+  Keyserver ID:
+    8
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    df6d68976e3dc8908824edbc89203a828e6b454d21b28dd4325194a3beda276a4822d935e035cb113dfa98f6b69f90be1a93062a2245596c26af2d99271aab06
+
+*** ./keyserver-token-09.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    7cf42bea7eaf3867cb4ca842eeecb4e4
+  Request ID:
+    2cf86dda5a962f8ed2583d03cf08a9ba
+  Public Key:
+    658352ba7415d61bbb73140df4e9e1ab83503ce2b513e162f117328069899e11
+  Keyserver ID:
+    9
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    c85c89b70e0811756055f9192b773f6c4f222d1806043f5736d00cd70bc09500ab4c9a50df691817f949091981644c8421403baec976e22e77904827dcfbfc08
+
+*** ./keyserver-token-10.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    d8dcc1624cd5b7101de63bb77a76d748
+  Request ID:
+    db9c8af8a61cf17626a50e8737daf784
+  Public Key:
+    991c9ba6e31e8934548e474da681a7f9cb2c4903b53820bc21c045693ffca83e
+  Keyserver ID:
+    10
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    0329438e93d21a0d9ebf8056cc52f64a5b94ce7309968393266b0af72f548d99ebbe366e781def40fe9ba11a58d781b3ae6a35c02f2089deedf9948defd72400
+
+*** ./keyserver-token-11.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    8e228c7eeeeabc4d5b5dbc0fa0645d32
+  Request ID:
+    7b6ed5076d081efbd39075fa647200ac
+  Public Key:
+    1a8959ee91f4d2d590ab8e70e7ec5e22300021ff149dc58efe989bd57422edce
+  Keyserver ID:
+    11
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    ae37de5b68d44265e78cfc8e94ffcc22817cf42fac123190f7b236e98ed5ff75ffca9857b7eba3b80a7e33cda84d354e10745db129eb8847022014c07bf12408
+
+*** ./keyserver-token-12.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    1e904becd2b2abec98c9c36df4a90843
+  Request ID:
+    98cfe2b69569ea8eb30614408e702856
+  Public Key:
+    ac0f512503bcc45208ea534c0d81ea5dbdedd55f735a951a749bc01c0b10bb6f
+  Keyserver ID:
+    12
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    2cf59c6551418b4eaa21a675dc1348407a233c16061fced50d75bfc7d3ce6e2206bea25e05504ba944d5ff9feadf8e1b56a4492dad90200c4072a98897d22403
+
+*** ./keyserver-token-13.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    11caf8e5d09abbf4dbb2f5b2544f63d6
+  Request ID:
+    f0d953706d5ebb97d6c20fb2c5b516b5
+  Public Key:
+    e95574a3661627c5aa58b6a5e3112398e6019dc4eb5c7122902071759547f021
+  Keyserver ID:
+    13
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    875758b1e35d871effaf271fef7df50238dcfcddf536e4eaa4cd8cad008c559e362338a290af41447f8d7bda1ecbacf8f52c1f59485834832a27ccedf4508506
+
+*** ./keyserver-token-14.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    987c8eaa6a0c26edc75699c9ad7f5a4d
+  Request ID:
+    81f26c8f69619760f880d025184757fd
+  Public Key:
+    85f60aacfe6d60e0b8881b0c2867f6272e76ff9c0702ad42f1c7d0b9507ae83e
+  Keyserver ID:
+    14
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    f8f60b876595fe12d728b5e5431e66b581e2746f026d81843b9aec99c5afcb358cfac9418da5cdb3b6e5f56a2a3833ff7da0509fdf1c691eaa18c440d4716c08
+
+*** ./keyserver-token-15.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    357dfecf2ecd5bc50ab63b1670c7045a
+  Request ID:
+    a975669f5d6587b9b97895f781f94955
+  Public Key:
+    5b73130ab593666f5ca7a8c2dbbed44ad9546b679643b019d072338e7440a99a
+  Keyserver ID:
+    15
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    5cd9c6d20a70c4d2588e95e7642a9f4962bf4c4c2eb520cca9a1169e3a7b052a91139bea1826042bd02bd1451615d8719a1a320b51e947161421b78a477acb09
+
+*** ./keyserver-token-16.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    4850a3c5bcc8451dedaa79c08cc1ed91
+  Request ID:
+    86ffd73b48141b99a15942614c53687f
+  Public Key:
+    42720f86027e7bf77a35d650aaf3bf4db0fcc7c5d86eca69cd59bc1dcbda9d1a
+  Keyserver ID:
+    16
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    ce4de513e72b9aea651c360ddf861acd1772fef98c57b2e2ff6892de81b7d4138f4888d376a14ce384dcfb957a4ec34ac6cb0098426a98f257eaf89c1c561a0c
+
+*** ./keyserver-token-17.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    02b73d05eb67cd5ced4de2645ed3d30e
+  Request ID:
+    e83aaa8564b3f3fc833c2abc92522f7e
+  Public Key:
+    80da49dec191d987ed9992cc82a9c6b73f6e468bb73941f61150c291a78d25de
+  Keyserver ID:
+    17
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    d03addefbacf1e165e85a10233876ea38ad7a04ad18bcae61d22a3599f92816eaa879e1f47380674202456daddd95ac6c6040eae5a510ef9712c3d5e49db8506
+
+*** ./keyserver-token-18.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    ffd7202690d14f9c21d31ad021728767
+  Request ID:
+    4b296e12d3aa70c87318ca09a5365674
+  Public Key:
+    1bc0a79d993d634b13e689f07a885748c6c67c3e69a1113ea0d55a771aed9d68
+  Keyserver ID:
+    18
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    1da7c39eb541ebf870444d1bee8d7bd945567bba5d7ada7ad2aaf80ca4f0bd6f4c84b93475c6c514c6d3822b86791454a2933d8fb18da4d6b7fe461c1c121b00
+
+*** ./keyserver-token-19.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    02de4f8b99f70edecd2030f6e87116df
+  Request ID:
+    4fb13116bd72e76aa636b314b3f3006a
+  Public Key:
+    b1aaa3de44768a82773ee14c98cb7045b1118aa83b080c15c9cda14cf773c8d8
+  Keyserver ID:
+    19
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    29ca98f59523df57ca682cbdc6ec5b09c760c1feff6406c2d4058fcfbe73d015313f2a243d1c94d7bdbea7f62247496ad931c7c85344c740bfab607dcbe8aa0a
+
+*** ./keyserver-token-20.kt ***
+
+V1 Keyserver Token
+  Issuance ID:
+    7e31475fc64b51aa81e170b9e79c9522
+  Request ID:
+    d245df9dacead0ac26f9e870716c8a37
+  Public Key:
+    24aa0f9a544175b53eb8bcec0dc61810cd947a842840bb0b766871576234101e
+  Keyserver ID:
+    20
+  Issued by:
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 25747a6a4455082bfbfb791440c91f18a13f8dac66d389691e6e16558332386c)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:09 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:09 +0000
+  Signature:
+    d8db9ea42b7450b8eb06e3271a6a936c4557010c7f4663cf99829d7ce4864f81e0e9228cb4c46f0e71aa210ea0e57c4adcc7dc0c79eb8ddba57158b499c39605
+
+*** ./manufacturer-root.certr ***
+
+Root V1 Manufacturer Certificate Request
+  Request ID:
+    e680a741fee463218fb126d3cd6757ca
+  Subject:
+    SecureDNA-manufacturer-root, ca-manufacturer-root@securedna.org (public key: 20e88fe8d526a515d7b637be1bcd8d50a50a1d5ffacdafaa09a5e4f3c7ff63d7)
+
+*** ./manufacturer-root.cert ***
+
+Root V1 Manufacturer Certificate
+  Issuance ID:
+    f2422361db514cdaf3af8b9d4b589d81
+  Request ID:
+    e680a741fee463218fb126d3cd6757ca
+  Issued to:
+    SecureDNA-manufacturer-root, ca-manufacturer-root@securedna.org (public key: 20e88fe8d526a515d7b637be1bcd8d50a50a1d5ffacdafaa09a5e4f3c7ff63d7)
+  Issued by:
+    SecureDNA-manufacturer-root, ca-manufacturer-root@securedna.org (public key: 20e88fe8d526a515d7b637be1bcd8d50a50a1d5ffacdafaa09a5e4f3c7ff63d7)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:08 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:08 +0000
+  Signature:
+    f7518568f2bfe50bc041fe816bb993e659eeb65536b02547d43d0a6c38024941c70b49e6c5d7605f0e8a879b33e264e5f97410b72dc1c06cdd362dbc8edbed0b
+
+*** ./manufacturer-intermediate.certr ***
+
+Intermediate V1 Manufacturer Certificate Request
+  Request ID:
+    3f357ce9dbc48360386fa0494d090205
+  Subject:
+    SecureDNA-manufacturer-intermediate, ca-manufacturer-intermediate@securedna.org (public key: a6f7d052c757504bf803a79fd3b33c4ebb24733d71ad7bc1e70d58eb22eb2da7)
+
+*** ./manufacturer-intermediate.cert ***
+
+Intermediate V1 Manufacturer Certificate
+  Issuance ID:
+    c527868a3b95db4e06d1f90aa3137c95
+  Request ID:
+    3f357ce9dbc48360386fa0494d090205
+  Issued to:
+    SecureDNA-manufacturer-intermediate, ca-manufacturer-intermediate@securedna.org (public key: a6f7d052c757504bf803a79fd3b33c4ebb24733d71ad7bc1e70d58eb22eb2da7)
+  Issued by:
+    SecureDNA-manufacturer-root, ca-manufacturer-root@securedna.org (public key: 20e88fe8d526a515d7b637be1bcd8d50a50a1d5ffacdafaa09a5e4f3c7ff63d7)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:08 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:08 +0000
+  Signature:
+    b699f970f097e06eeba5c86200a921162327f1c880e5b4b4a67aeb0f339a811793305dd1f37c260753fc0bace0b859dd878796cd47c84af852042c911787f60f
+
+*** ./manufacturer-int-int.certr ***
+
+Intermediate V1 Manufacturer Certificate Request
+  Request ID:
+    4b3c032f7a8fba2d4df9e29f04b89499
+  Subject:
+    SecureDNA-manufacturer-int-int, ca-manufacturer-int-int@securedna.org (public key: e9b45096868948ba27f5c68bed79fcb135f2275eb1131cad8941c980c29622c0)
+
+*** ./manufacturer-int-int.cert ***
+
+Intermediate V1 Manufacturer Certificate
+  Issuance ID:
+    57485254c93c8bf31cbf6e53bbd361ed
+  Request ID:
+    4b3c032f7a8fba2d4df9e29f04b89499
+  Issued to:
+    SecureDNA-manufacturer-int-int, ca-manufacturer-int-int@securedna.org (public key: e9b45096868948ba27f5c68bed79fcb135f2275eb1131cad8941c980c29622c0)
+  Issued by:
+    SecureDNA-manufacturer-intermediate, ca-manufacturer-intermediate@securedna.org (public key: a6f7d052c757504bf803a79fd3b33c4ebb24733d71ad7bc1e70d58eb22eb2da7)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:08 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:08 +0000
+  Signature:
+    9a25ff9cd17a843d1424fcc59f3995ea78bb8eb592eb86425a3088e7cdff0f43ce05cb4cbba2f9793a321d0bc821d3528ebee0c79779cd98916d0bf432932100
+
+*** ./manufacturer-leaf.certr ***
+
+Leaf V1 Manufacturer Certificate Request
+  Request ID:
+    60618d2481ecbc14312357456d29035a
+  Subject:
+    SecureDNA-manufacturer-leaf, ca-manufacturer-leaf@securedna.org (public key: b5786c27647937ca2c484c2ba53b51f2467179dba17bfee31695a96d58e6b60c)
+
+*** ./manufacturer-leaf.cert ***
+
+Leaf V1 Manufacturer Certificate
+  Issuance ID:
+    b0171c119a564756541b1ebc4e70e800
+  Request ID:
+    60618d2481ecbc14312357456d29035a
+  Issued to:
+    SecureDNA-manufacturer-leaf, ca-manufacturer-leaf@securedna.org (public key: b5786c27647937ca2c484c2ba53b51f2467179dba17bfee31695a96d58e6b60c)
+  Issued by:
+    SecureDNA-manufacturer-int-int, ca-manufacturer-int-int@securedna.org (public key: e9b45096868948ba27f5c68bed79fcb135f2275eb1131cad8941c980c29622c0)
+  Issued on:
+    Wed, 24 Jul 2024 03:09:08 +0000
+  Expires:
+    Sat, 23 Jul 2044 03:09:08 +0000
+  Signature:
+    9bea66f425e3f4a330840bbd6aa13bfd31264eec1bfa35b1ba3a060f2dd594f3270e7fb3b35c168982bf3379cd68ade3fbfd3e6e766968fefc71c41287deac06
+
+*** ./synthesizer-token.str ***
+
+V1 Synthesizer Token Request
+  Request ID:
+    d982822d0d8a800d48b639685eb16825
+  Public Key:
+    fe357d8e1b7429d3930529fe620c2a30ccb2244f638e4869323d3064d1cf7798
   Manufacturer Domain:
     securedna.org
   Model:
@@ -14,242 +847,194 @@ V1 Synthesizer Token
   Serial Number:
     1
   Rate Limit:
-    300000 base pairs per day
-  Issued by:
-    test-leaf, test-leaf@example.com (public key: 53c3941e8161828992e0fbdfd089b32b6754abe05496bc605eba0526aa7d618d)
-  Issued on:
-    Thu, 07 Mar 2024 00:10:18 +0000
-  Expires:
-    Sun, 05 Mar 2034 00:10:18 +0000
-  Signature:
-    8695c7d2292dd5adf1a852cb4dff1244bf4995ba5a319b2ebc2b1cd9723d8888b61f9ac3271849ab30e27a003d496e0c73d75deb836eddc7eb5c1f90cc26d101
+    100000000 base pairs per day
 
-*** ./manufacturer-root.cert ***
+*** ./synthesizer-token.st ***
 
-Root V1 Manufacturer Certificate
+V1 Synthesizer Token
   Issuance ID:
-    ced217fc12a2495be3a36a9f6383cf4a
+    0b66203cf5b42d3bc4aa97db388bf2db
   Request ID:
-    6ab0598e5b9e8fc028035399a486a0c3
-  Issued to:
-    test-root, test-root@example.com (public key: 1d948387dcb94a6bd6edb9cbc5514a04d299dd8d20c2969a52e5a5f6ea081f3c)
-  Issued by:
-    test-root, test-root@example.com (public key: 1d948387dcb94a6bd6edb9cbc5514a04d299dd8d20c2969a52e5a5f6ea081f3c)
-  Issued on:
-    Wed, 17 Jan 2024 00:17:14 +0000
-  Expires:
-    Sat, 14 Jan 2034 00:17:14 +0000
-  Signature:
-    820a72e35eec93ccac1c0cc9a66cbe81837992ba467a48a6ab60ed8d5d1b769cb03e0815663216e0044e16e88bcf9734590e6d4b9878c843bf9b0f0c71a72409
-
-*** ./manufacturer-leaf.cert ***
-
-Leaf V1 Manufacturer Certificate
-  Issuance ID:
-    7771901a04fdde423eca71b3108b7b0c
-  Request ID:
-    faa6b8f394f0e4b401cf2227d73225c8
-  Issued to:
-    test-leaf, test-leaf@example.com (public key: 53c3941e8161828992e0fbdfd089b32b6754abe05496bc605eba0526aa7d618d)
-  Issued by:
-    test-intermediate, test-intermediate@example.com (public key: 258d8561cd9a77dc9c0914bb55b1acdd92068dc6bc79ae55d608e8867720c1d8)
-  Issued on:
-    Wed, 17 Jan 2024 00:17:14 +0000
-  Expires:
-    Sat, 14 Jan 2034 00:17:14 +0000
-  Signature:
-    75430ae6393315f3cee5c1b956980e25d17eb5d2e45864d16e95bd9ad59a9f5abe87f7135c1e14de7fb9b6244cdc38f7258b4b57168e9d9cdb80fa780525c901
-
-*** ./manufacturer-intermediate.cert ***
-
-Intermediate V1 Manufacturer Certificate
-  Issuance ID:
-    215a11eee354ae7131a30611941e9a7f
-  Request ID:
-    1f452af9c8d3964727103825d3a5daec
-  Issued to:
-    test-intermediate, test-intermediate@example.com (public key: 258d8561cd9a77dc9c0914bb55b1acdd92068dc6bc79ae55d608e8867720c1d8)
-  Issued by:
-    test-root, test-root@example.com (public key: 1d948387dcb94a6bd6edb9cbc5514a04d299dd8d20c2969a52e5a5f6ea081f3c)
-  Issued on:
-    Wed, 17 Jan 2024 00:17:14 +0000
-  Expires:
-    Sat, 14 Jan 2034 00:17:14 +0000
-  Signature:
-    32839d3c61111bce9c6c0b113e6074919bf46135b1020d457df4e58af6d94e8bb8e2d6663696ac5c042152d06afbecf68cffbcf9969602117a2251793cdede05
-
-*** ./keyserver-token-1.kt ***
-
-V1 Keyserver Token
-  Issuance ID:
-    661ab7b38191098ea0186e37128fd04b
-  Request ID:
-    51657d3d9b512a9be8aa0bf6428d47a1
+    d982822d0d8a800d48b639685eb16825
   Public Key:
-    03aa085148d0d9e1f57e980eae0c9b728f7e30df0a656ffc015cc694e9dc45bf
-  Keyserver ID:
+    fe357d8e1b7429d3930529fe620c2a30ccb2244f638e4869323d3064d1cf7798
+  Manufacturer Domain:
+    securedna.org
+  Model:
+    demo
+  Serial Number:
     1
+  Rate Limit:
+    100000000 base pairs per day
   Issued by:
-    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
+    SecureDNA-manufacturer-leaf, ca-manufacturer-leaf@securedna.org (public key: b5786c27647937ca2c484c2ba53b51f2467179dba17bfee31695a96d58e6b60c)
   Issued on:
-    Wed, 17 Jan 2024 00:17:14 +0000
+    Wed, 24 Jul 2024 03:09:08 +0000
   Expires:
-    Sat, 14 Jan 2034 00:17:14 +0000
+    Sat, 23 Jul 2044 03:09:08 +0000
   Signature:
-    1581f3c20bd7c64046d99731422360088e445768ac2ab4286e6aae16427750f90d1bdbe3ae5533f399a1bbc7a464b01c2d41c9e57135d502e58a32089fd81d02
+    c0456f83c7a8dadaf7d305844f81788297a8eddd5b09dc51dcb01e5d69f337c6c553c1291a4576e9987898d5387eedb704b404dacbd0f76685ceb2e8d13af709
 
-*** ./infrastructure-root.cert ***
+*** ./exemption-root.certr ***
 
-Root V1 Infrastructure Certificate
-  Issuance ID:
-    fe25d730f78d7e00c736c512b89efaf0
+Root V1 Exemption Certificate Request
   Request ID:
-    31f9a552f87da3453065732461bfa296
+    3424bc0bd9f57b4e9c497cb299804cef
+  Subject:
+    SecureDNA-exemption-root, ca-exemption-root@securedna.org (public key: 4175a5e97b20bbfc6e30eea8e643d61e65b03b240faacb50c02e2b6cbc503fe3)
+
+*** ./exemption-root.cert ***
+
+Root V1 Exemption Certificate
+  Issuance ID:
+    0ff7216aa27961bde3419e9d87101efa
+  Request ID:
+    3424bc0bd9f57b4e9c497cb299804cef
   Issued to:
-    test-root, test-root@example.com (public key: a5c4aecf79eb043ad714aef9ce2a03672d602080b15c6dff7c26a48382696abe)
+    SecureDNA-exemption-root, ca-exemption-root@securedna.org (public key: 4175a5e97b20bbfc6e30eea8e643d61e65b03b240faacb50c02e2b6cbc503fe3)
   Issued by:
-    test-root, test-root@example.com (public key: a5c4aecf79eb043ad714aef9ce2a03672d602080b15c6dff7c26a48382696abe)
+    SecureDNA-exemption-root, ca-exemption-root@securedna.org (public key: 4175a5e97b20bbfc6e30eea8e643d61e65b03b240faacb50c02e2b6cbc503fe3)
   Issued on:
-    Wed, 17 Jan 2024 00:17:14 +0000
+    Wed, 24 Jul 2024 03:09:08 +0000
   Expires:
-    Sat, 14 Jan 2034 00:17:14 +0000
+    Sat, 23 Jul 2044 03:09:08 +0000
   Signature:
-    bafb15a8157ba53683479e3a922612e9de861ee847f20a7b6e41cff7d76e2f774eaccf67b77751a9d8beb4ffb0c1033a58a2777d4fdf9ab3f19ee0adbd241007
+    df4bc8073629d15323148cdffcdf1b3331322732bf7a96a1c9e359865b1c33df7f2daebb1a3099c8a00b3d0c3ef0c0fe0ebac2ffd467cafdec50560ec3ae1901
 
-*** ./infrastructure-leaf.cert ***
+*** ./exemption-intermediate.certr ***
 
-Leaf V1 Infrastructure Certificate
-  Issuance ID:
-    ce0bb2f73a4a3155eed4a8dbcbb25cd4
+Intermediate V1 Exemption Certificate Request
   Request ID:
-    ab698df0ab1bd5f038059f57c227ed6b
+    1faa509af76aa9a44d9153d04f9c26ba
+  Subject:
+    SecureDNA-exemption-intermediate, ca-exemption-intermediate@securedna.org (public key: e590cbc84092ce6b02f93d29bcddafe8a86a66730c23e5bf3dcfc48cb283be7b)
+
+*** ./exemption-intermediate.cert ***
+
+Intermediate V1 Exemption Certificate
+  Issuance ID:
+    92adc8dcc90227eb38ca7a189c9151b9
+  Request ID:
+    1faa509af76aa9a44d9153d04f9c26ba
   Issued to:
-    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
+    SecureDNA-exemption-intermediate, ca-exemption-intermediate@securedna.org (public key: e590cbc84092ce6b02f93d29bcddafe8a86a66730c23e5bf3dcfc48cb283be7b)
   Issued by:
-    test-intermediate, test-intermediate@example.com (public key: e895d1d486afc3f11f6ae3bcbe4850ca7c18bfbf2f5b9c671a3f8e1fc5299f6e)
+    SecureDNA-exemption-root, ca-exemption-root@securedna.org (public key: 4175a5e97b20bbfc6e30eea8e643d61e65b03b240faacb50c02e2b6cbc503fe3)
   Issued on:
-    Wed, 17 Jan 2024 00:17:14 +0000
+    Wed, 24 Jul 2024 03:09:08 +0000
   Expires:
-    Sat, 14 Jan 2034 00:17:14 +0000
+    Sat, 23 Jul 2044 03:09:08 +0000
   Signature:
-    a3fabcd6108307f51ccab9d52c8a4ce263a747e394f8e31174ddf856808f80aa4f1fad41198d30c8b1a1b14fab185450d19a1883eb94254b0a55980190884804
+    f72f7456b73f2dcd4f4651e21e476f42e04912b69302f7c6d388c1651d8e6938d3f01de353bb4cf9b9eff31b51a46bdcd95cc700d07bbed64ac4e90a1895dd03
 
-*** ./infrastructure-intermediate.cert ***
+*** ./exemption-int-int.certr ***
 
-Intermediate V1 Infrastructure Certificate
-  Issuance ID:
-    5a7202c287aa4883f86a510bced1039c
+Intermediate V1 Exemption Certificate Request
   Request ID:
-    1a759e3206b56e9d48c64b737e9f453d
+    a46c4f552850e640b0ad727f7b89bd3a
+  Subject:
+    SecureDNA-exemption-int-int, ca-exemption-int-int@securedna.org (public key: ef1edb5fdc24bef2a9bb2fa5eea233c18d4b3ef292acdd84c18ac07d5cfb679b)
+
+*** ./exemption-int-int.cert ***
+
+Intermediate V1 Exemption Certificate
+  Issuance ID:
+    cefbc63ac53d1cd1e1e0e99afcacfccd
+  Request ID:
+    a46c4f552850e640b0ad727f7b89bd3a
   Issued to:
-    test-intermediate, test-intermediate@example.com (public key: e895d1d486afc3f11f6ae3bcbe4850ca7c18bfbf2f5b9c671a3f8e1fc5299f6e)
+    SecureDNA-exemption-int-int, ca-exemption-int-int@securedna.org (public key: ef1edb5fdc24bef2a9bb2fa5eea233c18d4b3ef292acdd84c18ac07d5cfb679b)
   Issued by:
-    test-root, test-root@example.com (public key: a5c4aecf79eb043ad714aef9ce2a03672d602080b15c6dff7c26a48382696abe)
+    SecureDNA-exemption-intermediate, ca-exemption-intermediate@securedna.org (public key: e590cbc84092ce6b02f93d29bcddafe8a86a66730c23e5bf3dcfc48cb283be7b)
   Issued on:
-    Wed, 17 Jan 2024 00:17:14 +0000
+    Wed, 24 Jul 2024 03:09:08 +0000
   Expires:
-    Sat, 14 Jan 2034 00:17:14 +0000
+    Sat, 23 Jul 2044 03:09:08 +0000
   Signature:
-    78a28e0f9960a1f7cc3c832f35b3ce82b1ceefbe8f98f819c9e102642dde5796fe775c17c8a48ad8b7fcca71f75839859a02b45754f51970f48cb37a612da80e
+    2640c11ac656a81dd5d90be72be43f500a56834ebd263824a28d06108310f13263bc28b20e52addfe56cb1dba0b47d8100f26dcb2d53b9b8afd3f2d8805af30d
 
-*** ./database-token.dt ***
+*** ./exemption-leaf.certr ***
 
-V1 Database Token
-  Issuance ID:
-    5556f0eba68df37b636643cf8defdc04
+Leaf V1 Exemption Certificate Request
   Request ID:
-    1f6245189ad915d9b21af51cfaf04825
-  Public Key:
-    f2f87668713ae40eff19df2faa2fe4b8c66914300e7ad37225fd787c9caaa7d5
-  Issued by:
-    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
-  Issued on:
-    Wed, 17 Jan 2024 00:17:14 +0000
-  Expires:
-    Sat, 14 Jan 2034 00:17:14 +0000
-  Signature:
-    0f5025f3a739c45ca13b960af53c900c623472ae7dcaed014d7ed75ac33da8e0ba90d78b6f18498f7d67c9fcb7f131969a68f961c0785147c7b369cf8a25fa00
+    2bf3ac8be0f5472043b4d39cd55b35a3
+  Subject:
+    SecureDNA-exemption-leaf, ca-exemption-leaf@securedna.org (public key: cbfdf6e177ffc9dc339d4283afb9a102e031519ca954ea5be8474e045cddc8f4)
 
-*** ./keyserver-token-5.kt ***
+*** ./exemption-leaf.cert ***
 
-V1 Keyserver Token
+Leaf V1 Exemption Certificate
   Issuance ID:
-    c7ea5c42533a18de75e6c3da13e08313
+    725457354e77eaa5922278e54b64253e
   Request ID:
-    853b812c55f12d661e398a97dc3b7f63
-  Public Key:
-    7cd4d376b0e4bbd6b29d5d501419c7ac589a65794bbc41d28e1a6c3af1a23991
-  Keyserver ID:
-    5
+    2bf3ac8be0f5472043b4d39cd55b35a3
+  Issued to:
+    SecureDNA-exemption-leaf, ca-exemption-leaf@securedna.org (public key: cbfdf6e177ffc9dc339d4283afb9a102e031519ca954ea5be8474e045cddc8f4)
   Issued by:
-    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
+    SecureDNA-exemption-int-int, ca-exemption-int-int@securedna.org (public key: ef1edb5fdc24bef2a9bb2fa5eea233c18d4b3ef292acdd84c18ac07d5cfb679b)
   Issued on:
-    Wed, 17 Jan 2024 00:17:15 +0000
+    Wed, 24 Jul 2024 03:09:08 +0000
   Expires:
-    Sat, 14 Jan 2034 00:17:15 +0000
+    Sat, 23 Jul 2044 03:09:08 +0000
   Signature:
-    68f808828450e78af283b8ec34c18dc944edf9da0724ab3416203d96700b31086d1e0abbe7389f752f02a9c4c09bd59bb4a93305f173f1a27d9881bc61f45500
+    ac14af9b856a00db5e8b707fea330899d3d62998927e0a17cd3972f00389b1d7e49163dd268131ae718ac21e09eef4aa5f516904a01916e8b509d309d5544b0c
 
-*** ./keyserver-token-4.kt ***
+*** ./exemption-token.etr ***
 
-V1 Keyserver Token
+V1 Exemption Token Request
+  Request ID:
+    1448aba3d156ae1a060cf71b5d3f175d
+  Requestor:
+    Jack Jackson, jack@example.com, +12345678901, 1234-5678-9123-4567
+  Public Key:
+    d65b561518f9c4010acc3f4c7a6d8b5be23814e6a743fb01321ca67f2da3905d
+  Shipping Addresses:
+    55 Mountain View
+    Denver
+    United States of America
+
+    29 Rue de l'Église
+    Annecy
+    France
+  Exemptions:
+    Human astrovirus
+    Diacetoxyscirpenol
+    West Nile virus
+  Authentication Devices:
+    TOTP: TOTP0104EAA9
+    Yubikey: bbbbbbbbbbbb
+
+*** ./exemption-token.et ***
+
+V1 Exemption Token
   Issuance ID:
-    3b51053d45a4346aff9b5ca8c9b22c06
+    5c2b0f9a4a3eef49cb249a455a172446
   Request ID:
-    b833ea317d8b875742ca526457cefc7b
+    1448aba3d156ae1a060cf71b5d3f175d
+  Requestor:
+    Jack Jackson, jack@example.com, +12345678901, 1234-5678-9123-4567
   Public Key:
-    839400dee8ea33f2949c6b428eb3621a0841680234dca00593248aafb8eb5226
-  Keyserver ID:
-    4
+    d65b561518f9c4010acc3f4c7a6d8b5be23814e6a743fb01321ca67f2da3905d
+  Shipping Addresses:
+    55 Mountain View
+    Denver
+    United States of America
+
+    29 Rue de l'Église
+    Annecy
+    France
+  Exemptions:
+    Human astrovirus
+    Diacetoxyscirpenol
+    West Nile virus
+  Requestor Authentication Devices:
+    TOTP: TOTP0104EAA9
+    Yubikey: bbbbbbbbbbbb
   Issued by:
-    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
+    SecureDNA-exemption-leaf, ca-exemption-leaf@securedna.org (public key: cbfdf6e177ffc9dc339d4283afb9a102e031519ca954ea5be8474e045cddc8f4)
   Issued on:
-    Wed, 17 Jan 2024 00:17:15 +0000
+    Wed, 24 Jul 2024 14:53:56 +0000
   Expires:
-    Sat, 14 Jan 2034 00:17:15 +0000
+    Fri, 30 Jun 2124 14:53:56 +0000
   Signature:
-    03245a0c65c6448444fc13772adb9f530ea8b308003c487dba048691d0bdd42a4d8f7c61238752138942be5f47c076454f96babce113aaf765493fc5f2f8f600
-
-*** ./keyserver-token-3.kt ***
-
-V1 Keyserver Token
-  Issuance ID:
-    a3b722a9b110fc5a38add17ed90a3919
-  Request ID:
-    a0e3e283b35fac10b107f4a4fd530448
-  Public Key:
-    864c1b8cac804d3693f67ad1a2f3df2d9dbf611b017fc8c0d708f444d557605b
-  Keyserver ID:
-    3
-  Issued by:
-    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
-  Issued on:
-    Wed, 17 Jan 2024 00:17:15 +0000
-  Expires:
-    Sat, 14 Jan 2034 00:17:15 +0000
-  Signature:
-    638b8a4520eeacba505b689739c6f602de2d71aae165dab3822888fe192ae9d4f37062e00b91b77c46a2d5a0c08125d6d0fd2d5fb0315f9487713c946570d907
-
-*** ./keyserver-token-2.kt ***
-
-V1 Keyserver Token
-  Issuance ID:
-    32579b177817e4b8d5400383089f16a4
-  Request ID:
-    598d767d6a8aba793d25aefd4f575142
-  Public Key:
-    1ef6e6535fc6659d504ff0683098b6e1bb71fa8d2daee609ebdce9cf228dbd12
-  Keyserver ID:
-    2
-  Issued by:
-    test-leaf, test-leaf@example.com (public key: dcff58198ecbef4a013c36bc9a5a8b9b3cd09d5ec5953806653954a2ecf5dfc4)
-  Issued on:
-    Wed, 17 Jan 2024 00:17:15 +0000
-  Expires:
-    Sat, 14 Jan 2034 00:17:15 +0000
-  Signature:
-    6ab37c3b1d7d1d64cfbd08de57fe30e0b1b0adf9834cbd1614b2b6d69b7bdcd79393bfa1e91ff3d137fff61da8d40e5884c879256a9ec541d8e35e8516601d08
-
-*** ./INSPECT-OUTPUT ***
-[skipped]
-
+    cfdce51bf7ad9d83c47b9acf9c278d39a6c5333b1ee6ef6ca3de2eeb8f859ed60205eb4224ef9ec352afad4d7cfe22e550f3f6de6af7155ff9f320127908b202

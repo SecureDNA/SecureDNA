@@ -7,7 +7,7 @@ import toast from "react-hot-toast";
 
 export async function copyToClipboard(
   description: string,
-  contents: string
+  contents: string,
 ): Promise<void> {
   if (navigator.clipboard) {
     await navigator.clipboard.writeText(contents);
@@ -23,7 +23,7 @@ export async function copyToClipboard(
       toast.success(`Copied ${description} to clipboard.`);
     } catch (err) {
       toast.error(
-        `Unable to copy ${description} to clipboard. Check the developer console.`
+        `Unable to copy ${description} to clipboard. Check the developer console.`,
       );
       console.error("copyToClipboard failed:", { description, err, contents });
     }

@@ -2,5 +2,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 pub mod database;
+pub mod digest;
 pub mod hlt;
 pub mod keyserver;

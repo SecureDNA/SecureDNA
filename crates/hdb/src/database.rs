@@ -9,9 +9,9 @@ use std::os::unix::fs::FileExt;
 use std::os::windows::fs::FileExt;
 use std::path::{Path, PathBuf};
 
-use log::warn;
 use metrics::histogram;
 use rayon::prelude::*;
+use tracing::warn;
 
 use super::Entry;
 

@@ -4,14 +4,14 @@
  */
 
 import { Combobox } from "@headlessui/react";
-import { useState } from "react";
 import Fuse from "fuse.js";
+import { useState } from "react";
 
 export interface TypeaheadProps {
   className: string;
   suggestions: string[];
   value: string;
-  onChange: (suggestion: string) => void;
+  onChange: (suggestion: string | null) => void;
   limit?: number;
 }
 

@@ -5,11 +5,11 @@ use std::fmt;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use tracing::info;
 
 use crate::api_client_core::{ApiClientCore, ApiClientCoreImpl};
 use crate::error::HttpError;
 use packed_ristretto::{PackableRistretto, PackedRistrettos};
-use shared_types::info_with_timestamp;
 use shared_types::requests::RequestId;
 use streamed_ristretto::{stream::check_content_length, HasContentType};
 
@@ -240,11 +240,7 @@ impl ApiClientCore for HttpsToHttpRewriter {
         expected_content_type: &'static str,
     ) -> Result<bytes::Bytes, HttpError> {
         let new_url = url.replace("https://", "http://");
-        info_with_timestamp!(
-            "api_client::HttpsToHttpRewriter: rewrote {} to {} for local testing",
-            url,
-            new_url
-        );
+        info!("api_client::HttpsToHttpRewriter: rewrote {url} to {new_url} for local testing",);
         self.inner
             .raw_request(&new_url, body, content_type, headers, expected_content_type)
             .await

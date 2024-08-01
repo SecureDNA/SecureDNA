@@ -11,6 +11,7 @@ use std::{
 use futures::{stream::FuturesUnordered, StreamExt};
 use rand::seq::IteratorRandom;
 use serde::de::DeserializeOwned;
+use tracing::info;
 
 use crate::{
     error::DoprfError,
@@ -20,11 +21,8 @@ use crate::{
 };
 use doprf::{active_security::ActiveSecurityKey, party::KeyserverId};
 use http_client::BaseApiClient;
-use shared_types::{
-    info_with_timestamp,
-    server_selection::{
-        HdbQualificationResponse, KeyserverQualificationResponse, QualificationRequest, Role, Tier,
-    },
+use shared_types::server_selection::{
+    HdbQualificationResponse, KeyserverQualificationResponse, QualificationRequest, Role, Tier,
 };
 
 pub mod bad_flag;
@@ -257,7 +255,7 @@ impl ServerSelector {
                     Some((choice, selection, time))
                 },
                 || async {
-                    info_with_timestamp!("starting blocking refresh");
+                    info!("starting blocking refresh");
                     server_selection(&self.config, &self.api_client)
                         .await
                         .map(|selection| (Arc::new(selection), get_now()))
@@ -269,9 +267,7 @@ impl ServerSelector {
             || self.needs_soft_refresh_for_server_threshold(&selection);
         if needs_soft_refresh {
             #[cfg(target_arch = "wasm32")]
-            info_with_timestamp!(
-                "warning: background refresh not implemented for WASM, skipping..."
-            );
+            info!("warning: background refresh not implemented for WASM, skipping...");
 
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -286,7 +282,7 @@ impl ServerSelector {
                         })
                         .await;
                     if let Err(e) = r {
-                        info_with_timestamp!("error during background refresh: {}", e);
+                        info!("error during background refresh: {e}");
                     }
                 });
             }
@@ -344,7 +340,7 @@ pub async fn server_selection(
     config: &ServerSelectionConfig,
     api_client: &BaseApiClient,
 ) -> Result<ServerSelection, ServerSelectionError> {
-    info_with_timestamp!("server selection: refreshing...");
+    info!("server selection: refreshing...");
 
     let (keyserver_domains, hdb_domains) = match &config.enumeration_source {
         #[cfg(not(target_arch = "wasm32"))]
@@ -373,7 +369,7 @@ pub async fn server_selection(
         .filter_map(|(domain, q)| match q {
             Ok(d) => Some((domain, d)),
             Err(e) => {
-                info_with_timestamp!("server selection: keyserver rejection: {}", e);
+                info!("server selection: keyserver rejection: {e}");
                 None
             }
         })
@@ -384,7 +380,7 @@ pub async fn server_selection(
         .filter_map(|(domain, q)| match q {
             Ok(d) => Some((domain, d)),
             Err(e) => {
-                info_with_timestamp!("server selection: hdb rejection: {}", e);
+                info!("server selection: hdb rejection: {e}");
                 None
             }
         })
@@ -425,7 +421,7 @@ async fn enumerate_role(
             Ok(true) => domains.push(domain),
             Ok(false) => break,
             Err(e) => {
-                info_with_timestamp!("server selection: got DNS service error during enumeration, stopping early: {}", e);
+                info!("server selection: got DNS service error during enumeration, stopping early: {e}");
                 break;
             }
         }
@@ -473,7 +469,7 @@ async fn qualify_one<D: DeserializeOwned>(
             },
             // don't retry 400 Bad Request
             |e: &DoprfError| {
-                info_with_timestamp!("qualification for {}: got error: {}", domain, e);
+                info!("qualification for {domain}: got error: {e}");
                 e.is_retriable()
             },
         )
@@ -486,27 +482,21 @@ fn do_server_selection(
     hdbs: Vec<(String, HdbQualificationResponse)>,
 ) -> Result<ServerSelection, Vec<u32>> {
     let known_generations = find_available_generations(&keyservers, &hdbs);
-    info_with_timestamp!(
-        "server selection: found generations {:?}",
-        known_generations
-    );
+    info!("server selection: found generations {known_generations:?}");
 
     for generation in known_generations.iter().copied() {
         match try_server_selection_for_generation(generation, &keyservers, &hdbs) {
             Ok(selection) => {
-                info_with_timestamp!(
-                    "server selection: found quorum on generation {}",
-                    generation
-                );
+                info!("server selection: found quorum on generation {generation}",);
                 return Ok(selection);
             }
             Err(e) => {
-                info_with_timestamp!("server selection: skipping generation: {}", e);
+                info!("server selection: skipping generation: {e}");
             }
         }
     }
 
-    info_with_timestamp!("server selection: FATAL: failed to find quorum on any generation!");
+    info!("server selection: FATAL: failed to find quorum on any generation!");
     Err(known_generations)
 }
 

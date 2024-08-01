@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use clap::{crate_version, Args, Parser};
 use serde::Deserialize;
 
-use minhttp::mpserver::traits::RelativeConfig;
+use minhttp::mpserver::{cli::ServerConfigSource, traits::RelativeConfig};
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -15,12 +15,8 @@ use minhttp::mpserver::traits::RelativeConfig;
     version = crate_version!()
 )]
 pub struct Opts {
-    #[clap(
-        long,
-        env = "SECUREDNA_HDBSERVER_CFG_PATH",
-        help = "The path to the HDB server config TOML"
-    )]
-    pub cfg_path: PathBuf,
+    #[command(flatten)]
+    pub config: ServerConfigSource<Config>,
 }
 
 #[derive(Clone, Debug, Args, Deserialize)]
@@ -67,14 +63,14 @@ pub struct Config {
 
     #[clap(
         long,
-        help = "Yubico API client ID. This is a short digit string, used to verify YubiKey OTPs when handling an order with a 2FA-enabled exemption list. If set to the string 'allow_all', all YubiKey OTPs are treated as valid.",
+        help = "Yubico API client ID. This is a short digit string, used to verify YubiKey OTPs when handling an order with a 2FA-enabled exemption. If set to the string 'allow_all', all YubiKey OTPs are treated as valid.",
         env = "SECUREDNA_HDBSERVER_YUBICO_API_CLIENT_ID"
     )]
     pub yubico_api_client_id: Option<String>,
 
     #[clap(
         long,
-        help = "Yubico API secret key. This is a base-64 string, used to verify YubiKey OTPs when handling an order with a 2FA-enabled exemption list.",
+        help = "Yubico API secret key. This is a base-64 string, used to verify YubiKey OTPs when handling an order with a 2FA-enabled exemption.",
         env = "SECUREDNA_HDBSERVER_YUBICO_API_SECRET_KEY"
     )]
     pub yubico_api_secret_key: Option<String>,
@@ -90,12 +86,19 @@ pub struct Config {
 
     #[clap(
         long,
-        help = "Size limit for exemption list tokens",
+        help = "Size limit for exemption tokens",
         env = "SECUREDNA_HDBSERVER_ELT_SIZE_LIMIT",
-        default_value_t = Config::default_elt_size_limit()
+        default_value_t = Config::default_et_size_limit()
     )]
-    #[serde(default = "Config::default_elt_size_limit")]
-    pub elt_size_limit: u64,
+    #[serde(default = "Config::default_et_size_limit")]
+    pub et_size_limit: u64,
+
+    #[clap(
+        long,
+        help = "Directory containing exemption root certs for exemption token chain verification",
+        env = "SECUREDNA_HDBSERVER_EXEMPTION_ROOTS"
+    )]
+    pub exemption_roots: PathBuf,
 
     #[clap(
         long,
@@ -103,6 +106,13 @@ pub struct Config {
         env = "SECUREDNA_HDBSERVER_MANUFACTURER_ROOTS"
     )]
     pub manufacturer_roots: PathBuf,
+
+    #[clap(
+        long,
+        help = "Path to certificate revocation list TOML file",
+        env = "SECUREDNA_HDBSERVER_REVOCATION_LIST"
+    )]
+    pub revocation_list: Option<PathBuf>,
 
     #[clap(
         long,
@@ -161,7 +171,7 @@ impl Config {
         100000
     }
 
-    pub fn default_elt_size_limit() -> u64 {
+    pub fn default_et_size_limit() -> u64 {
         100000
     }
 
@@ -186,7 +196,9 @@ impl RelativeConfig for Config {
         let base = base.as_ref();
         self.database = base.join(self.database);
         self.hash_spec_path = self.hash_spec_path.map(|p| base.join(p));
+        self.exemption_roots = base.join(self.exemption_roots);
         self.manufacturer_roots = base.join(self.manufacturer_roots);
+        self.revocation_list = self.revocation_list.map(|p| base.join(p));
         self.token_file = base.join(self.token_file);
         self.keypair_file = base.join(self.keypair_file);
         self.keypair_passphrase_file = base.join(self.keypair_passphrase_file);

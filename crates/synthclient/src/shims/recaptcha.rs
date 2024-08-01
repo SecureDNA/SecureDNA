@@ -4,7 +4,7 @@
 use std::net::IpAddr;
 
 use serde::Deserialize;
-use shared_types::info_with_timestamp;
+use tracing::info;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
@@ -46,7 +46,7 @@ pub async fn validate_recaptcha(
         .json::<RecaptchaResponse>()
         .await
         .map_err(|e| RecaptchaError::Unparseable(e.to_string()))?;
-    info_with_timestamp!("recaptcha response: {:?}", response);
+    info!("recaptcha response: {response:?}");
     if response.success {
         Ok(())
     } else {

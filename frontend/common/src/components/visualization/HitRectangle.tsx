@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import React from "react";
-
 export interface HitRectangleProps {
   startPercent: number;
   endPercent: number;
@@ -46,7 +44,7 @@ export const HitRectangle = (props: HitRectangleProps) => {
         zIndex,
         minWidth: "8px",
       }}
-    ></div>
+    />
   );
 };
 

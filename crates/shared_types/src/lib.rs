@@ -3,15 +3,12 @@
 
 //! This crate is used for types that are shared within this repo's crates
 
-// log and time crates are used in macros, so `pub use` here for easier referencing
-pub use log;
-pub use time;
-
+pub mod error;
+pub mod et;
 pub mod hash;
 pub mod hdb;
 #[cfg(feature = "http")]
 pub mod http;
-pub mod logging;
 pub mod metrics;
 pub mod requests;
 pub mod server_selection;

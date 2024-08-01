@@ -5,11 +5,11 @@
 
 import { faWarning } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Result, Sequence, ncbi } from "@securedna/frontend_common";
-import { FieldArrayRenderProps } from "formik";
+import { type Result, type Sequence, ncbi } from "@securedna/frontend_common";
+import type { FieldArrayRenderProps } from "formik";
 import { useEffect, useState } from "react";
 import anMap from "src/data/anmap.json";
-import { SequenceIdentifierWithSource } from "src/types";
+import type { SequenceIdentifierWithSource } from "src/types";
 import { useDebounce } from "use-debounce";
 
 import { FastaField } from "./FastaField";
@@ -30,8 +30,8 @@ function getFasta(sequences: SequenceIdentifierWithSource[]): {
   Dna: Sequence;
   source: string;
 } {
-  let records = [];
-  let sources = [];
+  const records = [];
+  const sources = [];
   for (const sequence of sequences) {
     if ("Dna" in sequence) {
       records.push(...sequence.Dna.records);
@@ -44,11 +44,12 @@ function getFasta(sequences: SequenceIdentifierWithSource[]): {
 function updateFasta(
   sequences: SequenceIdentifierWithSource[],
   source: string,
-  sequence: Sequence
+  sequence: Sequence,
 ): SequenceIdentifierWithSource[] {
-  return sequences
-    .filter((x) => "Id" in x)
-    .concat([{ Dna: sequence, source: source }]);
+  const ids: SequenceIdentifierWithSource[] = sequences.filter(
+    (x) => "Id" in x,
+  );
+  return ids.concat([{ Dna: sequence, source: source }]);
 }
 
 interface AnInputProps {
@@ -62,18 +63,18 @@ export const AnInput = (props: AnInputProps) => {
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const [debouncedValue, { isPending }] = useDebounce(newAn, 500);
+  const [debouncedValue, { isPending }] = useDebounce(newAn, 400);
   useEffect(() => {
-    if (newAn) {
+    if (debouncedValue) {
       setBusy(true);
       setMessage("");
-      const an = newAn.trim().toUpperCase();
+      const an = debouncedValue.trim().toUpperCase();
       ncbi.title(an).then((result) => {
         if (result) {
           setMessage(result);
           setError(false);
         } else {
-          setMessage(`Couldn't find ${newAn} in GenBank`);
+          setMessage(`Couldn't find ${debouncedValue} in GenBank`);
           setError(true);
         }
         setBusy(false);
@@ -86,7 +87,7 @@ export const AnInput = (props: AnInputProps) => {
   async function addAn(
     e:
       | React.MouseEvent<HTMLButtonElement>
-      | React.KeyboardEvent<HTMLInputElement>
+      | React.KeyboardEvent<HTMLInputElement>,
   ) {
     for (const entry of newAn.split(",")) {
       const an = entry.trim().toUpperCase();
@@ -125,10 +126,10 @@ export const AnInput = (props: AnInputProps) => {
             autoComplete="off"
             onKeyDown={(e) => e.key === "Enter" && addAn(e)}
             onChange={(e) => setNewAn(e.currentTarget.value)}
-          ></input>
+          />
         </div>
         <button
-          className="bg-primary enabled:hover:bg-primary-light text-white disabled:bg-black/10 disabled:text-black/20 transition rounded-r px-4"
+          className="bg-secondary enabled:hover:opacity-90 text-white disabled:bg-black/10 disabled:text-black/20 transition rounded-r px-4"
           type="button"
           disabled={isPending() || busy}
           onClick={addAn}
@@ -150,13 +151,16 @@ export const OrganismForm = (props: OrganismFormProps) => {
   const anTags = sequences
     .flatMap((s) => ("Id" in s && s.Id ? [s.Id] : []))
     .map((an, j) => (
-      <a target="_blank" href={ncbi.url(an)} key={j}>
-        <div
-          key={j}
-          className="font-mono font-thin tracking-tight flex items-center mr-1 mb-1 pl-2 rounded bg-blue-100 text-blue-700 cursor-pointer hover:bg-blue-200"
-        >
+      <a
+        target="_blank"
+        href={ncbi.url(an)}
+        key={an}
+        className="opaque"
+        rel="noreferrer"
+      >
+        <div className="hover:bg-primary font-mono font-thin tracking-tight flex items-center mr-1 mb-1 pl-2 rounded cursor-pointer">
           {an}{" "}
-          <div className="flex px-1 rounded-lg ml-1 hover:bg-blue-300 h-4 w-4 mr-1">
+          <div className="flex px-1 rounded-lg ml-1 h-4 w-4 mr-1 hover:bg-secondary hover:text-white">
             <RemoveButton
               className="w-5 -mx-[2px]"
               onClick={(e) => {
@@ -186,7 +190,7 @@ export const OrganismForm = (props: OrganismFormProps) => {
             ans.sort();
             arrayHelpers.form.setFieldValue(
               `organisms.${index}.sequences`,
-              ans.map((an) => ({ Id: an }))
+              ans.map((an) => ({ Id: an })),
             );
           } else {
             setRecognized(false);
@@ -235,9 +239,8 @@ export const OrganismForm = (props: OrganismFormProps) => {
           if (an && props.sequences.every((x) => !("Id" in x) || x.Id !== an)) {
             arrayHelpers.push({ Id: an });
             return { ok: true, value: undefined };
-          } else {
-            return { ok: false, error: "Already included" };
           }
+          return { ok: false, error: "Already included" };
         }}
       />
 
@@ -248,7 +251,7 @@ export const OrganismForm = (props: OrganismFormProps) => {
           setter={(newSource, newSequence) => {
             arrayHelpers.form.setFieldValue(
               `organisms.${index}.sequences`,
-              updateFasta(sequences, newSource, newSequence)
+              updateFasta(sequences, newSource, newSequence),
             );
           }}
           showAsLinksIfEmpty={true}

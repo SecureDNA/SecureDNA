@@ -3,47 +3,47 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import "@fontsource-variable/inter";
-import "@fontsource/inter";
+import "@fontsource-variable/dm-sans";
+import "@fontsource/dm-sans";
 import { Toaster } from "react-hot-toast";
 import { HashRouter, NavLink, Route, Routes } from "react-router-dom";
 import {
   ExemptionApprovalForm,
   ExemptionRequestForm,
-  InspectElt,
+  InspectEt,
   ScreeningPerf,
+  SubsetForm,
 } from "./pages";
 
 function App() {
   const navClass = ({ isActive }: { isActive: boolean }) =>
-    isActive
-      ? "text-primary-light hover:underline"
-      : "text-white hover:underline";
+    isActive ? "font-bold hover:underline" : "hover:underline";
 
   return (
     <HashRouter>
       <Toaster position="top-left" />
       <div className="App flex flex-col items-center">
-        <nav className="absolute w-full flex justify-end space-x-4 py-2 px-4">
-          <NavLink className={navClass} to="/">
-            Request form
-          </NavLink>
-          <NavLink className={navClass} to="/approve">
-            Approval form
-          </NavLink>
-          <NavLink className={navClass} to="/inspect-elt">
-            Inspect ELT
-          </NavLink>
-          {/* <NavLink className={navClass} to="/screening-perf">
-            Screening perf
-          </NavLink> */}
-        </nav>
         <Routes>
           <Route path="/" element={<ExemptionRequestForm />} />
           <Route path="/approve" element={<ExemptionApprovalForm />} />
-          <Route path="/inspect-elt" element={<InspectElt />} />
+          <Route path="/inspect-et" element={<InspectEt />} />
+          <Route path="/subset" element={<SubsetForm />} />
           <Route path="/screening-perf" element={<ScreeningPerf />} />
         </Routes>
+        <nav className="bg-primary fixed z-40 left-0 bottom-0 flex space-x-4 py-2 px-4">
+          <NavLink className={navClass} to="/">
+            Request
+          </NavLink>
+          <NavLink className={navClass} to="/approve">
+            Approve
+          </NavLink>
+          <NavLink className={navClass} to="/inspect-et">
+            Inspect
+          </NavLink>
+          <NavLink className={navClass} to="/subset">
+            Subset
+          </NavLink>
+        </nav>
       </div>
     </HashRouter>
   );

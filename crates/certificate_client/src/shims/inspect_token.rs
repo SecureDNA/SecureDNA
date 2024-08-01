@@ -8,11 +8,13 @@ use std::{io::Write, path::PathBuf};
 use clap::{crate_version, Parser, Subcommand};
 
 use super::error::CertCliError;
-use crate::common::ChainViewMode;
+use crate::inspect::{
+    ChainViewMode, FormatMethod, Formattable, MultiItemOutput, SingleRequestOutput,
+};
 use certificates::{
     file::{load_token_bundle_from_file, load_token_request_from_file, TokenExtension},
-    DatabaseTokenGroup, ExemptionListTokenGroup, FormatMethod, Formattable, HltTokenGroup,
-    KeyserverTokenGroup, SynthesizerTokenGroup, TokenGroup, TokenKind,
+    DatabaseTokenGroup, ExemptionTokenGroup, HltTokenGroup, KeyserverTokenGroup,
+    SynthesizerTokenGroup, TokenGroup, TokenKind,
 };
 
 #[derive(Debug, Parser)]
@@ -24,7 +26,7 @@ use certificates::{
 
 pub struct InspectTokenOpts {
     #[clap(
-        help = "Type of token [possible values: keyserver, exemption-list, database, synthesizer, hlt]"
+        help = "Type of token [possible values: keyserver, exemption, database, synthesizer, hlt]"
     )]
     pub token: TokenKind,
     #[clap(subcommand)]
@@ -76,7 +78,7 @@ pub fn main<W: Write, E: Write>(
 
 fn run(opts: &InspectTokenOpts) -> Result<String, CertCliError> {
     match opts.token {
-        TokenKind::ExemptionList => inspect_file::<ExemptionListTokenGroup>(opts),
+        TokenKind::Exemption => inspect_file::<ExemptionTokenGroup>(opts),
         TokenKind::Keyserver => inspect_file::<KeyserverTokenGroup>(opts),
         TokenKind::Database => inspect_file::<DatabaseTokenGroup>(opts),
         TokenKind::Hlt => inspect_file::<HltTokenGroup>(opts),
@@ -96,16 +98,17 @@ fn inspect_file<T: TokenGroup + TokenExtension>(
                 None => file.with_extension(T::REQUEST_EXT),
             };
             let request = load_token_request_from_file::<T>(&file)?;
-            request.format(format_method).map_err(CertCliError::from)
+            SingleRequestOutput(request)
+                .format(format_method)
+                .map_err(CertCliError::from)
         }
         Target::Token { file } => {
             let file = match file.extension() {
                 Some(_) => file.to_owned(),
                 None => file.with_extension(T::TOKEN_EXT),
             };
-            let token_bundle = load_token_bundle_from_file::<T>(&file)?;
-            token_bundle
-                .token
+            let token = load_token_bundle_from_file::<T>(&file)?.token;
+            MultiItemOutput::from_items(vec![token])
                 .format(format_method)
                 .map_err(CertCliError::from)
         }
@@ -124,6 +127,7 @@ fn inspect_file<T: TokenGroup + TokenExtension>(
 
 #[cfg(test)]
 mod tests {
+    use certificates::{Digestible, KeyserverTokenGroup, TokenBundle};
     use tempfile::TempDir;
 
     use certificates::file::{
@@ -131,22 +135,20 @@ mod tests {
     };
     use certificates::test_helpers::{create_leaf_bundle, create_leaf_cert};
     use certificates::{
-        concat_with_newline,
         test_helpers::{
             create_database_token_bundle, create_hlt_token_bundle, create_intermediate_bundle,
             create_keyserver_token_bundle, create_synthesizer_token_bundle,
-            expected_database_token_plaintext_display, expected_hlt_token_plaintext_display,
-            expected_keyserver_token_plaintext_display,
-            expected_synthesizer_token_plaintext_display, BreakableSignature,
+            expected_database_token_display, expected_hlt_token_display,
+            expected_keyserver_token_display, expected_synthesizer_token_display,
+            BreakableSignature,
         },
-        Builder, CertificateBundle, DatabaseTokenGroup, DatabaseTokenRequest, Expiration,
-        FormatMethod, Formattable, Infrastructure, Issued, IssuerAdditionalFields, KeyPair,
-        KeyserverTokenGroup, KeyserverTokenRequest, RequestBuilder, TokenBundle, TokenKind,
+        Builder, DatabaseTokenGroup, DatabaseTokenRequest, Expiration, Infrastructure, Issued,
+        IssuerAdditionalFields, KeyPair, KeyserverTokenRequest, RequestBuilder, TokenKind,
     };
     use doprf::party::KeyserverId;
 
     use super::{run, InspectTokenOpts, Target};
-    use crate::common::{ChainViewMode, NO_EXCLUDED_CERTS_TEXT, NO_PATH_FOUND_TEXT};
+    use crate::inspect::{ChainViewMode, FormatMethod, NO_EXCLUDED_CERTS_TEXT, NO_PATH_FOUND_TEXT};
     use crate::shims::{error::CertCliError, inspect_token};
 
     #[test]
@@ -155,10 +157,9 @@ mod tests {
         let token_path = temp_dir.path().join("token.dt");
 
         let (token_bundle, _) = create_database_token_bundle();
-        let expected_text = expected_database_token_plaintext_display(
+        let expected_text = expected_database_token_display(
             &token_bundle.token,
             &format!("(public key: {})", token_bundle.token.issuer_public_key()),
-            None,
         );
 
         save_token_bundle_to_file(token_bundle, &token_path).unwrap();
@@ -179,14 +180,12 @@ mod tests {
 
         let (mut token_bundle, _) = create_database_token_bundle();
         token_bundle.token.break_signature();
-        let expected_text = expected_database_token_plaintext_display(
+        let mut expected_text = expected_database_token_display(
             &token_bundle.token,
             &format!("(public key: {})", token_bundle.token.issuer_public_key()),
-            Some(concat_with_newline!(
-                "",
-                "INVALID: The signature failed verification"
-            )),
         );
+        expected_text.push_str("\nINVALID: The signature failed verification");
+
         save_token_bundle_to_file(token_bundle, &token_path).unwrap();
 
         let opts = InspectTokenOpts {
@@ -204,10 +203,9 @@ mod tests {
         let token_path = temp_dir.path().join("token.ht");
 
         let (token_bundle, _) = create_hlt_token_bundle();
-        let expected_text = expected_hlt_token_plaintext_display(
+        let expected_text = expected_hlt_token_display(
             &token_bundle.token,
             &format!("(public key: {})", token_bundle.token.issuer_public_key()),
-            None,
         );
 
         save_token_bundle_to_file(token_bundle, &token_path).unwrap();
@@ -228,14 +226,12 @@ mod tests {
 
         let (mut token_bundle, _) = create_hlt_token_bundle();
         token_bundle.token.break_signature();
-        let expected_text = expected_hlt_token_plaintext_display(
+        let mut expected_text = expected_hlt_token_display(
             &token_bundle.token,
             &format!("(public key: {})", token_bundle.token.issuer_public_key()),
-            Some(concat_with_newline!(
-                "",
-                "INVALID: The signature failed verification"
-            )),
         );
+        expected_text.push_str("\nINVALID: The signature failed verification");
+
         save_token_bundle_to_file(token_bundle, &token_path).unwrap();
 
         let opts = InspectTokenOpts {
@@ -253,11 +249,10 @@ mod tests {
         let token_path = temp_dir.path().join("token.kt");
 
         let (token_bundle, _) = create_keyserver_token_bundle();
-        let expected_text = expected_keyserver_token_plaintext_display(
+        let expected_text = expected_keyserver_token_display(
             &token_bundle.token,
             "1",
             &format!("(public key: {})", token_bundle.token.issuer_public_key()),
-            None,
         );
 
         save_token_bundle_to_file(token_bundle, &token_path).unwrap();
@@ -278,15 +273,13 @@ mod tests {
 
         let (mut token_bundle, _) = create_keyserver_token_bundle();
         token_bundle.token.break_signature();
-        let expected_text = expected_keyserver_token_plaintext_display(
+        let mut expected_text = expected_keyserver_token_display(
             &token_bundle.token,
             "1",
             &format!("(public key: {})", token_bundle.token.issuer_public_key()),
-            Some(concat_with_newline!(
-                "",
-                "INVALID: The signature failed verification"
-            )),
         );
+        expected_text.push_str("\nINVALID: The signature failed verification");
+
         save_token_bundle_to_file(token_bundle, &token_path).unwrap();
 
         let opts = InspectTokenOpts {
@@ -305,7 +298,7 @@ mod tests {
 
         let (token_bundle, _) = create_synthesizer_token_bundle();
 
-        let expected_text = expected_synthesizer_token_plaintext_display(
+        let expected_text = expected_synthesizer_token_display(
             &token_bundle.token,
             "maker.synth",
             "XL",
@@ -313,7 +306,6 @@ mod tests {
             "10000 base pairs per day",
             None,
             &format!("(public key: {})", token_bundle.token.issuer_public_key()),
-            None,
         );
 
         save_token_bundle_to_file(token_bundle, &token_path).unwrap();
@@ -334,7 +326,7 @@ mod tests {
 
         let (mut token_bundle, _) = create_synthesizer_token_bundle();
         token_bundle.token.break_signature();
-        let expected_text = expected_synthesizer_token_plaintext_display(
+        let mut expected_text = expected_synthesizer_token_display(
             &token_bundle.token,
             "maker.synth",
             "XL",
@@ -342,11 +334,9 @@ mod tests {
             "10000 base pairs per day",
             None,
             &format!("(public key: {})", token_bundle.token.issuer_public_key()),
-            Some(concat_with_newline!(
-                "",
-                "INVALID: The signature failed verification"
-            )),
         );
+        expected_text.push_str("\nINVALID: The signature failed verification");
+
         save_token_bundle_to_file(token_bundle, &token_path).unwrap();
 
         let opts = InspectTokenOpts {
@@ -391,34 +381,16 @@ mod tests {
         let leaf_req =
             RequestBuilder::<Infrastructure>::leaf_v1_builder(leaf_kp.public_key()).build();
 
-        let int_cert = int_bundle.get_lead_cert().unwrap().to_owned();
-
-        let leaf_cert = int_cert
-            .clone()
-            .load_key(int_kp)
-            .unwrap()
-            .issue_cert(leaf_req, IssuerAdditionalFields::default())
+        let leaf_bundle = int_bundle
+            .issue_cert_bundle(leaf_req, IssuerAdditionalFields::default(), int_kp)
             .unwrap();
-
-        let chain = int_bundle.issue_chain();
-        let leaf_bundle = CertificateBundle::new(leaf_cert.clone(), Some(chain));
 
         let token_kp = KeyPair::new_random();
         let token_request = DatabaseTokenRequest::v1_token_request(token_kp.public_key());
 
-        let token = leaf_bundle
-            .get_lead_cert()
-            .unwrap()
-            .clone()
-            .load_key(leaf_kp)
-            .unwrap()
-            .issue_database_token(token_request, Expiration::default())
+        let token_bundle = leaf_bundle
+            .issue_database_token_bundle(token_request, Expiration::default(), leaf_kp)
             .unwrap();
-
-        let chain = leaf_bundle.issue_chain();
-
-        let token_bundle = TokenBundle::<DatabaseTokenGroup>::new(token, chain);
-
         save_token_bundle_to_file(token_bundle, &token_path).unwrap();
 
         let opts = InspectTokenOpts {
@@ -433,8 +405,18 @@ mod tests {
         let result = run(&opts).unwrap();
 
         // check 'AllCerts' contains leaf cert and int cert
-        let int_cert_display = int_cert.format(&FormatMethod::PlainDigest).unwrap();
-        let leaf_cert_display = leaf_cert.format(&FormatMethod::PlainDigest).unwrap();
+        let int_cert_display = int_bundle
+            .get_lead_cert()
+            .unwrap()
+            .clone()
+            .into_digest()
+            .to_string();
+        let leaf_cert_display = leaf_bundle
+            .get_lead_cert()
+            .unwrap()
+            .clone()
+            .into_digest()
+            .to_string();
 
         assert!(result.contains(&int_cert_display));
         assert!(result.contains(&leaf_cert_display));
@@ -451,34 +433,17 @@ mod tests {
         let leaf_req =
             RequestBuilder::<Infrastructure>::leaf_v1_builder(leaf_kp.public_key()).build();
 
-        let int_cert = int_bundle.get_lead_cert().unwrap().to_owned();
-
-        let leaf_cert = int_cert
-            .clone()
-            .load_key(int_kp)
-            .unwrap()
-            .issue_cert(leaf_req, IssuerAdditionalFields::default())
+        let leaf_bundle = int_bundle
+            .issue_cert_bundle(leaf_req, IssuerAdditionalFields::default(), int_kp)
             .unwrap();
-
-        let chain = int_bundle.issue_chain();
-        let leaf_bundle = CertificateBundle::new(leaf_cert.clone(), Some(chain));
 
         let token_kp = KeyPair::new_random();
         let token_request = DatabaseTokenRequest::v1_token_request(token_kp.public_key());
 
-        let token = leaf_bundle
-            .get_lead_cert()
-            .unwrap()
-            .clone()
-            .load_key(leaf_kp)
-            .unwrap()
-            .issue_database_token(token_request, Expiration::default())
+        let token_bundle = leaf_bundle
+            .issue_database_token_bundle(token_request, Expiration::default(), leaf_kp)
             .unwrap();
-
-        let chain = leaf_bundle.issue_chain();
-
-        let token_bundle = TokenBundle::<DatabaseTokenGroup>::new(token.clone(), chain);
-
+        let token = token_bundle.token.clone();
         save_token_bundle_to_file(token_bundle, &token_path).unwrap();
 
         let opts = InspectTokenOpts {
@@ -495,15 +460,15 @@ mod tests {
         let result = run(&opts).unwrap();
 
         // check that path to issuer contains leaf cert and int cert
-        let int_cert_display = int_cert.format(&FormatMethod::PlainDigest).unwrap();
-        let leaf_cert_display = leaf_cert.format(&FormatMethod::PlainDigest).unwrap();
-        let token_display = token.format(&FormatMethod::PlainDigest).unwrap();
+        let int_cert_display = int_bundle.certs[0].clone().into_digest().to_string();
+        let leaf_cert_display = leaf_bundle.certs[0].clone().into_digest().to_string();
+        let token_display = token.into_digest().to_string();
 
         let mut expected_text = "Path 1:\n".to_owned();
         expected_text.push_str(&token_display);
-        expected_text.push('\n');
+        expected_text.push_str("\n\n");
         expected_text.push_str(&leaf_cert_display);
-        expected_text.push('\n');
+        expected_text.push_str("\n\n");
         expected_text.push_str(&int_cert_display);
 
         assert_eq!(result, expected_text);
@@ -519,22 +484,18 @@ mod tests {
             KeyPair::new_random().public_key(),
             KeyserverId::try_from(1).unwrap(),
         );
-        let keyserver_token = leaf_bundle
-            .get_lead_cert()
-            .unwrap()
-            .clone()
-            .load_key(leaf_kp)
-            .unwrap()
-            .issue_keyserver_token(token_request, Expiration::default())
+        let token_bundle = leaf_bundle
+            .issue_keyserver_token_bundle(token_request, Expiration::default(), leaf_kp)
             .unwrap();
+
         let mut keyserver_chain = leaf_bundle.issue_chain();
         let extra_cert = create_leaf_cert().into_key_unavailable();
         keyserver_chain.add_item(extra_cert.clone());
 
-        let token_bundle =
-            TokenBundle::<KeyserverTokenGroup>::new(keyserver_token, keyserver_chain);
+        let modified_token_bundle: TokenBundle<KeyserverTokenGroup> =
+            TokenBundle::new(token_bundle.token, keyserver_chain);
 
-        save_token_bundle_to_file(token_bundle, &token_path).unwrap();
+        save_token_bundle_to_file(modified_token_bundle, &token_path).unwrap();
 
         let opts = InspectTokenOpts {
             token: TokenKind::Keyserver,
@@ -549,7 +510,7 @@ mod tests {
 
         let result = run(&opts).unwrap();
 
-        let expected_text = extra_cert.format(&FormatMethod::PlainDigest).unwrap();
+        let expected_text = extra_cert.into_digest().to_string();
         assert_eq!(result, expected_text)
     }
 

@@ -12,16 +12,14 @@ mod tests {
     use rexpect::session::spawn_command;
     use tempfile::TempDir;
 
-    use certificates::test_helpers::{
-        expected_cert_plaintext_display, expected_cert_request_plaintext_display,
-    };
+    use certificates::test_helpers::{expected_cert_display, expected_cert_request_display};
     use certificates::{
-        concat_with_newline, Builder, CertificateBundle, DatabaseTokenGroup, Exemption,
-        ExpirationError, FormatMethod, Formattable, HierarchyKindParseError, Infrastructure,
-        Issued, IssuerAdditionalFields, KeyPair, Manufacturer, RequestBuilder, RoleKindParseError,
+        concat_with_newline, Builder, CertificateBundle, DatabaseTokenGroup, Digestible, Exemption,
+        ExpirationError, HierarchyKindParseError, Infrastructure, Issued, IssuerAdditionalFields,
+        KeyPair, Manufacturer, RequestBuilder, RoleKindParseError,
     };
 
-    use certificate_client::common::NO_PATH_FOUND_TEXT;
+    use certificate_client::inspect::NO_PATH_FOUND_TEXT;
     use certificate_client::passphrase_reader::{
         CREATE_CERT_PASSPHRASE_PROMPT, CREATE_PASSPHRASE_REENTRY_PROMPT, ENTER_PASSPHRASE_PROMPT,
     };
@@ -177,7 +175,7 @@ mod tests {
         let plaintext_output = p.exp_eof().unwrap();
 
         let req = load_cert_request_from_file::<Exemption>(&request_path).unwrap();
-        let expected_text = expected_cert_request_plaintext_display(
+        let expected_text = expected_cert_request_display(
             &req,
             "Root",
             "Exemption",
@@ -196,10 +194,12 @@ mod tests {
         let root_kp = KeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(root_kp.public_key())
             .build()
-            .load_key(root_kp)
+            .load_key(root_kp.clone())
             .unwrap()
             .self_sign(IssuerAdditionalFields::default())
             .expect("Couldn't sign");
+
+        let root_bundle = CertificateBundle::new(root_cert, None);
 
         let int_kp = KeyPair::new_random();
         let intermediate_req =
@@ -209,14 +209,12 @@ mod tests {
         let int_cert_path = temp_dir.path().join("int.cert");
         let int_key_path = temp_dir.path().join("int.priv");
 
-        let intermediate_cert = root_cert
-            .issue_cert(intermediate_req, IssuerAdditionalFields::default())
-            .expect("Couldn't issue cert");
-
-        let int_certificate_bundle = CertificateBundle::new(intermediate_cert, None);
+        let int_bundle = root_bundle
+            .issue_cert_bundle(intermediate_req, IssuerAdditionalFields::default(), root_kp)
+            .expect("Couldn't issue cert bundle");
 
         // Save intermediate cert and its key to file so we can use it in CLI
-        save_certificate_bundle_to_file(int_certificate_bundle, &int_cert_path).unwrap();
+        save_certificate_bundle_to_file(int_bundle, &int_cert_path).unwrap();
         save_keypair_to_file(int_kp, "1234", &int_key_path).unwrap();
 
         // Create leaf cert via CLI
@@ -249,7 +247,7 @@ mod tests {
         let plaintext_output = p.exp_eof().unwrap();
 
         let leaf_request = load_cert_request_from_file::<Exemption>(&leaf_request_path).unwrap();
-        let expected_text = expected_cert_request_plaintext_display(
+        let expected_text = expected_cert_request_display(
             &leaf_request,
             "Leaf",
             "Exemption",
@@ -302,7 +300,7 @@ mod tests {
         let leaf_public_key = cert.public_key();
         let int_public_key = cert.issuer_public_key();
 
-        let expected_text = expected_cert_plaintext_display(
+        let expected_text = expected_cert_display(
             &cert,
             "Leaf",
             "Exemption",
@@ -314,7 +312,6 @@ mod tests {
                 "    b@example.com",
                 "    c@example.com",
             )),
-            None,
         ) + "\n";
         assert_eq!(
             normalize_newlines(&plaintext_output),
@@ -349,13 +346,12 @@ mod tests {
 
         let public_key = cert.public_key();
 
-        let expected_text = expected_cert_plaintext_display(
+        let expected_text = expected_cert_display(
             &cert,
             "Root",
             "Infrastructure",
             &format!("(public key: {public_key})"),
             &format!("(public key: {public_key})"),
-            None,
             None,
         ) + "\n";
         assert_eq!(
@@ -488,15 +484,15 @@ mod tests {
         let mut p = spawn_command(command, None).unwrap();
         let plaintext_output = p.exp_eof().unwrap();
 
-        let expected_text = expected_cert_plaintext_display(
+        let mut expected_text = expected_cert_display(
             &cert,
             "Root",
             "Infrastructure",
             &format!("(public key: {})", cert.public_key()),
             &format!("(public key: {})", cert.public_key()),
             None,
-            Some(concat_with_newline!("", "INVALID: Not yet valid")),
-        ) + "\n";
+        );
+        expected_text.push_str("\nINVALID: Not yet valid\n");
 
         assert_eq!(
             normalize_newlines(&plaintext_output),
@@ -533,15 +529,16 @@ mod tests {
         let mut p = spawn_command(command, None).unwrap();
         let plaintext_output = p.exp_eof().unwrap();
 
-        let expected_text = expected_cert_plaintext_display(
+        let mut expected_text = expected_cert_display(
             &cert,
             "Root",
             "Manufacturer",
             &format!("(public key: {})", cert.public_key()),
             &format!("(public key: {})", cert.public_key()),
             None,
-            Some(concat_with_newline!("", "INVALID: Expired")),
-        ) + "\n";
+        );
+        expected_text.push_str("\nINVALID: Expired\n");
+
         assert_eq!(
             normalize_newlines(&plaintext_output),
             normalize_newlines(&expected_text)
@@ -553,48 +550,43 @@ mod tests {
         check_faketime_installed().expect("This test requires faketime");
 
         let root_kp = KeyPair::new_random();
+        let root_pk = root_kp.public_key();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(root_kp.public_key())
             .build()
-            .load_key(root_kp)
+            .load_key(root_kp.clone())
             .unwrap()
             .self_sign(IssuerAdditionalFields::default())
             .expect("Couldn't sign");
 
-        let root_pk = root_cert.public_key();
+        let root_bundle = CertificateBundle::new(root_cert, None);
 
         let int_kp = KeyPair::new_random();
         let intermediate_req =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
         // Create intermediate cert that expires in two days
-        let intermediate_cert = root_cert
-            .issue_cert(
+        let int_bundle = root_bundle
+            .issue_cert_bundle(
                 intermediate_req,
                 IssuerAdditionalFields::default()
                     .with_expiry_in_days(2)
                     .unwrap(),
+                root_kp.clone(),
             )
-            .expect("Couldn't issue cert")
-            .load_key(int_kp)
-            .expect("Could not load key");
+            .expect("Couldn't issue cert bundle");
 
         let leaf_kp = KeyPair::new_random();
         let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
-        let leaf_cert = intermediate_cert
-            .issue_cert(leaf_req, IssuerAdditionalFields::default())
+        let leaf_bundle = int_bundle
+            .issue_cert_bundle(leaf_req, IssuerAdditionalFields::default(), int_kp)
             .expect("Could not sign leaf cert");
-
-        let int_certificate_bundle = CertificateBundle::new(intermediate_cert, None);
-
-        let cert_chain = int_certificate_bundle.issue_chain();
-        let leaf_certificate_bundle = CertificateBundle::new(leaf_cert, Some(cert_chain));
 
         let temp_dir = TempDir::new().unwrap();
 
         let leaf_cert_path = temp_dir.path().join("1234.cert");
 
-        save_certificate_bundle_to_file(leaf_certificate_bundle, &leaf_cert_path).unwrap();
+        save_certificate_bundle_to_file(leaf_bundle, &leaf_cert_path).unwrap();
 
         let mut command = Command::new("faketime");
         command.arg("+3day");
@@ -617,48 +609,44 @@ mod tests {
         check_faketime_installed().expect("This test requires faketime");
 
         let root_kp = KeyPair::new_random();
+        let root_pk = root_kp.public_key();
+
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(root_kp.public_key())
             .build()
-            .load_key(root_kp)
+            .load_key(root_kp.clone())
             .unwrap()
             .self_sign(IssuerAdditionalFields::default())
             .expect("Couldn't sign");
 
-        let root_pk = root_cert.public_key();
+        let root_bundle = CertificateBundle::new(root_cert, None);
 
         let int_kp = KeyPair::new_random();
         let intermediate_req =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
-        let intermediate_cert = root_cert
-            .issue_cert(intermediate_req, IssuerAdditionalFields::default())
-            .expect("Couldn't issue cert")
-            .load_key(int_kp)
-            .expect("Could not load key");
+        let int_bundle = root_bundle
+            .issue_cert_bundle(intermediate_req, IssuerAdditionalFields::default(), root_kp)
+            .expect("Couldn't issue cert bundle");
 
         let leaf_kp = KeyPair::new_random();
         let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
         // Create leaf cert that expires in two days
-        let leaf_cert = intermediate_cert
-            .issue_cert(
+        let leaf_bundle = int_bundle
+            .issue_cert_bundle(
                 leaf_req,
                 IssuerAdditionalFields::default()
                     .with_expiry_in_days(2)
                     .unwrap(),
+                int_kp,
             )
             .expect("Could not sign leaf cert");
-
-        let int_certificate_bundle = CertificateBundle::new(intermediate_cert, None);
-
-        let cert_chain = int_certificate_bundle.issue_chain();
-        let leaf_certificate_bundle = CertificateBundle::new(leaf_cert, Some(cert_chain));
 
         let temp_dir = TempDir::new().unwrap();
 
         let leaf_cert_path = temp_dir.path().join("1234.cert");
 
-        save_certificate_bundle_to_file(leaf_certificate_bundle, &leaf_cert_path).unwrap();
+        save_certificate_bundle_to_file(leaf_bundle, &leaf_cert_path).unwrap();
 
         let mut command = Command::new("faketime");
         command.arg("+3day");
@@ -679,71 +667,65 @@ mod tests {
     #[test]
     fn single_path_to_root_found_when_second_intermediate_has_expired() {
         let root_kp_a = KeyPair::new_random();
+        let root_pk_a = root_kp_a.public_key();
+
         let root_cert_a = RequestBuilder::<Exemption>::root_v1_builder(root_kp_a.public_key())
             .build()
-            .load_key(root_kp_a)
+            .load_key(root_kp_a.clone())
             .unwrap()
             .self_sign(IssuerAdditionalFields::default())
             .expect("Couldn't sign");
 
-        let root_pk_a = root_cert_a.public_key();
+        let root_bundle_a = CertificateBundle::new(root_cert_a, None);
 
         let root_kp_b = KeyPair::new_random();
+        let root_pk_b = root_kp_b.public_key();
+
         let root_cert_b = RequestBuilder::<Exemption>::root_v1_builder(root_kp_b.public_key())
             .build()
-            .load_key(root_kp_b)
+            .load_key(root_kp_b.clone())
             .unwrap()
             .self_sign(IssuerAdditionalFields::default())
             .expect("Couldn't sign");
 
-        let root_pk_b = root_cert_b.public_key();
+        let root_bundle_b = CertificateBundle::new(root_cert_b, None);
 
         let int_kp = KeyPair::new_random();
-        let intermediate_req_a =
+        let int_req_a =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
-        let intermediate_req_b = intermediate_req_a.clone();
+        let int_req_b = int_req_a.clone();
 
-        let intermediate_cert_a = root_cert_a
-            .issue_cert(intermediate_req_a, IssuerAdditionalFields::default())
-            .expect("Couldn't issue cert");
+        let int_bundle_a = root_bundle_a
+            .issue_cert_bundle(int_req_a, IssuerAdditionalFields::default(), root_kp_a)
+            .expect("Couldn't issue cert bundle");
 
-        let intermediate_cert_b = root_cert_b
-            .issue_cert(
-                intermediate_req_b,
+        let int_bundle_b = root_bundle_b
+            .issue_cert_bundle(
+                int_req_b,
                 IssuerAdditionalFields::default()
                     .with_expiry_in_days(2)
                     .unwrap(),
+                root_kp_b,
             )
             .expect("Couldn't issue cert");
 
-        let int_cert_bundle_a = CertificateBundle::new(intermediate_cert_a, None);
-        let int_cert_bundle_b = CertificateBundle::new(intermediate_cert_b, None);
-
-        let int_cert_bundle = int_cert_bundle_a
-            .merge(int_cert_bundle_b)
+        let int_bundle = int_bundle_a
+            .merge(int_bundle_b)
             .expect("Could not merge cert bundles");
 
         let leaf_kp = KeyPair::new_random();
         let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
-        let leaf_cert = int_cert_bundle
-            .get_lead_cert()
-            .unwrap()
-            .to_owned()
-            .load_key(int_kp)
-            .unwrap()
-            .issue_cert(leaf_req, IssuerAdditionalFields::default())
+        let leaf_bundle = int_bundle
+            .issue_cert_bundle(leaf_req, IssuerAdditionalFields::default(), int_kp)
             .expect("Could not sign leaf cert");
-
-        let chain = int_cert_bundle.issue_chain();
-        let leaf_certificate_bundle = CertificateBundle::new(leaf_cert, Some(chain));
 
         let temp_dir = TempDir::new().unwrap();
 
         let leaf_cert_path = temp_dir.path().join("1234.cert");
 
-        save_certificate_bundle_to_file(leaf_certificate_bundle, &leaf_cert_path).unwrap();
+        save_certificate_bundle_to_file(leaf_bundle, &leaf_cert_path).unwrap();
 
         let mut command = Command::new("faketime");
         command.arg("+3day");
@@ -766,71 +748,66 @@ mod tests {
     #[test]
     fn expired_intermediate_is_found_when_viewing_certs_not_part_of_path() {
         let root_kp_a = KeyPair::new_random();
+        let root_pk_a = root_kp_a.public_key();
+
         let root_cert_a = RequestBuilder::<Exemption>::root_v1_builder(root_kp_a.public_key())
             .build()
-            .load_key(root_kp_a)
+            .load_key(root_kp_a.clone())
             .unwrap()
             .self_sign(IssuerAdditionalFields::default())
             .expect("Couldn't sign");
 
-        let root_pk_a = root_cert_a.public_key();
+        let root_bundle_a = CertificateBundle::new(root_cert_a, None);
 
         let root_kp_b = KeyPair::new_random();
+        let root_pk_b = root_kp_b.public_key();
+
         let root_cert_b = RequestBuilder::<Exemption>::root_v1_builder(root_kp_b.public_key())
             .build()
-            .load_key(root_kp_b)
+            .load_key(root_kp_b.clone())
             .unwrap()
             .self_sign(IssuerAdditionalFields::default())
             .expect("Couldn't sign");
 
-        let root_pk_b = root_cert_b.public_key();
+        let root_bundle_b = CertificateBundle::new(root_cert_b, None);
 
         let int_kp = KeyPair::new_random();
-        let intermediate_req_a =
+        let int_req_a =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
-        let intermediate_req_b = intermediate_req_a.clone();
+        let int_req_b = int_req_a.clone();
 
-        let intermediate_cert_a = root_cert_a
-            .issue_cert(intermediate_req_a, IssuerAdditionalFields::default())
-            .expect("Couldn't issue cert");
+        let int_bundle_a = root_bundle_a
+            .issue_cert_bundle(int_req_a, IssuerAdditionalFields::default(), root_kp_a)
+            .expect("Couldn't issue cert bundle");
 
-        let intermediate_cert_b = root_cert_b
-            .issue_cert(
-                intermediate_req_b,
+        let int_bundle_b = root_bundle_b
+            .issue_cert_bundle(
+                int_req_b,
                 IssuerAdditionalFields::default()
                     .with_expiry_in_days(2)
                     .unwrap(),
+                root_kp_b,
             )
             .expect("Couldn't issue cert");
+        let int_cert_b = int_bundle_b.certs[0].clone();
 
-        let int_cert_bundle_a = CertificateBundle::new(intermediate_cert_a, None);
-        let int_cert_bundle_b = CertificateBundle::new(intermediate_cert_b.clone(), None);
-
-        let int_cert_bundle = int_cert_bundle_a
-            .merge(int_cert_bundle_b)
+        let int_bundle = int_bundle_a
+            .merge(int_bundle_b)
             .expect("Could not merge cert bundles");
 
         let leaf_kp = KeyPair::new_random();
         let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
-        let leaf_cert = int_cert_bundle
-            .get_lead_cert()
-            .unwrap()
-            .to_owned()
-            .load_key(int_kp)
-            .unwrap()
-            .issue_cert(leaf_req, IssuerAdditionalFields::default())
+        let leaf_bundle = int_bundle
+            .issue_cert_bundle(leaf_req, IssuerAdditionalFields::default(), int_kp)
             .expect("Could not sign leaf cert");
-
-        let chain = int_cert_bundle.issue_chain();
-        let leaf_certificate_bundle = CertificateBundle::new(leaf_cert, Some(chain));
 
         let temp_dir = TempDir::new().unwrap();
 
         let leaf_cert_path = temp_dir.path().join("1234.cert");
 
-        save_certificate_bundle_to_file(leaf_certificate_bundle, &leaf_cert_path).unwrap();
+        save_certificate_bundle_to_file(leaf_bundle, &leaf_cert_path).unwrap();
 
         let mut command = Command::new("faketime");
         command.arg("+3day");
@@ -848,9 +825,7 @@ mod tests {
         let mut output = p.exp_eof().unwrap();
         output.retain(|c| !c.is_whitespace());
 
-        let mut int_cert_b_display_text = intermediate_cert_b
-            .format(&FormatMethod::PlainDigest)
-            .unwrap();
+        let mut int_cert_b_display_text = int_cert_b.into_digest().to_string();
         int_cert_b_display_text.retain(|c| !c.is_whitespace());
 
         assert!(output.contains(&int_cert_b_display_text));

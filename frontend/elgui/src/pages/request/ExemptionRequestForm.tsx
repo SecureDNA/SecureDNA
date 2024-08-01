@@ -3,16 +3,16 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { faWarning } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faWarning } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { download, makeFileName } from "@securedna/frontend_common";
 import {
   FieldArray,
-  FieldArrayRenderProps,
+  type FieldArrayRenderProps,
   Form,
   Formik,
-  FormikErrors,
-  FormikProps,
+  type FormikErrors,
+  type FormikProps,
 } from "formik";
 import { useState } from "react";
 import {
@@ -24,22 +24,22 @@ import {
   ShippingAddresses,
 } from "src/components";
 import { AuthenticatorsInput } from "src/components/AuthInput";
+import { MakeKeypair } from "src/components/MakeKeypair";
+import { Modal } from "src/components/Modal";
 import { Page } from "src/components/Page";
 import {
-  ExemptionListFormData,
-  OrganismWithSource,
-  ShippingAddress,
-  emptyExemptionListFormData,
+  type ExemptionFormData,
+  type OrganismWithSource,
+  type ShippingAddress,
+  emptyExemptionFormData,
 } from "src/types";
 import { isOrcidChecksumValid } from "src/util/orcid";
-import { makeEltrPem } from "src/util/sign_eltr";
+import { makeEtrPem } from "src/util/sign_etr";
 
 const emailRegex =
   /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
 
 const orcidRegex = /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/;
-
-const yubikeyOtpRegex = /^[cbdefghijklnrtuv]{44}$/;
 
 const ExemptionRequestForm = () => {
   const [page, setPage] = useState(0);
@@ -48,9 +48,12 @@ const ExemptionRequestForm = () => {
   const exemptionsPageIndex = 2;
   const successPageIndex = 3;
 
-  const renderIntroPage = (props: FormikProps<ExemptionListFormData>) => (
+  const [keypairModal, setKeypairModal] = useState(false);
+
+  const renderIntroPage = (props: FormikProps<ExemptionFormData>) => (
     <>
       <div className="max-w-prose mx-auto">
+        <h2>About this tool</h2>
         <p>
           This application helps you request a token that exempts you from
           synthesis bans on controlled organisms. Here's how it works:
@@ -76,12 +79,13 @@ const ExemptionRequestForm = () => {
     </>
   );
 
-  const renderShippingPage = (props: FormikProps<ExemptionListFormData>) => (
+  const renderShippingPage = (props: FormikProps<ExemptionFormData>) => (
     <>
       <h2>Shipping Addresses</h2>
-      <div className="rounded-lg bg-black/5 my-2 py-4 px-6 max-w-prose self-center">
-        <b>Warning:</b> The token will be limited to the provided shipping
-        addresses. The addresses can't be changed later.
+      <div className="rounded-lg border border-warn bg-warn/10 my-2 py-4 px-6">
+        <FontAwesomeIcon icon={faWarning} className="mr-2" />
+        The token will be limited to the provided shipping addresses. The
+        addresses can't be changed later.
       </div>
       <FieldArray
         name="shippingAddresses"
@@ -93,7 +97,7 @@ const ExemptionRequestForm = () => {
         )}
       />
       <h2>Contact Info</h2>
-      <div className="rounded-lg bg-black/5 p-4">
+      <div className="rounded-lg border border-primary bg-primary/10 py-4 px-6">
         <FormInput
           required={true}
           label="E-mail address"
@@ -113,14 +117,50 @@ const ExemptionRequestForm = () => {
           }}
         />
       </div>
+      <h2>Subsetting</h2>
+      <div>
+        <p>
+          If you attach a keypair to this request, you can later make sub
+          exemption tokens using the{" "}
+          <a href="https://pages.securedna.org/exemption/subset">
+            subsetting&nbsp;tool
+          </a>
+          .
+        </p>
+        <div className="flex my-4 gap-2">
+          <Button
+            type="button"
+            onClick={() => setKeypairModal(true)}
+            disabled={props.values.publicKey !== undefined}
+          >
+            New keypair
+          </Button>
+          <Button
+            onClick={() => props.setFieldValue("publicKey", undefined)}
+            disabled={props.values.publicKey === undefined}
+          >
+            Clear
+          </Button>
+        </div>
+        {props.values.publicKey && (
+          <div className="rounded-lg gap-2 p-4 border">
+            <h3 className="font-bold">
+              <FontAwesomeIcon
+                icon={faCheck}
+                className="text-green-500 mt-1 mr-1"
+              />{" "}
+              Public key:
+            </h3>
+            <pre className="text-sm ml-8 mt-2">{props.values.publicKey}</pre>
+          </div>
+        )}
+      </div>
+
       <h2>Two-factor authentication</h2>
-      <p className="mb-2">
-        An OTP from one of the provided devices will be required to use the
-        resulting token.
-      </p>
-      <p className="mb-2 py-4 px-6 bg-black/5 rounded-lg">
+      <p className="mb-2 py-4 px-6 bg-warn/10 border-warn border rounded-lg">
         <FontAwesomeIcon icon={faWarning} className="mr-2" />
-        Two-factor authentication is <strong>required</strong>.
+        Two-factor authentication is <strong>required</strong>. An OTP from one
+        of the provided devices will be required to use the resulting token.
       </p>
       <AuthenticatorsInput
         value={props.values.authenticators}
@@ -128,7 +168,7 @@ const ExemptionRequestForm = () => {
           props.setFieldValue("authenticators", auths);
           setTimeout(
             () => props.setFieldTouched("authenticators", true, true),
-            0
+            0,
           );
         }}
         onBlur={props.handleBlur}
@@ -136,7 +176,7 @@ const ExemptionRequestForm = () => {
     </>
   );
 
-  const renderExemptionsPage = (props: FormikProps<ExemptionListFormData>) => (
+  const renderExemptionsPage = (props: FormikProps<ExemptionFormData>) => (
     <>
       <FieldArray
         name="organisms"
@@ -150,9 +190,10 @@ const ExemptionRequestForm = () => {
     </>
   );
 
-  const renderSuccessPage = (props: FormikProps<ExemptionListFormData>) => (
+  const renderSuccessPage = (props: FormikProps<ExemptionFormData>) => (
     <>
       <div className="max-w-prose self-center flex flex-col">
+        <h2>Request complete</h2>
         <p className="mb-4">
           Your request is complete. You can now download a file representing
           your request and send it to the responsible party within your
@@ -165,10 +206,11 @@ const ExemptionRequestForm = () => {
           organisms to your shipping address.
         </p>
         <PrimaryButton
+          className="rounded-3xl mt-8 w-1/2 mx-auto"
           type="button"
           onClick={() => {
-            const name = makeFileName(props.values.requestor.name) + ".eltr";
-            const pem = makeEltrPem(props.values);
+            const name = `${makeFileName(props.values.requestor.name)}.etr`;
+            const pem = makeEtrPem(props.values);
             download(pem, "application/x-pem-file", name);
           }}
         >
@@ -179,14 +221,14 @@ const ExemptionRequestForm = () => {
   );
 
   return (
-    <Page title="SecureDNA Exemption Request Form">
-      <div className="px-2 w-full max-w-2xl my-8">
+    <Page title="Exemption Request Tool">
+      <div className="w-full max-w-3xl my-4">
         <Formik
-          initialValues={emptyExemptionListFormData}
+          initialValues={emptyExemptionFormData()}
           validateOnChange={false}
           validateOnBlur={true}
           validate={(values) => {
-            let errors: FormikErrors<ExemptionListFormData> = {};
+            const errors: FormikErrors<ExemptionFormData> = {};
             if (!values.requestor.email) {
               errors.requestor ??= {};
               errors.requestor.email = "Required";
@@ -209,7 +251,7 @@ const ExemptionRequestForm = () => {
             }
             let anyShippingErrors = false;
             const shippingErrors = values.shippingAddresses.map((address) => {
-              let result: FormikErrors<ShippingAddress> = {};
+              const result: FormikErrors<ShippingAddress> = {};
               if (!address.country) {
                 anyShippingErrors = true;
                 result.country = "Required";
@@ -219,7 +261,7 @@ const ExemptionRequestForm = () => {
             if (anyShippingErrors) {
               errors.shippingAddresses = shippingErrors;
             }
-            let anyOrganismErrors = false;
+            const anyOrganismErrors = false;
             const organismErrors: FormikErrors<OrganismWithSource>[] =
               values.organisms.map((organism) => {
                 let anySequenceErrors = false;
@@ -230,15 +272,13 @@ const ExemptionRequestForm = () => {
                   ) {
                     anySequenceErrors = true;
                     return "Required";
-                  } else {
-                    return {};
                   }
+                  return {};
                 });
                 if (anySequenceErrors) {
                   return { sequences: sequenceErrors };
-                } else {
-                  return {};
                 }
+                return {};
               });
             if (anyOrganismErrors) {
               errors.organisms = organismErrors;
@@ -252,6 +292,19 @@ const ExemptionRequestForm = () => {
         >
           {(props) => (
             <Form className="flex flex-col">
+              {keypairModal && (
+                <Modal close={() => setKeypairModal(false)}>
+                  <MakeKeypair
+                    setPublicKey={(hexpem) =>
+                      props.setFieldValue("publicKey", hexpem)
+                    }
+                    privateKeyFileName={makeFileName(
+                      props.values.requestor.name,
+                    )}
+                    close={() => setKeypairModal(false)}
+                  />
+                </Modal>
+              )}
               {[
                 renderIntroPage,
                 renderShippingPage,
@@ -265,12 +318,14 @@ const ExemptionRequestForm = () => {
                   </Button>
                 ) : undefined}
                 {page === successPageIndex && (
-                  <PrimaryButton
+                  <Button
                     type="button"
-                    onClick={() => (window.location.href = "/")}
+                    onClick={() => {
+                      window.location.href = "/";
+                    }}
                   >
-                    Restart
-                  </PrimaryButton>
+                    Make another request
+                  </Button>
                 )}
                 {page === exemptionsPageIndex && (
                   <PrimaryButton
@@ -286,7 +341,9 @@ const ExemptionRequestForm = () => {
                 {page < exemptionsPageIndex && (
                   <PrimaryButton
                     type="button"
-                    className={page === introPageIndex ? "flex-1" : ""}
+                    className={
+                      page === introPageIndex ? "w-48 rounded-3xl" : ""
+                    }
                     disabled={
                       page === shippingPageIndex &&
                       (!props.dirty ||

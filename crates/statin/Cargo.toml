@@ -1,0 +1,22 @@
+[package]
+name = "statin"
+edition = "2021"
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.82"
+chrono = { version = "0.4.38", features = ["clock"] }
+clap = "4.5.4"
+time = "0.3.36"
+tokio = { version = "1.39.2", features = ["full"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+certificates = { path = "../certificates" }
+hdbserver = { path = "../hdbserver" }
+keyserver = { path = "../keyserver" }
+persistence = { path = "../persistence" }

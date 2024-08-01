@@ -3,18 +3,22 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { Organism, SequenceIdentifier, ncbi } from "@securedna/frontend_common";
+import {
+  type Organism,
+  type SequenceIdentifier,
+  ncbi,
+} from "@securedna/frontend_common";
 import { useEffect, useState } from "react";
 import { SequenceLink } from "./SequenceLink";
 
 function showName(organism: Organism) {
   if (organism.name) {
     return organism.name;
-  } else if ("Dna" in organism.sequences[0]) {
-    return `DNA sequence`;
-  } else {
-    return `NCBI accession`;
   }
+  if ("Dna" in organism.sequences[0]) {
+    return "DNA sequence";
+  }
+  return "NCBI accession";
 }
 
 function elaborate(si: SequenceIdentifier) {
@@ -33,14 +37,15 @@ function elaborate(si: SequenceIdentifier) {
         .catch(() => {
           setName("Failed to get title");
         });
-    }, []);
+    }, [si.Id]);
     return <div className="text-xs my-1 ml-4 tracking-wide">{name}</div>;
   }
   return (
     <div className="my-1">
       {si.Dna.records.map((record, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: the array won't change.
         <pre key={i} className="text-xs ml-4 whitespace-pre">
-          {">" + (record.header || "(no header)")}
+          {`>${record.header || "(no header)"}`}
           {"\n"}({record.contents.length} bp sequence)
         </pre>
       ))}
@@ -67,11 +72,12 @@ export const OrganismCard = (props: {
       {organism.sequences.map(
         (sequence, j) =>
           ("Id" in sequence || sequence.Dna.records.length > 0) && (
+            // biome-ignore lint/suspicious/noArrayIndexKey: the array won't change.
             <div className="inline-block mr-2" key={j}>
               <SequenceLink identifier={sequence} />
               {!compact && elaborate(sequence)}
             </div>
-          )
+          ),
       )}
     </div>
   );

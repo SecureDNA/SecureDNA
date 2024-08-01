@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { HitOrganism, Sequence } from "@securedna/frontend_common";
-import { useEffect, useState } from "react";
+import type { HitOrganism, Sequence } from "@securedna/frontend_common";
+import { useCallback, useEffect, useState } from "react";
 import { Button, PrimaryButton, ScreeningCard } from "src/components";
 import { useApprovalStore } from "./store";
 
@@ -14,19 +14,18 @@ interface NamedSequence {
 }
 
 const ScreeningPage = () => {
-  let sequences: NamedSequence[] = [];
-  const eltr = useApprovalStore((state) => state.eltr)!;
-  const apiKey = useApprovalStore((state) => state.apiKey);
+  const sequences: NamedSequence[] = [];
+  const etr = useApprovalStore((state) => state.etr)!;
   const screenedExemptions = useApprovalStore(
-    (state) => state.screenedExemptions
+    (state) => state.screenedExemptions,
   );
   const setScreenedExemptions = useApprovalStore(
-    (state) => state.setScreenedExemptions
+    (state) => state.setScreenedExemptions,
   );
   const back = useApprovalStore((state) => state.back);
   const advance = useApprovalStore((state) => state.advance);
 
-  for (const organism of eltr.V1.exemptions) {
+  for (const organism of etr.V1.exemptions) {
     for (const sequenceIdentifier of organism.sequences) {
       if ("Dna" in sequenceIdentifier) {
         sequences.push({
@@ -37,17 +36,17 @@ const ScreeningPage = () => {
     }
   }
   const [completeCount, setCompleteCount] = useState(0);
-  const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
+  const beforeUnloadHandler = useCallback((e: BeforeUnloadEvent) => {
     const message = "If you leave the page, screening progress will be lost.";
     (e || window.event).returnValue = message;
     return message;
-  };
+  }, []);
   useEffect(() => {
     window.addEventListener("beforeunload", beforeUnloadHandler);
     return () => {
       window.removeEventListener("beforeunload", beforeUnloadHandler);
     };
-  }, []);
+  }, [beforeUnloadHandler]);
 
   const onComplete = (organisms: HitOrganism[]): void => {
     setCompleteCount((n) => {
@@ -57,7 +56,7 @@ const ScreeningPage = () => {
       return n + 1;
     });
 
-    let updated = new Map(screenedExemptions);
+    const updated = new Map(screenedExemptions);
     for (const organism of organisms) {
       const old = updated.get(organism.name) ?? new Set();
       const combined = [...old, ...organism.ans];
@@ -83,8 +82,8 @@ const ScreeningPage = () => {
           <div className="my-4">
             {sequences.map((x, i) => (
               <ScreeningCard
-                apiKey={apiKey}
                 name={x.organismName}
+                // biome-ignore lint/suspicious/noArrayIndexKey: the array won't change.
                 key={i}
                 sequence={x.sequence}
                 complete={onComplete}

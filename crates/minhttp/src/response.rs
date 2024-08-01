@@ -6,7 +6,7 @@
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Empty};
 use hyper::body::Bytes;
-use hyper::header::{CONTENT_TYPE, LOCATION};
+use hyper::header::{HeaderValue, CONTENT_TYPE, LOCATION};
 use hyper::Response;
 pub use hyper::StatusCode;
 
@@ -110,17 +110,43 @@ pub fn not_found() -> GenericResponse {
     text(StatusCode::NOT_FOUND, "404 not found")
 }
 
-/// Return a "303 See Other" response with a Location header.
-pub fn see_other<V>(url: V) -> GenericResponse
+/// Return a redirect response
+///
+/// This returns an empty response with the given `status` code and
+/// with the `Location` header set to `url`.
+pub fn redirect<U>(status: StatusCode, url: U) -> GenericResponse
 where
-    hyper::header::HeaderValue: TryFrom<V>,
-    <hyper::header::HeaderValue as TryFrom<V>>::Error: Into<hyper::http::Error>,
+    HeaderValue: TryFrom<U, Error: Into<hyper::http::Error>>,
 {
     Response::builder()
-        .status(StatusCode::SEE_OTHER)
+        .status(status)
         .header(LOCATION, url)
         .body(Empty::new().map_err(anyhow::Error::from).boxed())
         .unwrap()
+}
+
+/// Return a "303 See Other" response to the given `url`.
+pub fn see_other<U>(url: U) -> GenericResponse
+where
+    HeaderValue: TryFrom<U, Error: Into<hyper::http::Error>>,
+{
+    redirect(StatusCode::SEE_OTHER, url)
+}
+
+/// Return a "307 Temporary Redirect" response to the given `url`.
+pub fn temporary_redirect<U>(url: U) -> GenericResponse
+where
+    HeaderValue: TryFrom<U, Error: Into<hyper::http::Error>>,
+{
+    redirect(StatusCode::TEMPORARY_REDIRECT, url)
+}
+
+/// Return a "308 Permanent Redirect" response to the given `url`.
+pub fn permanent_redirect<U>(url: U) -> GenericResponse
+where
+    HeaderValue: TryFrom<U, Error: Into<hyper::http::Error>>,
+{
+    redirect(StatusCode::PERMANENT_REDIRECT, url)
 }
 
 #[cfg(test)]

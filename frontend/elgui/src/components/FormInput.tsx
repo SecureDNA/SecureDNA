@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { FieldHookConfig, useField } from "formik";
-import { InputHTMLAttributes, useEffect, useState } from "react";
+import { type FieldHookConfig, useField } from "formik";
+import { type InputHTMLAttributes, useEffect, useState } from "react";
 import ReactPhoneNumberInput from "react-phone-number-input";
 import "react-phone-number-input/style.css";
-import { DigitPattern, fitToDigitPattern } from "src/util/digitPattern";
+import { type DigitPattern, fitToDigitPattern } from "src/util/digitPattern";
 import { twMerge } from "tailwind-merge";
 import { useDebounce } from "use-debounce";
 import { Typeahead } from "./Typeahead";
@@ -88,20 +88,21 @@ const GenericInput = (props: GenericInputProps) => {
 
   const [lookupResult, setLookupResult] = useState("");
   const [debouncedValue, { isPending }] = useDebounce(field.value, 700);
+  const { lookup } = props;
   useEffect(() => {
-    if (props.lookup && field.value) {
+    if (lookup && debouncedValue) {
       setLookupResult("…");
-      props.lookup(field.value).then((result) => {
+      lookup(debouncedValue).then((result) => {
         setLookupResult(result ?? "");
       });
     } else {
       setLookupResult("");
     }
-  }, [debouncedValue]);
+  }, [lookup, debouncedValue]);
 
   return (
     <label
-      className={twMerge(`relative flex flex-col flex-1 my-1`, props.className)}
+      className={twMerge("relative flex flex-col flex-1 my-1", props.className)}
     >
       {props.hideLabel ? undefined : (
         <div className="flex flex-row ml-1">
@@ -146,8 +147,10 @@ const GenericInput = (props: GenericInputProps) => {
           suggestions={props.suggestions}
           value={field.value}
           onChange={(option) => {
-            helpers.setValue(option, true);
-            props.onAcceptSuggestion?.(option);
+            helpers.setValue(option ?? "", true);
+            if (option) {
+              props.onAcceptSuggestion?.(option);
+            }
           }}
         />
       ) : (

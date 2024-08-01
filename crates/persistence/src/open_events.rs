@@ -9,7 +9,7 @@ use tracing::error;
 
 use certificates::{Id, Issued, SynthesizerTokenGroup, TokenBundle};
 
-use crate::{now_utc, SqlCertificateId};
+use crate::{SqlCertificateId, SqlOffsetDateTime};
 
 /// Insert an open event for a new connection, and add the client token to the known-certs
 /// table if it hasn't been seen before.
@@ -49,7 +49,11 @@ pub async fn insert_open_event(
             INSERT INTO open_events (client_mid, protocol_version, timestamp_utc)
             VALUES (?1, ?2, ?3);
             "#,
-            params![SqlCertificateId(client_mid), protocol_version, now_utc()],
+            params![
+                SqlCertificateId(client_mid),
+                protocol_version,
+                SqlOffsetDateTime::now_utc()
+            ],
         )?;
 
         tx.commit()?;
@@ -88,6 +92,7 @@ pub mod test_utils {
     //! their migration set.
 
     use certificates::Builder;
+    use certificates::CertificateBundle;
     use std::time::Duration;
 
     use super::*;
@@ -162,7 +167,7 @@ pub mod test_utils {
     }
 
     /// Helper to generate some synthesizer tokens for testing
-    pub fn make_synth_tokens() -> [TokenBundle<SynthesizerTokenGroup>; 2] {
+    pub fn make_synth_tokens<const N: usize>() -> [TokenBundle<SynthesizerTokenGroup>; N] {
         use certificates as c;
         // make manufacturer root
         let manu_root_keypair = c::KeyPair::new_random();
@@ -174,19 +179,22 @@ pub mod test_utils {
                 .self_sign(c::IssuerAdditionalFields::default())
                 .unwrap();
 
+        let manu_root_bundle = CertificateBundle::new(manu_root_cert, None);
+
         // make manufacturer intermediate
         let manu_inter_keypair = c::KeyPair::new_random();
         let manu_inter_cert_req = c::RequestBuilder::<c::Manufacturer>::intermediate_v1_builder(
             manu_inter_keypair.public_key(),
         )
         .build();
-        let manu_inter_cert = manu_root_cert
-            .issue_cert(
+        let manu_inter_bundle = manu_root_bundle
+            .issue_cert_bundle(
                 manu_inter_cert_req,
                 c::IssuerAdditionalFields {
                     expiration: c::Expiration::expiring_in_days(60).unwrap(),
                     emails_to_notify: vec![],
                 },
+                manu_root_keypair.clone(),
             )
             .unwrap();
 
@@ -195,26 +203,16 @@ pub mod test_utils {
         let manu_leaf_cert_req =
             c::RequestBuilder::<c::Manufacturer>::leaf_v1_builder(manu_leaf_keypair.public_key())
                 .build();
-        let manu_leaf_cert = manu_inter_cert
-            .clone()
-            .load_key(manu_inter_keypair.clone())
-            .unwrap()
-            .issue_cert(
+        let manu_leaf_bundle = manu_inter_bundle
+            .issue_cert_bundle(
                 manu_leaf_cert_req,
                 c::IssuerAdditionalFields {
                     expiration: c::Expiration::expiring_in_days(60).unwrap(),
                     emails_to_notify: vec![],
                 },
+                manu_inter_keypair.clone(),
             )
             .unwrap();
-        let manu_leaf_certbundle = c::CertificateBundle::<c::Manufacturer>::new(
-            manu_leaf_cert.clone(),
-            Some(c::CertificateChain::from_items([
-                manu_root_cert.into_key_unavailable(),
-                manu_inter_cert.clone(),
-                manu_leaf_cert.clone(),
-            ])),
-        );
 
         // make synthesizer tokens
         std::array::from_fn(|_| {
@@ -227,16 +225,13 @@ pub mod test_utils {
                 1_000,
                 None,
             );
-            let synth_token = manu_leaf_cert
-                .clone()
-                .load_key(manu_leaf_keypair.clone())
+            manu_leaf_bundle
+                .issue_synthesizer_token_bundle(
+                    synth_req,
+                    c::Expiration::expiring_in_days(60).unwrap(),
+                    manu_leaf_keypair.clone(),
+                )
                 .unwrap()
-                .issue_synthesizer_token(synth_req, c::Expiration::expiring_in_days(60).unwrap())
-                .unwrap();
-            TokenBundle::<SynthesizerTokenGroup>::new(
-                synth_token,
-                manu_leaf_certbundle.issue_chain(),
-            )
         })
     }
 }

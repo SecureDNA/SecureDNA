@@ -7,15 +7,13 @@ import { download, makeFileName } from "@securedna/frontend_common";
 import { useState } from "react";
 import {
   AuthCard,
-  AuthFileResult,
+  type AuthFileResult,
   Button,
   OrganismCard,
   PrimaryButton,
 } from "src/components";
-import { signEltr } from "src/util/sign_eltr";
+import { signEtr } from "src/util/sign_etr";
 import { useApprovalStore } from "./store";
-
-const validityDays = 30;
 
 const SigningPage = () => {
   const [privateKeyPem, setPrivateKeyPem] = useState<AuthFileResult>();
@@ -24,19 +22,21 @@ const SigningPage = () => {
   const [signError, setSignError] = useState("");
 
   const certPem = useApprovalStore((state) => state.certPem);
-  const eltr = useApprovalStore((state) => state.eltr);
-  const eltrPem = useApprovalStore((state) => state.eltrPem);
+  const etr = useApprovalStore((state) => state.etr);
+  const etrPem = useApprovalStore((state) => state.etrPem);
   const screenedExemptions = useApprovalStore(
-    (state) => state.screenedExemptions
+    (state) => state.screenedExemptions,
   );
   const back = useApprovalStore((state) => state.back);
 
-  if (!certPem || !eltr || !eltrPem || !screenedExemptions) return undefined;
+  if (!certPem || !etr || !etrPem || !screenedExemptions) return undefined;
 
-  const has2FA = eltr.V1.requestor_auth_devices.length > 0;
+  const has2FA = etr.V1.requestor_auth_devices.length > 0;
+  const hasAssociatedKey = etr.V1.public_key !== undefined;
+  const validityYears = hasAssociatedKey ? 3 : 1;
 
   const readyToSign =
-    eltrPem.ok &&
+    etrPem.ok &&
     certPem.ok &&
     privateKeyPem !== undefined &&
     privateKeyPem.ok &&
@@ -45,19 +45,19 @@ const SigningPage = () => {
 
   const sign = () => {
     if (readyToSign) {
-      let elt: Uint8Array;
+      let et: Uint8Array;
       try {
         let flatScreenedExemptions = [...screenedExemptions.values()].flatMap(
-          (ans) => [...ans.values()]
+          (ans) => [...ans.values()],
         );
         flatScreenedExemptions = [...new Set(flatScreenedExemptions)];
         flatScreenedExemptions.sort();
-        elt = signEltr({
-          eltrPem: eltrPem.value,
+        et = signEtr({
+          etrPem: etrPem.value,
           certPem: certPem.value.array,
           privateKeyPem: privateKeyPem.value.array,
           passphrase,
-          validityDays,
+          validityDays: validityYears * 365,
           screenedExemptions: flatScreenedExemptions,
         });
       } catch (e) {
@@ -65,15 +65,15 @@ const SigningPage = () => {
         setSignError(`Signing failed: ${e}.`);
         return;
       }
-      const requestorName = eltr?.V1?.requestor?.name;
-      const fileName = makeFileName(requestorName) + ".elt";
+      const requestorName = etr?.V1?.requestor?.name;
+      const fileName = `${makeFileName(requestorName)}.et`;
       setSignError("");
-      download(elt, "application/x-pem-file", fileName);
+      download(et, "application/x-pem-file", fileName);
     }
   };
 
   const endDate = new Date(
-    new Date().getTime() + 86400000 * validityDays
+    new Date().getTime() + 3600 * 24 * 365 * 1000 * validityYears, // unix time of expiry in miliseconds
   ).toLocaleDateString("en-US", {
     weekday: "long",
     year: "numeric",
@@ -81,7 +81,7 @@ const SigningPage = () => {
     day: "numeric",
   });
 
-  const requestorName = eltr.V1.requestor.name || "Anonymous";
+  const requestorName = etr.V1.requestor.name || "Anonymous";
 
   return (
     <div>
@@ -92,7 +92,8 @@ const SigningPage = () => {
       </p>
       <details className="cursor-pointer mx-4">
         <summary>Expand</summary>
-        {eltr.V1.exemptions.map((organism, i) => (
+        {etr.V1.exemptions.map((organism, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: the array won't change.
           <OrganismCard organism={organism} key={i} compact={false} />
         ))}
       </details>
@@ -110,6 +111,7 @@ const SigningPage = () => {
               anList.sort();
               const sequences = anList.map((an) => ({ Id: an }));
               const organism = { name, sequences };
+              // biome-ignore lint/suspicious/noArrayIndexKey: the array won't change.
               return <OrganismCard organism={organism} key={i} />;
             })}
           </details>
@@ -140,18 +142,20 @@ const SigningPage = () => {
               value={passphrase}
               autoComplete="password"
               onChange={(e) => setPassphrase(e.target.value)}
-            ></input>
+            />
           </AuthCard>
         </div>
         <p className="mt-4 mb-2">
-          Signing this request creates an <strong>.elt</strong> token file that
+          Signing this request creates an <strong>.et</strong> token file that
           you can send back to the requestor. They can provide this token when
           making a DNA synthesis request.
         </p>
         <p className="my-2">
-          The token is valid for <strong>{validityDays}</strong> days (until{" "}
-          <strong>{endDate}</strong>
-          ).
+          The token is valid for
+          <strong>
+            {` ${validityYears} ${validityYears === 1 ? "year" : "years"}`}
+          </strong>
+          {` (until ${endDate}).`}
         </p>
         <div className="flex justify-center space-x-2">
           <Button type="button" className="flex-1 my-2 py-3" onClick={back}>
@@ -163,7 +167,7 @@ const SigningPage = () => {
             disabled={!readyToSign}
             onClick={sign}
           >
-            Sign and download .elt
+            Sign and download .et
           </PrimaryButton>
         </div>
         {signError && <p className="text-red-500">{signError}</p>}

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use certificates::{DatabaseTokenGroup, ExemptionListTokenGroup, KeyserverTokenGroup, TokenBundle};
+use certificates::{DatabaseTokenGroup, ExemptionTokenGroup, KeyserverTokenGroup, TokenBundle};
 use doprf::{
     party::KeyserverId,
     prf::Query,
@@ -20,6 +20,7 @@ use scep_integration_tests::{
     server::{Opts, TestServer},
 };
 use shared_types::{
+    et::WithOtps,
     hash::HashSpec,
     hdb::{ConsolidatedHazardResult, HdbScreeningResult},
     requests::RequestId,
@@ -29,7 +30,7 @@ use tracing::info;
 
 struct Scenario {
     screen_hashes: Vec<[u8; 32]>,
-    exemptions: Option<(TokenBundle<ExemptionListTokenGroup>, Vec<[u8; 32]>)>,
+    exemptions: Option<(TokenBundle<ExemptionTokenGroup>, Vec<[u8; 32]>)>,
     expected_result: HdbScreeningResult,
 }
 
@@ -43,6 +44,7 @@ async fn test_scenario(scenario: Scenario) {
     let keyserver = TestServer::spawn(
         Opts {
             issuer_pks: issuer_pks.clone(),
+            revocation_list: Default::default(),
             server_cert_chain: certs.keyserver_tokenbundle,
             server_keypair: certs.keyserver_keypair,
             keyserve_fn: Arc::new(rehash_query),
@@ -55,6 +57,7 @@ async fn test_scenario(scenario: Scenario) {
     let hdb = TestServer::spawn(
         Opts {
             issuer_pks: issuer_pks.clone(),
+            revocation_list: Default::default(),
             server_cert_chain: certs.database_tokenbundle,
             server_keypair: certs.database_keypair,
             keyserve_fn: Arc::new(rehash_query),
@@ -95,6 +98,7 @@ async fn test_scenario(scenario: Scenario) {
             ]
             .into(),
             MakeCertsOptions::default().keyserver_id,
+            false,
         )
         .await
         .unwrap();
@@ -139,6 +143,7 @@ async fn test_scenario(scenario: Scenario) {
                 KeyserverId::try_from(3).unwrap(),
             ]
             .into(),
+            false,
             Region::All,
             scenario.exemptions.is_some(),
         )
@@ -165,10 +170,17 @@ async fn test_scenario(scenario: Scenario) {
     let otp = "123456".to_owned();
     let screen_response = match scenario.exemptions {
         None => hdb_client.screen(&tagged_hashes).await.unwrap(),
-        Some((elt, elt_hashes)) => hdb_client
-            .screen_with_elt(&tagged_hashes, &elt, &elt_hashes.into(), otp)
-            .await
-            .unwrap(),
+        Some((et, et_hashes)) => {
+            let ets = vec![WithOtps {
+                et,
+                requestor_otp: otp,
+                issuer_otp: None,
+            }];
+            hdb_client
+                .screen_with_ets(&tagged_hashes, &ets, &et_hashes.into())
+                .await
+                .unwrap()
+        }
     };
 
     info!("hdb screen_response = {screen_response:#?}");
@@ -226,10 +238,10 @@ pub async fn test_hazard_denied() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 pub async fn test_hazard_exempt_organism() {
-    let elt = hdb::exemption::make_test_elt(vec![mock_hazard_cert_an_organism()]);
+    let et = hdb::exemption::make_test_et(vec![mock_hazard_cert_an_organism()]);
     test_scenario(Scenario {
         screen_hashes: vec![mock_hazard_query().into()],
-        exemptions: Some((elt, vec![])),
+        exemptions: Some((et, vec![])),
         expected_result: HdbScreeningResult {
             results: vec![ConsolidatedHazardResult {
                 record: 0,
@@ -250,11 +262,11 @@ pub async fn test_hazard_exempt_organism() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 pub async fn test_hazard_exempt_hash() {
-    let elt = hdb::exemption::make_test_elt(vec![mock_hazard_cert_hash_organism()]);
-    let elt_hashes = vec![mock_hazard_hash()].into_iter().collect();
+    let et = hdb::exemption::make_test_et(vec![mock_hazard_cert_hash_organism()]);
+    let et_hashes = vec![mock_hazard_hash()].into_iter().collect();
     test_scenario(Scenario {
         screen_hashes: vec![mock_hazard_query().into()],
-        exemptions: Some((elt, elt_hashes)),
+        exemptions: Some((et, et_hashes)),
         expected_result: HdbScreeningResult {
             results: vec![ConsolidatedHazardResult {
                 record: 0,

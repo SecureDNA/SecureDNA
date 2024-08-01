@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { FieldArrayRenderProps } from "formik";
+import type { FieldArrayRenderProps } from "formik";
 import { enCountryNames } from "src/data/countries";
-import { emptyShippingAddress, ShippingAddress } from "src/types";
+import { type ShippingAddress, emptyShippingAddress } from "src/types";
 
 import { Button } from "./Button";
 import { FormInput, FormSelect, FormTextArea } from "./FormInput";
@@ -27,14 +27,14 @@ export const ShippingAddresses = (props: ShippingAddressesProps) => {
       <div className="my-4">
         {shippingAddresses.map((address, index) => (
           <div
-            key={index}
+            key={address.id}
             className={
               shippingAddresses.length > 0
-                ? "first:rounded-t-xl last:rounded-b-xl border-t first:border-t-0 bg-black/5 p-5 border-black/20"
+                ? "first:rounded-t-xl last:rounded-b-xl bg-primary/10 p-5 border border-primary"
                 : ""
             }
           >
-            {true ? (
+            {
               <div className="flex flex-row space-x-4">
                 <h3 className="text-lg font-bold ml-1 mr-auto">
                   Address #{index + 1}
@@ -49,14 +49,14 @@ export const ShippingAddresses = (props: ShippingAddressesProps) => {
                   }}
                 />
               </div>
-            ) : undefined}
+            }
             <div className="flex flex-row space-x-2">
               <FormSelect
                 required={true}
                 label="Country"
                 name={`shippingAddresses.${index}.country`}
               >
-                <option disabled value=""></option>
+                <option disabled value="" />
                 {enCountryNames.map(([code, name]) => (
                   <option key={code} value={code}>
                     {name as string}
@@ -82,6 +82,7 @@ export const ShippingAddresses = (props: ShippingAddressesProps) => {
               type="text"
               rows={2}
               label="Street address"
+              required={true}
               name={`shippingAddresses.${index}.streetAddress`}
             />
             <FormInput
@@ -94,7 +95,7 @@ export const ShippingAddresses = (props: ShippingAddressesProps) => {
       <Button
         className="self-center"
         type="button"
-        onClick={() => arrayHelpers.push(emptyShippingAddress)}
+        onClick={() => arrayHelpers.push(emptyShippingAddress())}
       >
         + Add another shipping address
       </Button>

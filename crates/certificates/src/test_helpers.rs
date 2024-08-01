@@ -8,10 +8,10 @@ use crate::key_traits::HasAssociatedKey;
 use crate::{
     asn::{FromASN1DerBytes, ToASN1DerBytes},
     Authenticator, Builder, Certificate, CertificateBundle, CertificateRequest, DatabaseToken,
-    DatabaseTokenGroup, DatabaseTokenRequest, Description, Exemption, ExemptionListToken,
-    ExemptionListTokenGroup, ExemptionListTokenRequest, Expiration, GenbankId, HltToken,
-    HltTokenGroup, HltTokenRequest, IssuanceError, Issued, IssuerAdditionalFields, KeyAvailable,
-    KeyPair, KeyUnavailable, KeyserverToken, KeyserverTokenGroup, KeyserverTokenRequest, Organism,
+    DatabaseTokenGroup, DatabaseTokenRequest, Description, Exemption, ExemptionToken,
+    ExemptionTokenGroup, ExemptionTokenRequest, Expiration, GenbankId, HltToken, HltTokenGroup,
+    HltTokenRequest, IssuanceError, Issued, IssuerAdditionalFields, KeyAvailable, KeyPair,
+    KeyUnavailable, KeyserverToken, KeyserverTokenGroup, KeyserverTokenRequest, Organism,
     PublicKey, RequestBuilder, Role, Sequence, SequenceIdentifier, SynthesizerToken,
     SynthesizerTokenGroup, SynthesizerTokenRequest, TokenBundle, TokenGroup, YubikeyId,
 };
@@ -146,18 +146,18 @@ where
     )
 }
 
-pub fn create_eltr_with_options(
+pub fn create_etr_with_options(
     public_key: Option<PublicKey>,
     exemptions: Vec<Organism>,
     auth_devices: Vec<Authenticator>,
-) -> ExemptionListTokenRequest {
+) -> ExemptionTokenRequest {
     let requestor = Description::default()
         .with_name("some researcher")
         .with_email("email@example.com");
 
     let shipping_address = vec!["19 Some Street".to_string(), "Some City".to_string()];
 
-    ExemptionListTokenRequest::v1_token_request(
+    ExemptionTokenRequest::v1_token_request(
         public_key,
         exemptions,
         requestor,
@@ -166,22 +166,22 @@ pub fn create_eltr_with_options(
     )
 }
 
-pub fn create_eltr(exemptions: Vec<Organism>) -> ExemptionListTokenRequest {
+pub fn create_etr(exemptions: Vec<Organism>) -> ExemptionTokenRequest {
     let auth_device = Authenticator::Yubikey(YubikeyId::try_new("cccjgjgkhcbb").unwrap());
-    create_eltr_with_options(None, exemptions, vec![auth_device])
+    create_etr_with_options(None, exemptions, vec![auth_device])
 }
 
-pub fn create_elt_with_auth_devices(
+pub fn create_et_with_auth_devices(
     exemptions: Vec<Organism>,
     requestor_auth_devices: Vec<Authenticator>,
     issuer_auth_devices: Vec<Authenticator>,
-) -> ExemptionListToken<KeyUnavailable> {
+) -> ExemptionToken<KeyUnavailable> {
     let leaf_cert = create_leaf_cert::<Exemption>();
-    let eltr = create_eltr_with_options(None, exemptions, requestor_auth_devices);
+    let etr = create_etr_with_options(None, exemptions, requestor_auth_devices);
 
     leaf_cert
-        .issue_elt(
-            eltr,
+        .issue_exemption_token(
+            etr,
             Expiration::expiring_in_days(90).unwrap(),
             issuer_auth_devices,
         )
@@ -230,23 +230,34 @@ where
     (token_bundle, root_public_key)
 }
 
-pub fn create_issuing_exemption_list_token_bundle(
-) -> (TokenBundle<ExemptionListTokenGroup>, KeyPair, PublicKey) {
+pub fn create_issuing_exemption_token_bundle(
+) -> (TokenBundle<ExemptionTokenGroup>, KeyPair, PublicKey) {
     let keypair = KeyPair::new_random();
-    let create_eltr = || create_eltr_with_options(Some(keypair.public_key()), vec![], vec![]);
-    let (bundle, root_public_key) = create_token_bundle(create_eltr, |cert, req| {
-        cert.issue_elt(req, Expiration::default(), vec![])
+    let create_etr = || create_etr_with_options(Some(keypair.public_key()), vec![], vec![]);
+    let (bundle, root_public_key) = create_token_bundle(create_etr, |cert, req| {
+        cert.issue_exemption_token(req, Expiration::default(), vec![])
     });
     (bundle, keypair, root_public_key)
 }
 
-pub fn create_elt_bundle_with_exemptions(
+pub fn create_et_bundle_with_exemptions(
     exemptions: Vec<Organism>,
-) -> (TokenBundle<ExemptionListTokenGroup>, PublicKey) {
+) -> (TokenBundle<ExemptionTokenGroup>, PublicKey) {
     create_token_bundle(
-        || create_eltr(exemptions),
-        |cert, req| cert.issue_elt(req, Expiration::default(), vec![]),
+        || create_etr(exemptions),
+        |cert, req| cert.issue_exemption_token(req, Expiration::default(), vec![]),
     )
+}
+
+pub fn create_et_bundle_from_leaf_bundle(
+    exemptions: Vec<Organism>,
+    leaf_bundle: &CertificateBundle<Exemption>,
+    leaf_kp: KeyPair,
+) -> TokenBundle<ExemptionTokenGroup> {
+    let request = create_etr(exemptions);
+    leaf_bundle
+        .issue_exemption_token_bundle(request, Expiration::default(), vec![], leaf_kp)
+        .unwrap()
 }
 
 pub fn create_exemptions() -> Vec<Organism> {
@@ -265,23 +276,21 @@ pub fn create_exemptions() -> Vec<Organism> {
     )]
 }
 
-pub fn create_exemption_list_token_bundle() -> (TokenBundle<ExemptionListTokenGroup>, PublicKey) {
-    create_elt_bundle_with_exemptions(create_exemptions())
+pub fn create_exemption_token_bundle() -> (TokenBundle<ExemptionTokenGroup>, PublicKey) {
+    create_et_bundle_with_exemptions(create_exemptions())
 }
 
-pub fn create_child_exemption_list_token_bundle(
-) -> (TokenBundle<ExemptionListTokenGroup>, PublicKey) {
-    let (elt_bundle, elt_kp, root) = create_issuing_exemption_list_token_bundle();
-    let child_eltr = create_eltr_with_options(None, vec![], vec![]);
-    let child_elt = elt_bundle
+pub fn create_child_exemption_token_bundle() -> (TokenBundle<ExemptionTokenGroup>, PublicKey) {
+    let (et_bundle, et_kp, root) = create_issuing_exemption_token_bundle();
+    let child_etr = create_etr_with_options(None, vec![], vec![]);
+    let child_et = et_bundle
         .token
         .clone()
-        .load_key(elt_kp)
+        .load_key(et_kp)
         .unwrap()
-        .issue_elt(child_eltr, Expiration::default(), vec![])
+        .issue_exemption_token(child_etr, Expiration::default(), vec![])
         .unwrap();
-    let token_bundle =
-        TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
+    let token_bundle = TokenBundle::<ExemptionTokenGroup>::new(child_et, et_bundle.issue_chain());
     (token_bundle, root)
 }
 
@@ -333,7 +342,7 @@ pub fn create_synthesizer_token_bundle() -> (TokenBundle<SynthesizerTokenGroup>,
 macro_rules! test_for_all_token_types {
     ($test_fn:ident) => {
         $crate::test_for_token_types!(
-            child_exemption_list, exemption_list, database, hlt, keyserver, synthesizer;
+            child_exemption, exemption, database, hlt, keyserver, synthesizer;
             $test_fn
         );
     };
@@ -354,21 +363,24 @@ macro_rules! test_for_token_types {
     };
 }
 
+/// Concatenate the arguments with a newline. No newline is added at the end.
 #[macro_export]
 macro_rules! concat_with_newline {
-    ($($line:expr),* $(,)?) => {
-        concat!($( $line, "\n" ,)*)
+    ($line:expr) => {
+        $line
+    };
+    ($first:expr, $($rest:expr),+ $(,)?) => {
+        concat!($first, "\n", concat_with_newline!($($rest),+))
     };
 }
 
-pub fn expected_cert_plaintext_display<R: Role, K>(
+pub fn expected_cert_display<R: Role, K>(
     cert: &Certificate<R, K>,
     expected_hierarchy_level: &str,
     expected_role: &str,
     expected_issued_to: &str,
     expected_issued_by: &str,
     expected_email_section: Option<&str>,
-    expected_warning_section: Option<&str>,
 ) -> String {
     let issuance_id = cert.issuance_id().to_string();
     let request_id = cert.request_id().to_string();
@@ -411,16 +423,12 @@ pub fn expected_cert_plaintext_display<R: Role, K>(
         &signature,
     );
     if let Some(email_section) = expected_email_section {
-        text.push_str(email_section);
-    }
-
-    if let Some(warning_section) = expected_warning_section {
-        text.push_str(warning_section);
+        text.push_str(&format!("\n{}", email_section));
     }
     text
 }
 
-pub fn expected_cert_request_plaintext_display<R: Role, K>(
+pub fn expected_cert_request_display<R: Role, K>(
     req: &CertificateRequest<R, K>,
     expected_hierarchy_level: &str,
     expected_role: &str,
@@ -440,16 +448,12 @@ pub fn expected_cert_request_plaintext_display<R: Role, K>(
         expected_hierarchy_level, expected_role, request_id, expected_subject,
     );
     if let Some(email_section) = expected_email_section {
-        text.push_str(email_section);
+        text.push_str(&format!("\n{}", email_section));
     }
     text
 }
 
-pub fn expected_database_token_plaintext_display<K>(
-    token: &DatabaseToken<K>,
-    issued_by: &str,
-    warning_section: Option<&str>,
-) -> String {
+pub fn expected_database_token_display<K>(token: &DatabaseToken<K>, issued_by: &str) -> String {
     let issued_on = OffsetDateTime::from_unix_timestamp(token.expiration().not_valid_before)
         .unwrap()
         .format(&Rfc2822)
@@ -459,7 +463,7 @@ pub fn expected_database_token_plaintext_display<K>(
         .format(&Rfc2822)
         .unwrap();
 
-    let mut text = format!(
+    format!(
         concat_with_newline!(
             "V1 Database Token",
             "  Issuance ID:",
@@ -484,18 +488,10 @@ pub fn expected_database_token_plaintext_display<K>(
         issued_on,
         expires_on,
         token.signature()
-    );
-    if let Some(warning) = warning_section {
-        text.push_str(warning);
-    }
-    text
+    )
 }
 
-pub fn expected_hlt_token_plaintext_display<K>(
-    token: &HltToken<K>,
-    issued_by: &str,
-    warning_section: Option<&str>,
-) -> String {
+pub fn expected_hlt_token_display<K>(token: &HltToken<K>, issued_by: &str) -> String {
     let issued_on = OffsetDateTime::from_unix_timestamp(token.expiration().not_valid_before)
         .unwrap()
         .format(&Rfc2822)
@@ -505,7 +501,7 @@ pub fn expected_hlt_token_plaintext_display<K>(
         .format(&Rfc2822)
         .unwrap();
 
-    let mut text = format!(
+    format!(
         concat_with_newline!(
             "V1 HLT Token",
             "  Issuance ID:",
@@ -530,18 +526,13 @@ pub fn expected_hlt_token_plaintext_display<K>(
         issued_on,
         expires_on,
         token.signature()
-    );
-    if let Some(warning) = warning_section {
-        text.push_str(warning);
-    }
-    text
+    )
 }
 
-pub fn expected_keyserver_token_plaintext_display<K>(
+pub fn expected_keyserver_token_display<K>(
     token: &KeyserverToken<K>,
     keyserver_id: &str,
     issued_by: &str,
-    warning_section: Option<&str>,
 ) -> String {
     let issued_on = OffsetDateTime::from_unix_timestamp(token.expiration().not_valid_before)
         .unwrap()
@@ -552,7 +543,7 @@ pub fn expected_keyserver_token_plaintext_display<K>(
         .format(&Rfc2822)
         .unwrap();
 
-    let mut text = format!(
+    format!(
         concat_with_newline!(
             "V1 Keyserver Token",
             "  Issuance ID:",
@@ -580,15 +571,10 @@ pub fn expected_keyserver_token_plaintext_display<K>(
         issued_on,
         expires_on,
         token.signature()
-    );
-    if let Some(warning) = warning_section {
-        text.push_str(warning);
-    }
-    text
+    )
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn expected_synthesizer_token_plaintext_display<K>(
+pub fn expected_synthesizer_token_display<K>(
     token: &SynthesizerToken<K>,
     domain: &str,
     model: &str,
@@ -596,7 +582,6 @@ pub fn expected_synthesizer_token_plaintext_display<K>(
     max_dna_base_pairs_per_day: &str,
     audit_section: Option<&str>,
     issued_by: &str,
-    warning_section: Option<&str>,
 ) -> String {
     let issued_on = OffsetDateTime::from_unix_timestamp(token.expiration().not_valid_before)
         .unwrap()
@@ -635,13 +620,13 @@ pub fn expected_synthesizer_token_plaintext_display<K>(
     );
     if let Some(audit_section) = audit_section {
         text.push_str(&format!(
-            concat_with_newline!("  Audit Recipient:", "    {}",),
+            concat_with_newline!("\n  Audit Recipient:", "    {}",),
             audit_section,
         ));
     }
     text.push_str(&format!(
         concat_with_newline!(
-            "  Issued by:",
+            "\n  Issued by:",
             "    {}",
             "  Issued on:",
             "    {}",
@@ -655,9 +640,6 @@ pub fn expected_synthesizer_token_plaintext_display<K>(
         expires_on,
         token.signature(),
     ));
-    if let Some(warning) = warning_section {
-        text.push_str(warning);
-    }
     text
 }
 

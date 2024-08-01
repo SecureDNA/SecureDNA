@@ -148,10 +148,12 @@ mod tests {
         let root_kp = KeyPair::new_random();
         let root = RequestBuilder::<Infrastructure>::root_v1_builder(root_kp.public_key())
             .build()
-            .load_key(root_kp)
+            .load_key(root_kp.clone())
             .unwrap()
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
+
+        let root_bundle = CertificateBundle::new(root, None);
 
         let int_kp = KeyPair::new_random();
         let int_req =
@@ -164,13 +166,12 @@ mod tests {
                 )
                 .build();
 
-        let int_cert = root
-            .issue_cert(int_req.clone(), IssuerAdditionalFields::default())
+        let int_bundle = root_bundle
+            .issue_cert_bundle(int_req.clone(), IssuerAdditionalFields::default(), root_kp)
             .unwrap();
 
         save_cert_request_to_file(int_req, &req_path).unwrap();
-        save_certificate_bundle_to_file(CertificateBundle::new(int_cert, None), &cert_path)
-            .unwrap();
+        save_certificate_bundle_to_file(int_bundle, &cert_path).unwrap();
 
         let opts = RetrieveRequestOpts {
             role: RoleKind::Infrastructure,
@@ -206,18 +207,12 @@ mod tests {
             )
             .build();
 
-        let leaf_cert = int_bundle
-            .get_lead_cert()
-            .unwrap()
-            .clone()
-            .load_key(kp)
-            .unwrap()
-            .issue_cert(leaf_req.clone(), IssuerAdditionalFields::default())
+        let leaf_bundle = int_bundle
+            .issue_cert_bundle(leaf_req.clone(), IssuerAdditionalFields::default(), kp)
             .unwrap();
 
         save_cert_request_to_file(leaf_req, &req_path).unwrap();
-        save_certificate_bundle_to_file(CertificateBundle::new(leaf_cert, None), &cert_path)
-            .unwrap();
+        save_certificate_bundle_to_file(leaf_bundle, &cert_path).unwrap();
 
         let opts = RetrieveRequestOpts {
             role: RoleKind::Manufacturer,

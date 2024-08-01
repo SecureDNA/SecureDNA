@@ -9,10 +9,10 @@ use std::{
 use clap::{crate_version, Parser};
 
 use super::error::CertCliError;
-use crate::default_filename::set_appropriate_filepath_and_create_default_dir_if_required;
+use crate::default_filepath::set_appropriate_filepath_and_create_default_dir_if_required;
 use crate::{
-    common::{AssociatedKey, AssociatedKeyArgs, KeySource, NewKeyDetails},
-    default_filename::get_default_filename_for_cert_request,
+    default_filepath::get_default_filename_for_cert_request,
+    key::{AssociatedKey, AssociatedKeyArgs, KeySource, NewKeyDetails},
     passphrase_reader::{PassphraseReader, PassphraseSource, ENV_PASSPHRASE_WARNING},
 };
 use certificates::file::CERT_REQUEST_EXT;
@@ -43,13 +43,13 @@ pub struct CreateCertOpts {
     pub email: Option<String>,
     #[clap(
         long,
-        help = "Email(s) to be notified when an ELT issued by this cert is used (optional, only for exemption leaf certs)"
+        help = "Email(s) to be notified when an exemption token issued by this cert is used (optional, only for exemption leaf certs)"
     )]
     pub notify: Vec<String>,
     #[clap(
         long,
         action,
-        help = "Determines whether the certificate is able to issue blinded certificates/ELTs (optional, only for exemption certs)"
+        help = "Determines whether the certificate is able to issue blinded certificates or tokens (optional, only for exemption certs)"
     )]
     pub allow_blinding: bool,
     #[clap(
@@ -209,7 +209,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::common::{AssociatedKeyArgs, KeySource, NewKeyDetails};
+    use crate::inspect::{FormatMethod, Formattable, SingleRequestOutput};
+    use crate::key::{AssociatedKeyArgs, KeySource, NewKeyDetails};
     use crate::shims::create_cert::{self, CreateCertOpts};
     use crate::shims::error::CertCliError;
 
@@ -222,8 +223,7 @@ mod tests {
         CERT_REQUEST_EXT, KEY_PRIV_EXT, KEY_PUB_EXT,
     };
     use certificates::{
-        Exemption, FormatMethod, Formattable, HierarchyKind, Infrastructure, KeyPair, Manufacturer,
-        RequestDigest, RoleKind,
+        Exemption, HierarchyKind, Infrastructure, KeyPair, Manufacturer, RequestDigest, RoleKind,
     };
     use tempfile::TempDir;
 
@@ -458,7 +458,9 @@ mod tests {
         assert!(request_path.exists());
 
         let request = load_cert_request_from_file::<Manufacturer>(&request_path).unwrap();
-        let json_display = request.format(&FormatMethod::JsonDigest).unwrap();
+        let json_display = SingleRequestOutput(request)
+            .format(&FormatMethod::JsonDigest)
+            .unwrap();
         let digest: RequestDigest = serde_json::from_str(&json_display).unwrap();
 
         assert!(digest.subject.desc.contains(name) && digest.subject.desc.contains(email));

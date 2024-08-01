@@ -485,7 +485,7 @@ impl Scurlable for KeyserverScurlable {
         qualification: KeyserverQualificationResponse,
     ) -> Result<OpenedClientState, scep_client_helpers::Error<ClientPrevalidation>> {
         let id = qualification.id;
-        client.open(1, None, vec![id].into(), id).await
+        client.open(1, None, vec![id].into(), id, false).await
     }
 
     async fn authenticate(
@@ -524,6 +524,7 @@ impl Scurlable for HdbserverScurlable {
                 1,
                 None,
                 vec![KeyserverId::try_from(1).unwrap()].into(),
+                false,
                 Region::All,
                 false,
             )

@@ -17,17 +17,12 @@ services:
       - keyserver3
     command: [
       "./synthclient",
-      "--hdb-domains", "hdbserver:5300",
-      "--keyserver-domains", "keyserver1:5301,keyserver2:5302,keyserver3:5303",
-      "--use-http",
-      "--use-test-roots-do-not-use-this-in-prod",
     ]
     volumes:
       - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
     environment:
-      "SECUREDNA_SYNTHCLIENT_TOKEN_FILE": "/certs/synthesizer-token.st"
-      "SECUREDNA_SYNTHCLIENT_KEYPAIR_FILE": "/certs/synthesizer-token.priv"
-      "SECUREDNA_SYNTHCLIENT_KEYPAIR_PASSPHRASE_FILE": "/certs/synthesizer-passphrase.txt"
+      "SECUREDNA_CFG_PATH": "/cfg/synthesizer.toml"
   hdbserver:
     image: ghcr.io/securedna/hdbserver:${SECUREDNA_TAG}
     ports:
@@ -37,7 +32,7 @@ services:
       - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
       - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
     environment:
-      "SECUREDNA_HDBSERVER_CFG_PATH": "/cfg/database.toml"
+      "SECUREDNA_CFG_PATH": "/cfg/database.toml"
   keyserver1:
     image: ghcr.io/securedna/keyserver:${SECUREDNA_TAG}
     ports:
@@ -47,7 +42,7 @@ services:
       - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
     environment:
       <<: *keyserver-common-env
-      "SECUREDNA_KEYSERVER_CFG_PATH": "/cfg/keyserver1.toml"
+      "SECUREDNA_CFG_PATH": "/cfg/03.keyserver-01.toml"
   keyserver2:
     image: ghcr.io/securedna/keyserver:${SECUREDNA_TAG}
     ports:
@@ -57,7 +52,7 @@ services:
       - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
     environment:
       <<: *keyserver-common-env
-      "SECUREDNA_KEYSERVER_CFG_PATH": "/cfg/keyserver2.toml"
+      "SECUREDNA_CFG_PATH": "/cfg/03.keyserver-02.toml"
   keyserver3:
     image: ghcr.io/securedna/keyserver:${SECUREDNA_TAG}
     ports:
@@ -67,4 +62,4 @@ services:
       - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
     environment:
       <<: *keyserver-common-env
-      "SECUREDNA_KEYSERVER_CFG_PATH": "/cfg/keyserver3.toml"
+      "SECUREDNA_CFG_PATH": "/cfg/03.keyserver-03.toml"

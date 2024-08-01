@@ -307,8 +307,35 @@ mod tests {
         .unwrap())
     }
 
+    // helper for `removes_low_risk_dna_tag` and `removes_low_risk_peptide_tag`
+    fn run_tags(
+        hlt_index: u32,
+        an_subindex: u8,
+        hlt: &HazardLookupTable,
+        provenance: Provenance,
+    ) -> (Vec<Tag>, Vec<Tag>) {
+        let metadata = Metadata {
+            hlt_index,
+            an_subindex,
+            an_likelihood: half::f16::from_f32(0.),
+            provenance,
+            reverse_screened: false,
+            is_common: false,
+        };
+
+        let resp = HdbResponse::with_hlt(metadata, Region::All, &Default::default(), hlt).unwrap();
+        let mut possible_tags: Vec<Tag> = resp
+            .organisms
+            .into_iter()
+            .flat_map(|o| o.tags.into_iter())
+            .collect();
+        possible_tags.sort();
+        possible_tags.dedup();
+        (resp.most_likely_organism.tags, possible_tags)
+    }
+
     #[test]
-    fn removes_low_risk_tag() {
+    fn removes_low_risk_dna_tag() {
         let hlt: HazardLookupTable = serde_json::from_str(
             r#"{ "entries": {
             "0": { "id_groups": [
@@ -319,39 +346,39 @@ mod tests {
         )
         .unwrap();
 
-        fn run_tags(
-            hlt_index: u32,
-            an_subindex: u8,
-            hlt: &HazardLookupTable,
-        ) -> (Vec<Tag>, Vec<Tag>) {
-            let metadata = Metadata {
-                hlt_index,
-                an_subindex,
-                an_likelihood: half::f16::from_f32(0.),
-                provenance: Provenance::DnaNormal,
-                reverse_screened: false,
-                is_common: false,
-            };
-
-            let resp =
-                HdbResponse::with_hlt(metadata, Region::All, &Default::default(), hlt).unwrap();
-            let mut possible_tags: Vec<Tag> = resp
-                .organisms
-                .into_iter()
-                .flat_map(|o| o.tags.into_iter())
-                .collect();
-            possible_tags.sort();
-            possible_tags.dedup();
-            (resp.most_likely_organism.tags, possible_tags)
-        }
-
         assert_eq!(
-            run_tags(0, 0, &hlt),
+            run_tags(0, 0, &hlt, Provenance::DnaNormal),
             (vec![Tag::HumanToHuman], vec![Tag::HumanToHuman],)
         );
 
         assert_eq!(
-            run_tags(0, 1, &hlt),
+            run_tags(0, 1, &hlt, Provenance::DnaNormal),
+            (
+                vec![Tag::RegulatedButPass],
+                vec![Tag::HumanToHuman, Tag::RegulatedButPass],
+            )
+        );
+    }
+
+    #[test]
+    fn removes_low_risk_peptide_tag() {
+        let hlt: HazardLookupTable = serde_json::from_str(
+            r#"{ "entries": {
+            "0": { "id_groups": [
+                [{"OrganismName": "Test"}, {"OrganismType": "Virus"}, {"Tag": "HumanToHuman"}],
+                [{"OrganismName": "Test"}, {"OrganismType": "Virus"}, {"Tag": "SdnaLowRiskPeptide"}]
+            ] }
+        } }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            run_tags(0, 0, &hlt, Provenance::AAWildType),
+            (vec![Tag::HumanToHuman], vec![Tag::HumanToHuman],)
+        );
+
+        assert_eq!(
+            run_tags(0, 1, &hlt, Provenance::AAWildType),
             (
                 vec![Tag::RegulatedButPass],
                 vec![Tag::HumanToHuman, Tag::RegulatedButPass],

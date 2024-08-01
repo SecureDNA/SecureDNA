@@ -5,14 +5,11 @@
 //! A `Certificate` with the `Infrastructure` role is able to sign a `KeyserverTokenRequest` to issue a `KeyserverToken`.
 //! `KeyserverToken`s will be used to identify keyservers.
 
-use std::fmt::Display;
-
 use rasn::{types::*, Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use doprf::party::KeyserverId;
 
-use crate::validation_failure::ValidationFailure;
 use crate::{
     asn::ToASN1DerBytes,
     error::EncodeError,
@@ -28,12 +25,13 @@ use crate::{
         common::{
             CompatibleIdentity, ComponentVersionGuard, Expiration, Id, Signed, VersionedComponent,
         },
-        digest::{INDENT, INDENT2},
         role::Infrastructure,
     },
     tokens::{TokenData, TokenGroup},
-    CertificateChain, Formattable, KeyAvailable, KeyPair, KeyUnavailable,
+    CertificateChain, Digestible, KeyAvailable, KeyPair, KeyUnavailable, TokenKind,
 };
+
+use super::digest::{KeyserverTokenDigest, KeyserverTokenRequestDigest};
 
 #[derive(
     AsnType,
@@ -53,9 +51,9 @@ use crate::{
 pub(crate) struct KeyserverTokenRequest1 {
     guard: ComponentVersionGuard<Self>,
     // This corresponds to the x coordinate of the keyserver's keyshare
-    keyserver_id: KeyserverId,
-    request_id: Id,
-    public_key: PublicKey,
+    pub(crate) keyserver_id: KeyserverId,
+    pub(crate) request_id: Id,
+    pub(crate) public_key: PublicKey,
 }
 
 impl KeyserverTokenRequest1 {
@@ -102,6 +100,10 @@ impl KeyserverTokenRequest {
     }
 }
 
+impl Digestible for KeyserverTokenRequest {
+    type Digest = KeyserverTokenRequestDigest;
+}
+
 impl PemTaggable for KeyserverTokenRequest {
     fn tag() -> String {
         "SECUREDNA KEYSERVER TOKEN REQUEST".to_string()
@@ -141,9 +143,9 @@ impl Decode for KeyserverTokenRequest {
 #[rasn(automatic_tags)]
 pub(crate) struct KeyserverTokenIssuer1 {
     guard: ComponentVersionGuard<Self>,
-    issuance_id: Id,
-    identity: CompatibleIdentity,
-    expiration: Expiration,
+    pub(crate) issuance_id: Id,
+    pub(crate) identity: CompatibleIdentity,
+    pub(crate) expiration: Expiration,
 }
 
 impl KeyserverTokenIssuer1 {
@@ -211,6 +213,10 @@ impl<K> KeyserverToken<K> {
     }
 }
 
+impl<K> Digestible for KeyserverToken<K> {
+    type Digest = KeyserverTokenDigest;
+}
+
 impl<K> PemTaggable for KeyserverToken<K> {
     fn tag() -> String {
         "SECUREDNA KEYSERVER TOKEN".to_string()
@@ -247,6 +253,10 @@ impl TokenGroup for KeyserverTokenGroup {
     type TokenRequest = KeyserverTokenRequest;
     type Token = KeyserverToken<KeyUnavailable>;
     type ChainType = CertificateChain<Self::AssociatedRole>;
+
+    fn token_kind() -> TokenKind {
+        TokenKind::Keyserver
+    }
 }
 
 impl_boilerplate_for_token_request_version! {KeyserverTokenRequestVersion, V1}
@@ -261,130 +271,11 @@ impl_boilerplate_for_token! {KeyserverToken<K>}
 impl_encoding_boilerplate! {KeyserverToken<K>}
 impl_key_boilerplate_for_token! {KeyserverToken}
 
-impl Formattable for KeyserverTokenRequest {
-    type Digest = KeyserverTokenRequestDigest;
-}
-
-#[derive(Serialize)]
-pub struct KeyserverTokenRequestDigest {
-    version: String,
-    keyserver_id: KeyserverId,
-    request_id: Id,
-    public_key: PublicKey,
-}
-
-impl From<KeyserverTokenRequest> for KeyserverTokenRequestDigest {
-    fn from(value: KeyserverTokenRequest) -> Self {
-        match value.version {
-            KeyserverTokenRequestVersion::V1(r) => {
-                let version = "V1".to_string();
-                let keyserver_id = r.keyserver_id;
-                let request_id = r.request_id;
-                let public_key = r.public_key;
-                KeyserverTokenRequestDigest {
-                    version,
-                    keyserver_id,
-                    request_id,
-                    public_key,
-                }
-            }
-        }
-    }
-}
-
-impl Display for KeyserverTokenRequestDigest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} Keyserver Token Request", self.version)?;
-        writeln!(f, "{:INDENT$}Request ID:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.request_id)?;
-        writeln!(f, "{:INDENT$}Public Key:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.public_key)?;
-        writeln!(f, "{:INDENT$}Keyserver ID:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.keyserver_id)?;
-        Ok(())
-    }
-}
-
-impl<K> Formattable for KeyserverToken<K> {
-    type Digest = KeyserverTokenDigest;
-}
-
-#[derive(Serialize)]
-pub struct KeyserverTokenDigest {
-    version: String,
-    request_id: Id,
-    issuance_id: Id,
-    keyserver_id: KeyserverId,
-    public_key: PublicKey,
-    issued_by: CompatibleIdentity,
-    expiration: Expiration,
-    signature: Signature,
-    validation_failure: Option<ValidationFailure>,
-}
-
-impl<K> From<KeyserverToken<K>> for KeyserverTokenDigest {
-    fn from(value: KeyserverToken<K>) -> Self {
-        let validation_failure = value.check_signature_and_expiry().err();
-        match value.version {
-            KeyserverTokenVersion::V1(t) => {
-                let version = "V1".to_string();
-                let request_id = t.data.request.request_id;
-                let issuance_id = t.data.issuer_fields.issuance_id;
-                let keyserver_id = t.data.request.keyserver_id;
-                let public_key = t.data.request.public_key;
-                let expiration = t.data.issuer_fields.expiration;
-                let signature = t.signature;
-                let issued_by = t.data.issuer_fields.identity;
-                KeyserverTokenDigest {
-                    version,
-                    request_id,
-                    issuance_id,
-                    keyserver_id,
-                    public_key,
-                    expiration,
-                    signature,
-                    issued_by,
-                    validation_failure,
-                }
-            }
-        }
-    }
-}
-
-impl Display for KeyserverTokenDigest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} Keyserver Token", self.version)?;
-        writeln!(f, "{:INDENT$}Issuance ID:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.issuance_id)?;
-        writeln!(f, "{:INDENT$}Request ID:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.request_id)?;
-        writeln!(f, "{:INDENT$}Public Key:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.public_key)?;
-        writeln!(f, "{:INDENT$}Keyserver ID:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.keyserver_id)?;
-        writeln!(f, "{:INDENT$}Issued by:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.issued_by)?;
-        write!(f, "{}", self.expiration)?;
-        writeln!(f, "{:INDENT$}Signature:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.signature)?;
-
-        if let Some(validation_failure) = &self.validation_failure {
-            writeln!(f)?;
-            write!(f, "{}", validation_failure)?;
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod test {
     use crate::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
-    use crate::test_helpers::BreakableSignature;
     use crate::{
-        concat_with_newline,
-        test_helpers::{create_leaf_cert, expected_keyserver_token_plaintext_display},
-        Expiration, FormatMethod, Formattable, Infrastructure, Issued, KeyPair,
-        KeyserverTokenRequest,
+        test_helpers::create_leaf_cert, Expiration, Infrastructure, KeyPair, KeyserverTokenRequest,
     };
     use doprf::party::KeyserverId;
 
@@ -399,55 +290,6 @@ mod test {
 
         cert.issue_keyserver_token(req, Expiration::default())
             .unwrap();
-    }
-
-    #[test]
-    fn plaintext_display_for_keyserver_token_matches_expected_display() {
-        let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
-        let req = KeyserverTokenRequest::v1_token_request(
-            kp.public_key(),
-            KeyserverId::try_from(1).unwrap(),
-        );
-
-        let token = cert
-            .issue_keyserver_token(req, Expiration::default())
-            .unwrap();
-        let expected_text = expected_keyserver_token_plaintext_display(
-            &token,
-            "1",
-            &format!("(public key: {})", token.issuer_public_key()),
-            None,
-        );
-        let text = token.format(&FormatMethod::PlainDigest).unwrap();
-        assert_eq!(text, expected_text);
-    }
-
-    #[test]
-    fn plaintext_display_for_keyserver_token_warns_if_signature_invalid() {
-        let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
-        let req = KeyserverTokenRequest::v1_token_request(
-            kp.public_key(),
-            KeyserverId::try_from(1).unwrap(),
-        );
-
-        let mut token = cert
-            .issue_keyserver_token(req, Expiration::default())
-            .unwrap();
-        token.break_signature();
-
-        let expected_text = expected_keyserver_token_plaintext_display(
-            &token,
-            "1",
-            &format!("(public key: {})", token.issuer_public_key()),
-            Some(concat_with_newline!(
-                "",
-                "INVALID: The signature failed verification"
-            )),
-        );
-        let text = token.format(&FormatMethod::PlainDigest).unwrap();
-        assert_eq!(text, expected_text);
     }
 
     #[test]

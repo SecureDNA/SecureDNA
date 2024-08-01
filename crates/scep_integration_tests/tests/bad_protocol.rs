@@ -17,6 +17,7 @@ pub async fn not_json() {
     let server = TestServer::spawn(
         Opts {
             issuer_pks,
+            revocation_list: Default::default(),
             server_cert_chain: certs.keyserver_tokenbundle,
             server_keypair: certs.keyserver_keypair,
             keyserve_fn: Arc::new(|_| unreachable!()),

@@ -5,20 +5,23 @@
 
 use std::io::ErrorKind::InvalidData;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 
+use anyhow::Context;
 use hyper::{body::Incoming, Method, Request, StatusCode};
+use rustls::crypto::ring;
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use super::traits::{
-    AppConfig, AppState, ListenFn, Listener, LoadConfigFn, RelativeConfig, ResponseFn,
+    AppConfig, AppState, ListenFn, Listener, LoadConfigFn, ReadFileFn, RelativeConfig, ResponseFn,
     ValidServerSetup,
 };
-use super::{ExternalWorld, MultiplaneServer};
+use super::{ExternalWorld, MultiplaneServer, ServerConfig};
+use crate::error::ErrWrapper;
 use crate::response::{text, GenericResponse};
 use crate::signal::{
     fast_shutdown_requested, graceful_shutdown_requested, reload_config_requested,
@@ -39,16 +42,26 @@ use crate::signal::{
 ///
 /// **BEWARE:** This alters process state by _permanently_ registering an interrupt handler
 /// through [`tokio`]. As such, this should probably only be called near the entry point to
-/// a program, not by a library.
-pub async fn run_server<AC: AppConfig + DeserializeOwned + RelativeConfig, AS: AppState>(
-    config_path: impl AsRef<Path>,
+/// a program, not by a library. Likewise, it also installs a default crypto implementation.
+pub async fn run_server<AC: AppConfig, AS: AppState>(
+    load_cfg: impl LoadConfigFn<ServerConfig<AC>>,
     server_setup: impl ValidServerSetup<AC, AS>,
 ) -> anyhow::Result<()> {
+    if ring::default_provider().install_default().is_err() {
+        warn!("Unable to install rustls default CryptoProvider. (did something configure it already?)");
+    }
+
+    let external_world = ExternalWorld {
+        listen: default_listen_fn,
+        load_cfg,
+        read_file: tokio::fs::read,
+    };
+
     let server = Arc::new_cyclic(|server| {
         server_setup
             .to_server_setup()
             .with_response_to_control(default_control_plane(server.clone()))
-            .build_with_external_world(default_external_world(config_path))
+            .build_with_external_world(external_world)
     });
 
     server.reload_cfg().await?;
@@ -56,16 +69,16 @@ pub async fn run_server<AC: AppConfig + DeserializeOwned + RelativeConfig, AS: A
     let reload = async {
         loop {
             reload_config_requested().await;
-            tracing::info!("Config reload signaled");
+            info!("Config reload signaled");
             if let Err(err) = server.reload_cfg().await {
-                tracing::error!("Unable to reload config: {err:?}");
+                error!("Unable to reload config: {err:?}");
             }
         }
     };
 
     let graceful_shutdown = async {
         graceful_shutdown_requested().await;
-        tracing::info!("Graceful shutdown signaled");
+        info!("Graceful shutdown signaled");
         server.graceful_shutdown().await;
         futures::future::pending().await
     };
@@ -132,17 +145,20 @@ pub fn default_control_plane<AS: AppState>(server: Weak<MultiplaneServer>) -> im
 /// External world that listens on ports and reads configs from TOML files
 pub fn default_external_world<C: DeserializeOwned + RelativeConfig>(
     path: impl AsRef<Path>,
-) -> ExternalWorld<impl ListenFn, impl LoadConfigFn<C>> {
+) -> ExternalWorld<impl ListenFn, impl LoadConfigFn<C>, impl ReadFileFn> {
     ExternalWorld {
         listen: default_listen_fn,
         load_cfg: toml_reader(path),
+        read_file: tokio::fs::read,
     }
 }
 
 /// Default [`ListenFn`] implementation that opens actual ports.
 pub async fn default_listen_fn(address: SocketAddr) -> std::io::Result<impl Listener> {
-    let tcp_listener = Arc::new(TcpListener::bind(address).await?);
-    Ok(new_tcp_listener(tcp_listener))
+    let tcp_listener = TcpListener::bind(address)
+        .await
+        .map_err(add_advice_for_port(address.port()))?;
+    Ok(new_tcp_listener(Arc::new(tcp_listener)))
 }
 
 /// Creates a [`Listener`] from a [`tokio::net::TcpListener`].
@@ -157,18 +173,22 @@ pub fn new_tcp_listener(tcp_listener: Arc<TcpListener>) -> impl Listener {
 /// Default [`LoadConfigFn`] that reads and parses configs from TOML files.
 pub fn toml_reader<C: DeserializeOwned + RelativeConfig>(
     path: impl AsRef<Path>,
-) -> impl LoadConfigFn<C, Error = std::io::Error> {
+) -> impl LoadConfigFn<C, Error = ErrWrapper> {
     let path = path.as_ref().to_owned();
     move || {
         let path = path.clone();
         async move {
-            let config = tokio::fs::read(&path).await?;
+            let config = tokio::fs::read(&path)
+                .await
+                .with_context(|| format!("Couldn't open config TOML: {path:?}"))?;
             let mut hash = Sha256::new();
             hash.update(&config);
-            let config =
-                String::from_utf8(config).map_err(|err| std::io::Error::new(InvalidData, err))?;
-            let config: C =
-                toml::from_str(&config).map_err(|err| std::io::Error::new(InvalidData, err))?;
+            let config = String::from_utf8(config)
+                .map_err(|err| std::io::Error::new(InvalidData, err))
+                .with_context(|| format!("Couldn't interpret config TOML as UTF-8: {path:?}"))?;
+            let config: C = toml::from_str(&config)
+                .map_err(|err| std::io::Error::new(InvalidData, err))
+                .with_context(|| format!("Couldn't parse as TOML: {path:?}"))?;
             let parent_path = path.parent().unwrap_or(".".as_ref());
             let config = config.relative_to(parent_path);
             Ok((config, hash))
@@ -185,5 +205,52 @@ pub fn stub_cfg<AC>(
     move || {
         let build_cfg = build_cfg.clone();
         async move { Ok((build_cfg(), Sha256::new())) }
+    }
+}
+
+/// [`ReadFileFn`] implementation that never reads from disk.
+///
+/// Primarily useful for testing.
+pub async fn read_no_disk(_path: PathBuf) -> std::io::Result<Vec<u8>> {
+    Err(std::io::ErrorKind::NotFound.into())
+}
+
+/// Appends end-user hints to [`std::io::Error`].
+///
+/// Our userbase includes people who may be unfamiliar with Linux's restrictions on low ports.
+/// This returns a function that tweaks [`std::io::Error`]s to add a hint when permission is
+/// denied for listening on privileged ports.
+pub fn add_advice_for_port(port: u16) -> impl Fn(std::io::Error) -> std::io::Error {
+    move |err| match advice_for_port(port, &err) {
+        Some(hint) => std::io::Error::new(err.kind(), ErrHint { inner: err, hint }),
+        None => err,
+    }
+}
+
+fn advice_for_port(port: u16, error: &std::io::Error) -> Option<&'static str> {
+    if cfg!(target_os = "linux")
+        && error.kind() == std::io::ErrorKind::PermissionDenied
+        && port < 1024
+    {
+        return Some("(ports under 1024 usually require admin privileges)");
+    }
+    None
+}
+
+#[derive(Debug)]
+struct ErrHint {
+    inner: std::io::Error,
+    hint: &'static str,
+}
+
+impl std::error::Error for ErrHint {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.inner.source()
+    }
+}
+
+impl std::fmt::Display for ErrHint {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}\n{}", self.inner, self.hint)
     }
 }

@@ -14,7 +14,7 @@ use serde::Deserialize;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
-use certificates::{DatabaseTokenGroup, Issued, Manufacturer};
+use certificates::{DatabaseTokenGroup, Exemption, Issued, Manufacturer};
 use hdb::{Database, HazardLookupTable};
 use minhttp::error::ErrWrapper;
 use minhttp::mpserver::traits::ValidServerSetup;
@@ -58,10 +58,19 @@ async fn reconfigure(
     let build_timestamp = build_info.ok().map(|bi| BuildTimestamp(bi.build_timestamp));
 
     info!("Starting HDB server");
-    let database = Database::open(&app_cfg.database).context("failed to open database")?;
+    let path = &app_cfg.database;
+    let database =
+        Database::open(path).with_context(|| format!("failed to open database: {path:?}"))?;
     info!("Database is opened!");
     let hlt = HazardLookupTable::read(&app_cfg.database).context("failed to open HLT")?;
     info!("HLT is ready!");
+
+    let exemptions_roots =
+        scep_server_helpers::certs::read_certificates::<Exemption>(app_cfg.exemption_roots)
+            .context("reading exemption root certs")?
+            .into_iter()
+            .map(|c| *c.public_key())
+            .collect::<Vec<_>>();
 
     let manufacturer_roots =
         scep_server_helpers::certs::read_certificates::<Manufacturer>(app_cfg.manufacturer_roots)
@@ -70,12 +79,24 @@ async fn reconfigure(
             .map(|c| *c.public_key())
             .collect::<Vec<_>>();
 
+    let revocation_list = if let Some(path) = app_cfg.revocation_list {
+        let contents = tokio::fs::read(&path).await;
+        (|| -> anyhow::Result<_> {
+            let contents = String::from_utf8(contents?)?;
+            Ok(toml::from_str(&contents)?)
+        })()
+        .with_context(|| format!("Unable to read revocation list: {path:?}"))?
+    } else {
+        Default::default()
+    };
+
     let token_bundle =
         scep_server_helpers::certs::read_tokenbundle::<DatabaseTokenGroup>(app_cfg.token_file)
             .context("reading database token bundle")?;
 
-    let passphrase = fs::read_to_string(&app_cfg.keypair_passphrase_file)
-        .context("reading database keypair passphrase file")?;
+    let path = &app_cfg.keypair_passphrase_file;
+    let passphrase = fs::read_to_string(path)
+        .with_context(|| format!("reading database keypair passphrase file: {path:?}"))?;
 
     let keypair = scep_server_helpers::certs::read_keypair(app_cfg.keypair_file, passphrase.trim())
         .context("reading database keypair")?;
@@ -87,7 +108,7 @@ async fn reconfigure(
     // (at least, I don't yet know enough about our metrics code to be sure that's sensible)
     let metrics = if let Some(prev_metrics) = prev_state.as_ref().map(|s| &s.metrics) {
         prev_metrics.clone()
-    } else if server_cfg.monitoring.is_some() {
+    } else if server_cfg.monitoring.is_enabled() {
         let m = HdbMetrics::default();
         m.max_clients.set(server_cfg.main.max_connections as i64);
         Some(Arc::new(m))
@@ -139,16 +160,19 @@ async fn reconfigure(
             clients: Default::default(),
             json_size_limit: app_cfg.scep_json_size_limit,
             manufacturer_roots,
+            revocation_list,
             token_bundle,
             keypair,
             allow_insecure_cookie: app_cfg.allow_insecure_cookie,
         },
-        elt_size_limit: app_cfg.elt_size_limit,
+        et_size_limit: app_cfg.et_size_limit,
+        exemptions_roots,
         persistence_path: app_cfg.event_store_path,
         persistence_connection,
     }))
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct BuildInfo {
     pub build_timestamp: String,
@@ -208,7 +232,7 @@ async fn respond(
             )
             .await
         }
-        scep::SCREEN_ENDPOINT | scep::ELT_SCREEN_HASHES_ENDPOINT => {
+        scep::SCREEN_ENDPOINT | scep::EXEMPTION_SCREEN_HASHES_ENDPOINT => {
             handle_post(
                 &method,
                 handle_scep_err(
@@ -224,14 +248,14 @@ async fn respond(
             )
             .await
         }
-        scep::SCREEN_WITH_EL_ENDPOINT => {
+        scep::SCREEN_WITH_EXEMPTION_ENDPOINT => {
             handle_post(
                 &method,
                 handle_scep_err(
                     &hdbs_state.metrics,
                     &request_id,
                     peer,
-                    crate::screening::scep_endpoint_screen_with_el(
+                    crate::screening::scep_endpoint_screen_with_exemption(
                         &request_id,
                         hdbs_state.clone(),
                         request,
@@ -240,26 +264,30 @@ async fn respond(
             )
             .await
         }
-        scep::ELT_ENDPOINT => {
+        scep::EXEMPTION_ENDPOINT => {
             handle_post(
                 &method,
                 handle_scep_err(
                     &hdbs_state.metrics,
                     &request_id,
                     peer,
-                    crate::screening::scep_endpoint_elt(&request_id, hdbs_state.clone(), request),
+                    crate::screening::scep_endpoint_exemption(
+                        &request_id,
+                        hdbs_state.clone(),
+                        request,
+                    ),
                 ),
             )
             .await
         }
-        scep::ELT_SEQ_HASHES_ENDPOINT => {
+        scep::EXEMPTION_SEQ_HASHES_ENDPOINT => {
             handle_post(
                 &method,
                 handle_scep_err(
                     &hdbs_state.metrics,
                     &request_id,
                     peer,
-                    crate::screening::scep_endpoint_elt_seq_hashes(
+                    crate::screening::scep_endpoint_exemption_seq_hashes(
                         &request_id,
                         hdbs_state.clone(),
                         request,
@@ -427,8 +455,7 @@ async fn scep_endpoint_authenticate(
             .await
             {
                 error!(
-                    "failed to record ratelimit exceedance of {} for {}: {e}",
-                    attempted_bp, client_mid,
+                    "failed to record ratelimit exceedance of {attempted_bp} for {client_mid}: {e}",
                 );
             }
         },
@@ -441,7 +468,7 @@ async fn scep_endpoint_authenticate(
 mod test {
     use super::*;
 
-    use minhttp::mpserver::common::stub_cfg;
+    use minhttp::mpserver::common::{read_no_disk, stub_cfg};
     use minhttp::mpserver::{ExternalWorld, PlaneConfig};
     use minhttp::test::FakeNetwork;
 
@@ -459,26 +486,30 @@ mod test {
             yubico_api_client_id: None,
             yubico_api_secret_key: None,
             scep_json_size_limit: Config::default_scep_json_size_limit(),
-            elt_size_limit: Config::default_elt_size_limit(),
-            manufacturer_roots: "test/certs/manufacturer_roots".into(),
+            et_size_limit: Config::default_et_size_limit(),
+            exemption_roots: "test/certs/exemption-roots".into(),
+            manufacturer_roots: "test/certs/manufacturer-roots".into(),
+            revocation_list: None,
             token_file: "test/certs/database-token.dt".into(),
             keypair_file: "test/certs/database-token.priv".into(),
-            keypair_passphrase_file: "test/certs/database-passphrase.txt".into(),
+            keypair_passphrase_file: "test/certs/database-token.passphrase".into(),
             allow_insecure_cookie: true,
             event_store_path: Config::default_event_store_path(),
         };
         let server_config = ServerConfig {
             main: PlaneConfig {
-                address: "192.0.2.2:80".parse().unwrap(),
+                address: Some("192.0.2.2:80".parse().unwrap()),
+                tls_config: None,
                 max_connections: PlaneConfig::DEFAULT_MAX_CONNECTIONS,
                 custom: app_cfg,
             },
-            monitoring: None,
-            control: None,
+            monitoring: PlaneConfig::default(),
+            control: PlaneConfig::default(),
         };
         let external_world = ExternalWorld {
             listen: network.listen_fn(),
             load_cfg: stub_cfg(move || server_config.clone()),
+            read_file: read_no_disk,
         };
         let server = server_setup()
             .to_server_setup()

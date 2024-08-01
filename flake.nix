@@ -45,6 +45,7 @@
               gh # github cli tool
               jq
               just # justfile runner
+              google-cloud-sdk # for building arm
             ];
             # Environment variables
             RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";

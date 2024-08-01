@@ -6,9 +6,9 @@ set -u
 
 docker compose up -d
 
-containers=$(docker compose ps)
+containers=$(docker compose ps -a)
 
-if [[ "$containers" == *"exited"* ]]; then
+if [[ "$containers" == *"Exited"* ]]; then
   echo "ERROR: There is an exited container. Aborting."
   echo "$containers"
   docker compose ps

@@ -9,7 +9,7 @@ use serde::Deserialize;
 use doprf::active_security::Commitment;
 use doprf::party::KeyserverId;
 use doprf::prf::KeyShare;
-use minhttp::mpserver::traits::RelativeConfig;
+use minhttp::mpserver::{cli::ServerConfigSource, traits::RelativeConfig};
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -18,12 +18,8 @@ use minhttp::mpserver::traits::RelativeConfig;
     version = crate_version!()
 )]
 pub struct Opts {
-    #[clap(
-        long,
-        env = "SECUREDNA_KEYSERVER_CFG_PATH",
-        help = "The path to the keyserver config TOML"
-    )]
-    pub cfg_path: PathBuf,
+    #[command(flatten)]
+    pub config: ServerConfigSource<Config>,
 }
 
 #[derive(Clone, Debug, Args, Deserialize)]
@@ -100,6 +96,13 @@ pub struct Config {
 
     #[clap(
         long,
+        help = "Path to certificate revocation list TOML file",
+        env = "SECUREDNA_KEYSERVER_REVOCATION_LIST"
+    )]
+    pub revocation_list: Option<PathBuf>,
+
+    #[clap(
+        long,
         help = "Path to the server's token and certificate chain bundle file, used for SCEP",
         env = "SECUREDNA_KEYSERVER_TOKEN_FILE"
     )]
@@ -157,6 +160,7 @@ impl RelativeConfig for Config {
     fn relative_to(mut self, base: impl AsRef<Path>) -> Self {
         let base = base.as_ref();
         self.manufacturer_roots = base.join(self.manufacturer_roots);
+        self.revocation_list = self.revocation_list.map(|p| base.join(p));
         self.token_file = base.join(self.token_file);
         self.keypair_file = base.join(self.keypair_file);
         self.keypair_passphrase_file = base.join(self.keypair_passphrase_file);

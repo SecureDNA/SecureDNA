@@ -28,6 +28,10 @@ pub struct OpenRequest {
     pub nucleotide_total_count: u64,
     #[serde(with = "keyserver_id_set_serde")]
     pub keyserver_id_set: KeyserverIdSet,
+    /// Whether to include debug_info in the response. Defaults to `false` if not
+    /// provided.
+    #[serde(default)]
+    pub debug_info: bool,
 }
 
 impl OpenRequest {
@@ -54,17 +58,16 @@ pub enum ClientRequestType {
     Keyserve,
     #[serde(rename = "screen")]
     Screen(ScreenCommon),
-    #[serde(rename = "screen-with-EL")]
-    ScreenWithEl(ScreenCommon),
+    #[serde(rename = "screen-with-exemption")]
+    ScreenWithExemption(ScreenCommon),
     #[serde(rename = "report-AS-failure")]
     ReportASFailure,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ScreenWithElParams {
-    #[serde(rename = "ELT_size")]
-    pub elt_size: u64,
-    pub otp: String,
+pub struct ScreenWithExemptionParams {
+    #[serde(rename = "ET_size")]
+    pub et_size: u64,
 }
 
 /// The server response to an `OpenRequest` during mutual authentication.

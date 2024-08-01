@@ -6,13 +6,16 @@
 import { faCheck, faWarning } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  ApiResponse,
-  HitOrganism,
+  type ApiResponse,
+  type HitOrganism,
   ScreeningVisualization,
-  Sequence,
+  type Sequence,
 } from "@securedna/frontend_common";
-import { ReactNode, useEffect, useState } from "react";
-import { ScreeningProgress, performScreening } from "src/screening/screening";
+import { type ReactNode, useEffect, useState } from "react";
+import {
+  type ScreeningProgress,
+  performScreening,
+} from "src/screening/screening";
 import { sha256 } from "src/util/hash";
 
 import { unparse } from "src/util/sequence";
@@ -21,52 +24,49 @@ import { ProgressBar } from "./ProgressBar";
 
 async function cachedScreening(
   sequence: string | Sequence,
-  apiKey: string,
-  callback: (progress: ScreeningProgress) => void
+  callback: (progress: ScreeningProgress) => void,
 ): Promise<void> {
   const fasta = typeof sequence === "string" ? sequence : unparse(sequence);
-  const key = "sdna-screening-" + (await sha256(fasta));
+  const key = `sdna-screening-${await sha256(fasta)}`;
   const cached = sessionStorage.getItem(key);
   if (cached) {
     const result: ApiResponse = JSON.parse(cached);
     callback({ done: true, result });
   } else {
-    performScreening({ sequence, apiKey }, (p) => {
-      if (p.done) {
-        try {
-          // sessionStorage.setItem(key, JSON.stringify(shrinkResult(p.result)));
-        } catch (e) {
-          console.warn("sessionStorage is full");
-        }
-      }
+    performScreening({ sequence }, (p) => {
+      // if (p.done) {
+      //   try {
+      //     sessionStorage.setItem(key, JSON.stringify(shrinkResult(p.result)));
+      //   } catch (e) {
+      //     console.warn("sessionStorage is full");
+      //   }
+      // }
       callback(p);
     });
   }
 }
 
 export const ScreeningCard = (props: {
-  apiKey: string;
   name: string;
   sequence: Sequence;
   complete: (organisms: HitOrganism[]) => void;
 }) => {
   const [result, setResult] = useState<ApiResponse | { progress: number }>();
+  const { sequence, complete } = props;
 
   useEffect(() => {
     const go = async () => {
-      const sequence = props.sequence;
-
-      cachedScreening(sequence, props.apiKey, (progress) => {
+      cachedScreening(sequence, (progress) => {
         if (progress.done) {
           setResult(progress.result);
           if (progress.result.synthesis_permission === "granted") {
-            props.complete([]);
+            complete([]);
           } else {
-            const organisms = progress.result.hits_by_record!.flatMap(
-              (record) =>
-                record.hits_by_hazard.flatMap((hazard) => hazard.organisms)
-            );
-            props.complete(organisms);
+            const organisms =
+              progress.result.hits_by_record?.flatMap((record) =>
+                record.hits_by_hazard.flatMap((hazard) => hazard.organisms),
+              ) ?? [];
+            complete(organisms);
           }
         } else {
           setResult((old) => ({
@@ -86,10 +86,10 @@ export const ScreeningCard = (props: {
           warnings: [],
           errors: [{ diagnostic: String(e), additional_info: "" }],
         });
-        props.complete([]);
+        complete([]);
       });
     }
-  }, []);
+  }, [complete, result, sequence]);
 
   let contents: ReactNode;
   if (!result) {
@@ -124,6 +124,7 @@ export const ScreeningCard = (props: {
               Error:{" "}
             </span>
             {result.errors?.map((err, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the array won't change.
               <span key={i}>
                 {i > 0 && ", "}
                 {err.diagnostic}

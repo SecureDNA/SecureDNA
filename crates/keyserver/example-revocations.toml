@@ -1,0 +1,19 @@
+# Example revocation list
+
+# Note: To figure out the public keys, request ids or issuance ids,
+# the sdna-inspect-token and sdna-inspect-cert commands may be helpful.
+
+# List of public keys of any revoked certificates
+public_keys = [
+    #"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+]
+
+# List of request ids of any revoked certificates
+request_ids = [
+    #"0123456789abcdef0123456789abcdef"
+]
+
+# List of issuance ids of any revoked certificates
+issuance_ids = [
+    #"0123456789abcdef0123456789abcdef"
+]

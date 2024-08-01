@@ -11,9 +11,10 @@ const baseConfig = {
       current: "currentColor",
       inherit: "inherit",
       white: "#fff",
+      red: "#f55",
     },
     fontFamily: {
-      primary: ["DM Sans Variable", "sans-serif"],
+      primary: ["DM Sans Variable", "DM Sans", "sans-serif"],
     },
     container: {
       center: true,

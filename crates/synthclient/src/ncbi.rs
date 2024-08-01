@@ -1,9 +1,9 @@
 // Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use shared_types::info_with_timestamp;
 use shared_types::requests::RequestId;
 use thiserror::Error;
+use tracing::info;
 
 use crate::fetch::{fetch, FetchError};
 
@@ -25,7 +25,7 @@ pub async fn download_fasta_by_acc_number(
         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&rettype=fasta&id={}",
         acc.trim()
     );
-    info_with_timestamp!("{}: requesting FASTA from NCBI URL: {}", request_id, url);
+    info!("{request_id}: requesting FASTA from NCBI URL: {url}");
 
     let response = fetch(&url).await.map_err(NcbiError::RequestFailed)?;
 

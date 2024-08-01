@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { ApiResponse } from "@securedna/frontend_common";
+import type { ApiResponse } from "@securedna/frontend_common";
 
 const enumerate_tier = import.meta.env.DEV ? "staging" : "prod";
 const enumerate_apex = "securedna.org";
@@ -24,7 +24,7 @@ export async function initScreen() {
     // console.time(requestId);
     try {
       const result = await screening.screen(sequence, {
-        region: null, // TODO(theia) / TODO(lynn): we should maybe have a settings dropdown or something for this?
+        region: "All", // TODO(theia) / TODO(lynn): we should maybe have a settings dropdown or something for this?
         enumeration_settings: {
           tier: enumerate_tier,
           apex: enumerate_apex,
@@ -40,7 +40,7 @@ export async function initScreen() {
       // console.timeEnd(requestId);
       e.ports[0].postMessage({ done: true, result });
     } catch (err) {
-      let result: ApiResponse = {
+      const result: ApiResponse = {
         synthesis_permission: "denied",
         hits_by_record: [],
         warnings: [],

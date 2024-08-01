@@ -4,16 +4,18 @@
 use std::path::PathBuf;
 
 use certificates::{
-    file::FileError, ExpirationError, FormatError, IssuanceError, KeyLoadError, KeyMismatchError,
-    KeyWriteError,
+    file::FileError, CertificateBundleError, ExpirationError, IssuanceError, KeyLoadError,
+    KeyMismatchError, KeyWriteError,
 };
 
-use crate::passphrase_reader::PassphraseReaderError;
+use crate::{inspect::FormatError, passphrase_reader::PassphraseReaderError};
 
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum CertCliError {
     #[error("The public key provided for use in auditing could not be parsed.")]
     AuditKeyParseError,
+    #[error(transparent)]
+    CertificateBundleError(#[from] CertificateBundleError),
     #[error("Unsuccessfully attempted to create a default directory at {:?} for your certificate files.", .0)]
     DefaultDirectoryCreation(PathBuf),
     #[error("Unsuccessfully attempted to determine a default directory for your certificate files. Please supply destinations for the files you are creating.")]

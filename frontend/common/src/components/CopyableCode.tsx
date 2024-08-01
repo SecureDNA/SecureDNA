@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import React from "react";
 import { copyToClipboard } from "../copyToClipboard";
 
 export const CopyableCode = (props: { description: string; text: string }) => (

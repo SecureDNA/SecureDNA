@@ -15,11 +15,12 @@ use http_body_util::{BodyExt, StreamBody};
 use hyper::body::{Body, Frame, Incoming};
 use hyper::header::{HeaderValue, CONTENT_TYPE, SET_COOKIE};
 use hyper::{Method, Request, Response, StatusCode};
-use scep::steps::{server_elt_client, server_elt_seq_hashes_client};
-use scep::types::ScreenWithElParams;
+use scep::steps::{server_et_client, server_et_seq_hashes_client};
+use scep::types::ScreenWithExemptionParams;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
+use certificates::revocation::RevocationList;
 use certificates::{key_traits::CanLoadKey, KeyPair, PublicKey, TokenBundle, TokenGroup};
 use doprf::prf::{CompletedHashValue, HashPart, Query};
 use doprf::tagged::TaggedHash;
@@ -43,6 +44,7 @@ const SERVER_VERSION: u64 = 1;
 
 pub struct Opts<T: TokenGroup> {
     pub issuer_pks: Vec<PublicKey>,
+    pub revocation_list: RevocationList,
     pub server_cert_chain: TokenBundle<T>,
     pub server_keypair: KeyPair,
     pub keyserve_fn: Arc<dyn Fn(Query) -> HashPart + Send + Sync + 'static>,
@@ -233,32 +235,34 @@ where
             peer,
         ),
         (&Method::OPTIONS, scep::KEYSERVE_ENDPOINT) => response::empty(),
-        (&Method::POST, scep::SCREEN_ENDPOINT | scep::ELT_SCREEN_HASHES_ENDPOINT) => ok_or_err(
-            endpoint_screen(request_id, &server_state, request).await,
-            request_id,
-            peer,
-        ),
-        (&Method::OPTIONS, scep::SCREEN_ENDPOINT | scep::ELT_SCREEN_HASHES_ENDPOINT) => {
+        (&Method::POST, scep::SCREEN_ENDPOINT | scep::EXEMPTION_SCREEN_HASHES_ENDPOINT) => {
+            ok_or_err(
+                endpoint_screen(request_id, &server_state, request).await,
+                request_id,
+                peer,
+            )
+        }
+        (&Method::OPTIONS, scep::SCREEN_ENDPOINT | scep::EXEMPTION_SCREEN_HASHES_ENDPOINT) => {
             response::empty()
         }
-        (&Method::POST, scep::SCREEN_WITH_EL_ENDPOINT) => ok_or_err(
-            endpoint_screen_with_el(request_id, &server_state, request).await,
+        (&Method::POST, scep::SCREEN_WITH_EXEMPTION_ENDPOINT) => ok_or_err(
+            endpoint_screen_with_exemption(request_id, &server_state, request).await,
             request_id,
             peer,
         ),
-        (&Method::OPTIONS, scep::SCREEN_WITH_EL_ENDPOINT) => response::empty(),
-        (&Method::POST, scep::ELT_ENDPOINT) => ok_or_err(
-            endpoint_elt(request_id, &server_state, request).await,
+        (&Method::OPTIONS, scep::SCREEN_WITH_EXEMPTION_ENDPOINT) => response::empty(),
+        (&Method::POST, scep::EXEMPTION_ENDPOINT) => ok_or_err(
+            endpoint_exemption(request_id, &server_state, request).await,
             request_id,
             peer,
         ),
-        (&Method::OPTIONS, scep::ELT_ENDPOINT) => response::empty(),
-        (&Method::POST, scep::ELT_SEQ_HASHES_ENDPOINT) => ok_or_err(
-            endpoint_elt_seq_hashes(request_id, &server_state, request).await,
+        (&Method::OPTIONS, scep::EXEMPTION_ENDPOINT) => response::empty(),
+        (&Method::POST, scep::EXEMPTION_SEQ_HASHES_ENDPOINT) => ok_or_err(
+            endpoint_exemption_seq_hashes(request_id, &server_state, request).await,
             request_id,
             peer,
         ),
-        (&Method::OPTIONS, scep::ELT_SEQ_HASHES_ENDPOINT) => response::empty(),
+        (&Method::OPTIONS, scep::EXEMPTION_SEQ_HASHES_ENDPOINT) => response::empty(),
         _ => response::not_found(),
     }
 }
@@ -339,6 +343,8 @@ async fn endpoint_authenticate<T: TokenGroup>(
         authenticate_request,
         client_state,
         SERVER_VERSION,
+        &server_state.opts.issuer_pks,
+        &server_state.opts.revocation_list,
         |_| async { Ok(0) },
         |_, _| async {},
     )
@@ -434,12 +440,12 @@ async fn endpoint_screen<T: TokenGroup>(
         scep::steps::server_screen_client(hash_count_from_content_len, client_state)?;
 
     let hashes: Vec<TaggedHash> = from_request(request).unwrap().try_collect().await.unwrap();
-    let exemptions = match client.elt_state {
-        scep::states::EltState::NoElt => Default::default(),
-        scep::states::EltState::EltReady { elt, hashes, .. } => {
-            Exemptions::new_unchecked(vec![*elt], hashes)
+    let exemptions = match client.et_state {
+        scep::states::EtState::NoEt => Default::default(),
+        scep::states::EtState::EtReady { ets, hashes, .. } => {
+            Exemptions::new_unchecked(ets.into_iter().map(|w| w.et).collect(), hashes)
         }
-        _ => panic!("bad ELT state in SCEP integration test"),
+        _ => panic!("bad exemption token state in SCEP integration test"),
     };
 
     info!("Got hashes: {hashes:?}");
@@ -450,7 +456,7 @@ async fn endpoint_screen<T: TokenGroup>(
     ))
 }
 
-async fn endpoint_screen_with_el<T: TokenGroup>(
+async fn endpoint_screen_with_exemption<T: TokenGroup>(
     request_id: &RequestId,
     server_state: &ServerState<T>,
     request: Request<Incoming>,
@@ -473,10 +479,10 @@ async fn endpoint_screen_with_el<T: TokenGroup>(
         .map_err(|e| scep::error::ScepError::InvalidMessage(e.into()))?
         .to_bytes();
 
-    let params: ScreenWithElParams = serde_json::from_slice(&bytes)
+    let params: ScreenWithExemptionParams = serde_json::from_slice(&bytes)
         .map_err(|e| scep::error::ScepError::InvalidMessage(e.into()))?;
 
-    info!("{request_id}: screen-with-EL, params {params:?}");
+    info!("{request_id}: screen-with-exemption, params {params:?}");
 
     let new_client_state = scep::steps::server_screen_with_el_client(params, client_state)?;
 
@@ -497,11 +503,11 @@ async fn endpoint_screen_with_el<T: TokenGroup>(
     Ok(response::json(StatusCode::OK, "{}"))
 }
 
-async fn endpoint_elt<T: TokenGroup>(
+async fn endpoint_exemption<T: TokenGroup>(
     request_id: &RequestId,
     server_state: &ServerState<T>,
     request: Request<Incoming>,
-) -> Result<GenericResponse, scep::error::ScepError<scep::error::ELT>> {
+) -> Result<GenericResponse, scep::error::ScepError<scep::error::ET>> {
     let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
 
     let client_state = server_state
@@ -513,16 +519,16 @@ async fn endpoint_elt<T: TokenGroup>(
             scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
         })?;
 
-    let elt_body = request
+    let et_body = request
         .into_body()
         .collect()
         .await
         .map_err(|e| scep::error::ScepError::InvalidMessage(e.into()))?
         .to_bytes();
 
-    info!("{request_id}: ELT, body {} bytes", elt_body.len());
+    info!("{request_id}: exemption, body {} bytes", et_body.len());
 
-    let (client, response) = server_elt_client(elt_body, client_state)?;
+    let (client, response) = server_et_client(et_body, client_state)?;
 
     server_state
         .clients
@@ -535,7 +541,7 @@ async fn endpoint_elt<T: TokenGroup>(
             ))
         })?;
 
-    // Give them the OK to hit /ELT-seq-hashes or /ELT-screen-hashes next.
+    // Give them the OK to hit /exemption-seq-hashes or /exemption-screen-hashes next.
     Ok(response::json(
         StatusCode::OK,
         serde_json::to_string(&response).map_err(|_| {
@@ -544,11 +550,11 @@ async fn endpoint_elt<T: TokenGroup>(
     ))
 }
 
-async fn endpoint_elt_seq_hashes<T: TokenGroup>(
+async fn endpoint_exemption_seq_hashes<T: TokenGroup>(
     request_id: &RequestId,
     server_state: &ServerState<T>,
     request: Request<Incoming>,
-) -> Result<GenericResponse, scep::error::ScepError<scep::error::EltSeqHashes>> {
+) -> Result<GenericResponse, scep::error::ScepError<scep::error::EtSeqHashes>> {
     let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
 
     let client_state = server_state
@@ -561,18 +567,18 @@ async fn endpoint_elt_seq_hashes<T: TokenGroup>(
         })?;
 
     let hashes: Vec<_> = from_request::<_, CompletedHashValue>(request)
-        .context("in ELT-seq-hashes")
+        .context("in exemption-seq-hashes")
         .map_err(scep::error::ScepError::InvalidMessage)?
         .try_collect()
         .await
-        .context("in ELT-seq-hashes")
+        .context("in exemption-seq-hashes")
         .map_err(scep::error::ScepError::InvalidMessage)?;
 
     info!(
-        "{request_id}: ELT-seq-hashes, parsed {} hashes",
+        "{request_id}: exemption-seq-hashes, parsed {} hashes",
         hashes.len()
     );
-    let client = server_elt_seq_hashes_client(hashes, client_state)?;
+    let client = server_et_seq_hashes_client(hashes, client_state)?;
 
     server_state
         .clients
@@ -585,7 +591,7 @@ async fn endpoint_elt_seq_hashes<T: TokenGroup>(
             ))
         })?;
 
-    // Give them the OK to hit /ELT-screen-hashes next.
+    // Give them the OK to hit /exemption-screen-hashes next.
     Ok(response::json(StatusCode::OK, "{}"))
 }
 

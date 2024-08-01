@@ -9,19 +9,20 @@
     "build": "tsc"
   },
   "peerDependencies": {
-    "@fortawesome/free-solid-svg-icons": "^6.4.0",
-    "@fortawesome/react-fontawesome": "^0.2.0",
-    "react": "^18.2.0",
+    "react": "^18.3.1",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",
     "reactjs-popup": "^2.0.5"
   },
   "devDependencies": {
-    "@types/react": "^18.2.79",
+    "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "typescript": "^5.4.2"
+    "typescript": "^5.5.2"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^6.6.0",
+    "@fortawesome/free-solid-svg-icons": "^6.6.0",
+    "@fortawesome/react-fontawesome": "^0.2.0",
     "bottleneck": "^2.19.5"
   }
 }

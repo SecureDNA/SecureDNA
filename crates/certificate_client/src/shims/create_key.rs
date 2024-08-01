@@ -10,8 +10,8 @@ use std::{
 use clap::{crate_version, Parser};
 
 use super::error::CertCliError;
-use crate::common::create_new_key_file;
-use crate::common::NewKeyDetails;
+use crate::key::create_new_key_file;
+use crate::key::NewKeyDetails;
 use crate::passphrase_reader::{PassphraseReader, PassphraseSource, ENV_PASSPHRASE_WARNING};
 
 #[derive(Debug, Parser)]
@@ -75,7 +75,7 @@ fn run<P: PassphraseReader>(
 mod tests {
     use std::fs::File;
 
-    use crate::common::NewKeyDetails;
+    use crate::key::NewKeyDetails;
     use crate::passphrase_reader::{
         EnvVarPassphraseReader, MemoryPassphraseReader, PassphraseReaderError, PassphraseSource,
         ENV_PASSPHRASE_WARNING, KEY_ENCRYPTION_PASSPHRASE_ENV_VAR,

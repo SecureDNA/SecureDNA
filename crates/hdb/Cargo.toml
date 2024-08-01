@@ -17,15 +17,14 @@ flate2 = "1.0.27"
 half = "2.4.0"
 hex = "0.4"
 indexmap = "2.2.0"
-itertools = "0.12.0"
-log = "0.4.20"
-metrics = "0.22.0"
+itertools = "0.13.0"
+metrics = "0.23.0"
 rand = "0.8.5"
 rayon = "1.10.0"
 serde = { workspace = true }
 serde_json = "1"
 thiserror = "1.0.47"
-tracing = "0.1.37"
+tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 
 certificates = { path = "../certificates" }
@@ -34,6 +33,6 @@ pipeline_bridge = { path = "../pipeline_bridge" }
 shared_types = { path = "../shared_types" }
 
 [dev-dependencies]
-insta = { version = "1.38.0", features = ["yaml"] }
+insta = { version = "1.39.0", features = ["yaml"] }
 quickcheck = "1.0"
 tempfile = "3.6.0"

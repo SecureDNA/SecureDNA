@@ -10,8 +10,8 @@ use doprf::prf::{HashPart, QueryStateSet};
 use doprf::tagged::{HashTag, TaggedHash};
 use packed_ristretto::{PackableRistretto, PackedRistrettos};
 
-use shared_types::debug_with_timestamp;
 use shared_types::requests::RequestContext;
+use tracing::debug;
 
 #[cfg(target_arch = "wasm32")]
 async fn spawn_blocking<F, R>(f: F) -> Result<R, ()>
@@ -71,7 +71,7 @@ pub fn make_keyserver_querysets(
     report_progress(request_ctx);
 
     let setup_duration = now.elapsed();
-    debug_with_timestamp!("Setting up done. Took: {:.2?}", setup_duration);
+    debug!("Setting up done. Took: {:.2?}", setup_duration);
     querystates
 }
 
@@ -103,7 +103,7 @@ where
     }
 
     let incorporating_duration = now.elapsed();
-    debug_with_timestamp!(
+    debug!(
         "Incorporating keyserver answers done. Took: {:.2?}",
         incorporating_duration
     );
@@ -122,7 +122,7 @@ where
     .expect("could not join thread");
 
     let hash_duration = now.elapsed();
-    debug_with_timestamp!(
+    debug!(
         "Calculating hashes with lagrange improvements done. Took: {:.2?}",
         hash_duration
     );

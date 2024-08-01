@@ -5,9 +5,10 @@ mod asn;
 mod certificate;
 mod certificate_chain;
 mod chain_item;
+mod digest;
+mod display;
 mod ecies;
 mod error;
-mod format;
 mod issued;
 mod key_state;
 mod keypair;
@@ -16,7 +17,7 @@ mod shared_components;
 mod tokens;
 mod traversal;
 mod utility;
-mod validation_failure;
+mod validation_error;
 
 pub use crate::keypair::{
     KeyLoadError, KeyPair, KeyWriteError, PublicKey, Signature, SignatureVerificationError,
@@ -31,12 +32,10 @@ pub use certificate::{
     HierarchyKindParseError, IssuanceError, IssuerAdditionalFields, RequestBuilder, RequestDigest,
 };
 pub use certificate_chain::CertificateChain;
-pub use chain_item::ChainItem;
+pub use chain_item::{ChainItem, ChainItemDigest, ChainItemDigestValidationError};
+pub use digest::Digestible;
 pub use ecies::EncryptionPublicKey;
 pub use error::{DecodeError, EncodeError};
-pub use format::{
-    format_multiple_items, FormatError, FormatMethod, FormatMethodParseError, Formattable,
-};
 pub use issued::Issued;
 pub use shared_components::common::{Description, Expiration, ExpirationError, Id};
 pub use shared_components::role::{
@@ -44,7 +43,7 @@ pub use shared_components::role::{
 };
 pub use tokens::exemption::{
     authenticator::{Authenticator, YubikeyId},
-    exemption_list::{ExemptionListToken, ExemptionListTokenGroup, ExemptionListTokenRequest},
+    et::{ExemptionToken, ExemptionTokenGroup, ExemptionTokenRequest},
     organism::{GenbankId, Organism, Sequence, SequenceIdentifier},
 };
 pub use tokens::infrastructure::{
@@ -57,12 +56,15 @@ pub use tokens::manufacturer::synthesizer::{
 };
 pub use tokens::token_bundle::{TokenBundle, TokenBundleError};
 pub use tokens::{Request, TokenGroup, TokenKind};
-pub use traversal::ChainTraversal;
+pub use traversal::{ChainTraversal, ChainValidationError};
 pub use utility::now_utc;
-pub use validation_failure::{EXPIRED_TEXT, INVALID_SIGNATURE_TEXT, NOT_YET_VALID_TEXT};
+pub use validation_error::{
+    ValidationError, EXPIRED_TEXT, INVALID_SIGNATURE_TEXT, NOT_YET_VALID_TEXT,
+};
 
 mod chain;
 pub mod file;
+pub mod issuance_checks;
 pub mod key_traits;
 pub mod revocation;
 pub mod test_helpers;

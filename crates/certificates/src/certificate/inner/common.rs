@@ -28,7 +28,7 @@ pub struct Subject1 {
     pub request_id: Id,
     pub pk: PublicKey,
     pub requestor_desc: Description,
-    /// emails to be notified when ELTs issued by this cert are used.
+    /// emails to be notified when exemption tokens issued by this cert are used.
     pub emails_to_notify: Vec<String>,
 }
 
@@ -72,6 +72,10 @@ impl Subject for Subject1 {
     fn emails_to_notify(&self) -> &[String] {
         &self.emails_to_notify
     }
+
+    fn requestor_description(&self) -> &Description {
+        &self.requestor_desc
+    }
 }
 
 impl From<Subject1> for CompatibleIdentity {
@@ -91,7 +95,7 @@ pub struct ExemptionSubject1 {
     pub request_id: Id,
     pub pk: PublicKey,
     pub requestor_desc: Description,
-    /// emails to be notified when ELTs issued by this cert are used.
+    /// emails to be notified when exemption tokens issued by this cert are used.
     pub emails_to_notify: Vec<String>,
     pub allow_blinding: bool,
 }
@@ -142,6 +146,10 @@ impl Subject for ExemptionSubject1 {
     fn emails_to_notify(&self) -> &[String] {
         &self.emails_to_notify
     }
+
+    fn requestor_description(&self) -> &Description {
+        &self.requestor_desc
+    }
 }
 
 impl From<ExemptionSubject1> for CompatibleIdentity {
@@ -172,7 +180,7 @@ pub struct Issuer1 {
     pub issuance_id: Id,
     pub identity: CompatibleIdentity,
     pub expiration: Expiration,
-    /// emails to be notified when ELTs issued by this cert are used (set by issuer).
+    /// emails to be notified when exemption tokens issued by this cert are used (set by issuer).
     pub additional_emails_to_notify: Vec<String>,
 }
 
@@ -180,7 +188,7 @@ pub struct Issuer1 {
 #[derive(Debug, Default)]
 pub struct IssuerAdditionalFields {
     pub expiration: Expiration,
-    /// emails to be notified when ELTs issued by this cert are used (set by issuer).
+    /// emails to be notified when exemption tokens issued by this cert are used (set by issuer).
     pub emails_to_notify: Vec<String>,
 }
 
@@ -298,4 +306,5 @@ pub trait Subject: Identity {
     /// Unique for each certificate request
     fn request_id(&self) -> &Id;
     fn emails_to_notify(&self) -> &[String];
+    fn requestor_description(&self) -> &Description;
 }

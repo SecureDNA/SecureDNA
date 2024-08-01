@@ -3,15 +3,12 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import React from "react";
+import type React from "react";
 import { twMerge } from "tailwind-merge";
 
 export const LinkButton = (props: React.ComponentPropsWithoutRef<"button">) => (
   <button
     {...props}
-    className={twMerge(
-      "text-primary hover:underline disabled:opacity-50",
-      props.className
-    )}
+    className={twMerge("underline enabled:hover:opacity-50", props.className)}
   />
 );

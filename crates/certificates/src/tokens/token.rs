@@ -15,20 +15,18 @@ use crate::{
     issued::Issued,
     pem::{PemDecodable, PemEncodable},
     shared_components::{common::Id, role::Role},
-    CertificateChain, Formattable,
+    CertificateChain, Digestible,
 };
 
 /// Groups related types for each token
-pub trait TokenGroup: AsnCompatible // where
-//     Chain<Self::ChainType>: PemTaggable,
-{
+pub trait TokenGroup: AsnCompatible {
     /// Role of token's issuing certificate chain
     type AssociatedRole: Role + AsnCompatible;
-    type TokenRequest: Request + PemEncodable + PemDecodable + Formattable;
+    type TokenRequest: Request + PemEncodable + PemDecodable + Digestible;
     type Token: Issued
         + PemEncodable
         + PemDecodable
-        + Formattable
+        + Digestible
         + AsnCompatible
         + Clone
         + Into<ChainItem<Self::AssociatedRole>>;
@@ -38,6 +36,7 @@ pub trait TokenGroup: AsnCompatible // where
         + Clone
         + From<CertificateChain<Self::AssociatedRole>>
         + Into<Chain<Self::AssociatedRole>>;
+    fn token_kind() -> TokenKind;
 }
 
 pub trait Request {
@@ -47,7 +46,7 @@ pub trait Request {
 /// Tokens which can be issued by leaf certificates.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenKind {
-    ExemptionList,
+    Exemption,
     Keyserver,
     Database,
     Hlt,
@@ -57,24 +56,24 @@ pub enum TokenKind {
 impl Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TokenKind::ExemptionList => write!(f, "exemption list token"),
+            TokenKind::Exemption => write!(f, "exemption token"),
             TokenKind::Keyserver => write!(f, "keyserver token"),
             TokenKind::Database => write!(f, "database token"),
             TokenKind::Hlt => write!(f, "HLT token"),
-            TokenKind::Synthesizer => write!(f, "synthesizer list"),
+            TokenKind::Synthesizer => write!(f, "synthesizer token"),
         }
     }
 }
 
 #[derive(Error, Debug)]
-#[error("could not parse token type, expected one of (exemption-list, keyserver, database, synthesizer, hlt)")]
+#[error("could not parse token type, expected one of (exemption, keyserver, database, synthesizer, hlt)")]
 pub struct TokenKindParseError;
 impl FromStr for TokenKind {
     type Err = TokenKindParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "exemption-list" => Ok(TokenKind::ExemptionList),
+            "exemption" => Ok(TokenKind::Exemption),
             "keyserver" => Ok(TokenKind::Keyserver),
             "database" => Ok(TokenKind::Database),
             "hlt" => Ok(TokenKind::Hlt),

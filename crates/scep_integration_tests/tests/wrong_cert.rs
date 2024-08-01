@@ -36,6 +36,7 @@ pub async fn wrong_client_cert() {
     let server = TestServer::spawn(
         Opts {
             issuer_pks: issuer_pks.clone(),
+            revocation_list: Default::default(),
             server_cert_chain: certs.keyserver_tokenbundle,
             server_keypair: certs.keyserver_keypair,
             keyserve_fn: Arc::new(|_| unreachable!()),
@@ -70,6 +71,7 @@ pub async fn wrong_client_cert() {
             ]
             .into(),
             MakeCertsOptions::default().keyserver_id,
+            false,
         )
         .await
         .unwrap_err();
@@ -86,7 +88,7 @@ pub async fn wrong_client_cert() {
     assert!(!retriable);
     assert!(error
         .to_string()
-        .contains("provided certificate from client is invalid"));
+        .contains("the synthesizer token provided does not originate from the expected root certificate. This indicates a configuration error."));
 
     server.stop().await;
 }
@@ -114,6 +116,7 @@ pub async fn wrong_server_cert() {
     let server = TestServer::spawn(
         Opts {
             issuer_pks: issuer_pks.clone(),
+            revocation_list: Default::default(),
             server_cert_chain: certs.keyserver_tokenbundle,
             server_keypair: certs.keyserver_keypair,
             keyserve_fn: Arc::new(|_| unreachable!()),
@@ -148,6 +151,7 @@ pub async fn wrong_server_cert() {
             ]
             .into(),
             MakeCertsOptions::default().keyserver_id,
+            false,
         )
         .await
         .unwrap_err();
@@ -155,7 +159,7 @@ pub async fn wrong_server_cert() {
     if !matches!(
         err,
         scep_client_helpers::Error::Scep {
-            source: ScepError::Inner(scep::error::ClientPrevalidation::InvalidCert),
+            source: ScepError::Inner(scep::error::ClientPrevalidation::InvalidCert(..)),
             ..
         }
     ) {

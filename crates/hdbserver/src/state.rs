@@ -7,7 +7,7 @@ use std::sync::Arc;
 use hyper::StatusCode;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use certificates::DatabaseTokenGroup;
+use certificates::{DatabaseTokenGroup, PublicKey};
 use hdb::{Database, HazardLookupTable};
 use minhttp::response::{self, GenericResponse};
 use scep_server_helpers::server::ServerState;
@@ -32,7 +32,8 @@ pub struct HdbServerState {
     #[allow(dead_code)]
     pub validator: NetworkingValidator,
     pub scep: ServerState<DatabaseTokenGroup>,
-    pub elt_size_limit: u64,
+    pub et_size_limit: u64,
+    pub exemptions_roots: Vec<PublicKey>,
     pub persistence_path: PathBuf,
     pub persistence_connection: Connection,
 }

@@ -1,0 +1,124 @@
+[main]
+address = "127.0.0.1:8080"
+# IPv6 addresses are supported
+#address = "[::1]:8080"
+
+# (optional) Address to listen on for incoming TLS connections.
+#tls_address = "127.0.0.1:8090"
+
+# (optional) Path to TLS certificate in PEM format.
+#tls_certificate = "tls/cert.pem"
+
+# (optional) Path to TLS private key in PEM format.
+#tls_private_key = "tls/key.pem"
+
+# (optional) Maximum number of simultaneous HTTP connections
+#max_connections = 16384
+
+# (optional) Server tier to use for enumeration.
+#enumerate_tier = "prod"
+
+# (optional) Apex domain to use for enumeration.
+#enumerate_apex = "securedna.org"
+
+# (optional) Domain of a DNS-over-HTTPS provider, e.g. `1.1.1.1`. If provided, DoH will be used
+# for enumeration instead of native DNS.
+#doh_provider = "1.1.1.1"
+
+# (optional) Explicit keyserver domains to use, instead of enumerating.
+# Requires hdb_domains setting.
+#keyserver_domains = ["1.ks.prod.securedna.org", "2.ks.prod.securedna.org"]
+
+# (optional) Explicit hdb domains to use, instead of enumerating.
+# Requires keyserver_domains setting.
+#hdb_domains = ["1.db.prod.securedna.org", "2.db.prod.securedna.org"]
+
+# (optional) Timeout before a cached selection will be refreshed in the background.
+# Uses formatting from the `humantime` crate.
+#soft_timeout = "1day"
+
+# (optional) Timeout before a cached selection will be refreshed in the _foreground_,
+# making all requests wait. Uses formatting from the `humantime` crate.
+#blocking_timeout = "1week"
+
+# (optional) If nonzero, an extra amount of good keyservers, on top of the quorum threshold,
+# below which the selection will be refreshed in the background.
+#soft_extra_keyserver_threshold = 1
+
+# (optional) If nonzero, an extra amount of good hdbs, on top of the one needed for quorum,
+# below which the selection will be refreshed in the background.
+#soft_extra_hdb_threshold = 1
+
+# Path to your manufacturer token
+token_file = "synthesizer-token.st"
+
+# Path to the .priv keypair file for your token.
+keypair_file = "synthesizer-token.priv"
+
+# The file containing the passphrase to decrypt the .priv keypair file (keypair_file setting)
+keypair_passphrase_file = "synthesizer-token.passphrase"
+
+# Use a test root when validating certificates.  This will never work against production servers.
+use_test_roots_do_not_use_this_in_prod = false
+
+# (optional) Memory limit in bytes
+#memorylimit = 1000000000
+
+# (optional) By default, screening requests are limited to this many base pairs.
+#default_max_request_bp = 1000000
+
+# (optional) In a public demo setting, screening requests are limited to this many base pairs.
+#limited_max_request_bp = 10000
+
+# (optional) Secret key for validating reCAPTCHA v3 responses
+# (enables a demo on https://securedna.org/)
+#recaptcha_secret_key = ""
+
+# (optional) Hourly rate limit on reCAPTCHA screening requests from the same IP address
+#recaptcha_requests_per_hour = 5
+
+# Use http (instead of https) for all requests to internal servers (hdb and keyservers).
+# Useful for local development, will not work with securedna.org servers.
+use_http = false
+
+# (optional) Redirect from / to this URL.
+#frontend_url = "https://pages.securedna.org/web-interface/"
+
+# (optional) Maximum size of JSON request bodies
+#json_size_limit = 100000
+
+# (optional) Writable path where synthclient can persist event store data (known server versions, etc).
+# The default is :memory:, which is an in-memory store that will be erased on shutdown.
+#event_store_path = ":memory:"
+
+
+#[monitoring]
+#address = "127.0.0.1:8081"
+
+# (optional) Address to listen on for incoming TLS connections.
+#tls_address = "127.0.0.1:8091"
+
+# (optional) Path to TLS certificate in PEM format.
+#tls_certificate = "tls/cert.pem"
+
+# (optional) Path to TLS private key in PEM format.
+#tls_private_key = "tls/key.pem"
+
+# (optional) Maximum number of simultaneous HTTP connections
+# max_connections = 16384
+
+
+#[control]
+#address = "127.0.0.1:8082"
+
+# (optional) Address to listen on for incoming TLS connections.
+#tls_address = "127.0.0.1:8092"
+
+# (optional) Path to TLS certificate in PEM format.
+#tls_certificate = "tls/cert.pem"
+
+# (optional) Path to TLS private key in PEM format.
+#tls_private_key = "tls/key.pem"
+
+# (optional) Maximum number of simultaneous HTTP connections
+# max_connections = 16384

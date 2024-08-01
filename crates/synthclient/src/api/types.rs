@@ -3,7 +3,7 @@
 
 use doprf::party::KeyserverId;
 use serde::{Deserialize, Serialize};
-use shared_types::hdb::ConsolidatedHazardResult;
+use shared_types::{et::WithOtps, hdb::ConsolidatedHazardResult};
 
 use super::{
     error::{ApiError, ApiWarning},
@@ -21,13 +21,11 @@ pub struct RequestCommon {
     pub provider_reference: Option<String>,
     /// What region jurisdiction the request should be handled under
     pub region: Region,
-    /// A PEM-encoded exemption list token (really a `TokenBundle`) that may
-    /// exempt this request from certain hazards.
+    /// A list of PEM-encoded exemption token bundles, each with OTPs for
+    /// the auth devices contained within, that may exempt this request from
+    /// hazards.
     #[serde(default)]
-    pub elt_pem: Option<String>,
-    /// A 2FA OTP for one of the authenticators embedded in `elt_pem`.
-    #[serde(default)]
-    pub otp: Option<String>,
+    pub ets: Vec<WithOtps<String>>,
 }
 
 /// Region jurisdictions for handling requests. Controls e.g. what rules to use for setting
@@ -271,8 +269,7 @@ mod tests {
                 #[allow(deprecated)]
                 common: RequestCommon {
                     region: Region::All,
-                    elt_pem: None,
-                    otp: None,
+                    ets: vec![],
                     provider_reference: None,
                 },
             }
@@ -297,8 +294,7 @@ mod tests {
                 common: RequestCommon {
                     region: Region::All,
                     provider_reference: None,
-                    elt_pem: None,
-                    otp: None,
+                    ets: vec![],
                 },
             }
         )
@@ -321,8 +317,7 @@ mod tests {
                 #[allow(deprecated)]
                 common: RequestCommon {
                     region: Region::All,
-                    elt_pem: None,
-                    otp: None,
+                    ets: vec![],
                     provider_reference: Some("arbitrary test #5824".into()),
                 }
             }
@@ -346,8 +341,7 @@ mod tests {
                 #[allow(deprecated)]
                 common: RequestCommon {
                     region: Region::All,
-                    elt_pem: None,
-                    otp: None,
+                    ets: vec![],
                     provider_reference: Some("arbitrary test #5824".into()),
                 }
             }
@@ -463,7 +457,7 @@ mod tests {
             ApiResponse {
                 synthesis_permission: SynthesisPermission::Granted,
                 hits_by_record: vec![],
-                warnings: vec![ApiWarning::exemption_list_certificate_expiring_soon(
+                warnings: vec![ApiWarning::exemption_certificate_expiring_soon(
                     "1970-01-01"
                 )],
                 errors: vec![],
@@ -475,7 +469,7 @@ mod tests {
                 "warnings": [
                     {
                         "diagnostic": "certificate_expiring_soon",
-                        "additional_info": "The provided exemption list certificate is expiring soon, at 1970-01-01."
+                        "additional_info": "The provided exemption certificate is expiring soon, at 1970-01-01."
                     }
                 ],
                 "provider_reference": "my_reference"

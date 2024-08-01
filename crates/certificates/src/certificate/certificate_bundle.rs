@@ -1,6 +1,7 @@
 // Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use itertools::Itertools;
 use rasn::{AsnType, Decode, Encode};
 use thiserror::Error;
 
@@ -8,8 +9,16 @@ use crate::asn::{FromASN1DerBytes, ToASN1DerBytes};
 use crate::error::EncodeError;
 use crate::issued::Issued;
 use crate::pem::MultiItemPemBuilder;
+use crate::validation_error::ValidationError;
 use crate::{
     error::DecodeError, shared_components::role::Role, CertificateChain, ChainItem, ChainTraversal,
+};
+use crate::{
+    Authenticator, CertificateRequest, DatabaseTokenGroup, DatabaseTokenRequest, Exemption,
+    ExemptionTokenGroup, ExemptionTokenRequest, Expiration, HierarchyKind, HltTokenGroup,
+    HltTokenRequest, Infrastructure, IssuanceError, IssuerAdditionalFields, KeyMismatchError,
+    KeyPair, KeyserverTokenGroup, KeyserverTokenRequest, Manufacturer, SynthesizerTokenGroup,
+    SynthesizerTokenRequest, TokenBundle,
 };
 
 use crate::certificate::outer::Certificate;
@@ -27,16 +36,37 @@ where
     chain: CertificateChain<R>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum CertificateBundleError {
     #[error("unable to merge, certificates are not derived from the same request")]
     MergeError,
-    #[error("no valid certificates present")]
-    NoValidCertificatePresent,
+    #[error("no valid certificates present: {0}")]
+    InvalidCertificate(ValidationError),
     #[error("did not find a certificate when parsing contents")]
     NoCertificateFound,
     #[error(transparent)]
     Decode(#[from] DecodeError),
+    #[error(transparent)]
+    KeyMismatch(#[from] KeyMismatchError),
+    #[error(transparent)]
+    Issuance(#[from] IssuanceError),
+}
+
+#[derive(Debug, Error, PartialEq)]
+pub enum CertificateError<R: Role> {
+    #[error("no valid certificates present: {1}")]
+    Invalid(Box<Certificate<R, KeyUnavailable>>, ValidationError),
+    #[error("did not find a certificate")]
+    NotFound,
+}
+
+impl<R: Role> From<CertificateError<R>> for CertificateBundleError {
+    fn from(e: CertificateError<R>) -> Self {
+        match e {
+            CertificateError::Invalid(_, err) => CertificateBundleError::InvalidCertificate(err),
+            CertificateError::NotFound => CertificateBundleError::NoCertificateFound,
+        }
+    }
 }
 
 impl<R> CertificateBundle<R>
@@ -58,16 +88,41 @@ where
     /// representing the same certificate request, but issued by different parties.
     // We can use any of these to issue a new certificate because they all have the same public key.
     // However we choose the certificate with the longest validity period in order to avoid unneccessary CLI warnings.
-    pub fn get_lead_cert(&self) -> Result<&Certificate<R, KeyUnavailable>, CertificateBundleError> {
-        self.certs
+    pub fn get_lead_cert(&self) -> Result<&Certificate<R, KeyUnavailable>, CertificateError<R>> {
+        let mut first_error: Option<(Certificate<R, KeyUnavailable>, ValidationError)> = None;
+
+        for cert in self
+            .certs
             .iter()
-            .filter(|c| c.check_signature_and_expiry().is_ok())
-            .max_by(|a, b| {
-                a.expiration()
-                    .not_valid_after
-                    .cmp(&b.expiration().not_valid_after)
-            })
-            .ok_or(CertificateBundleError::NoValidCertificatePresent)
+            .sorted_by_key(|c| -c.expiration().not_valid_after)
+        {
+            match cert.check_signature_and_expiry() {
+                Ok(_) => return Ok(cert),
+                Err(e) => {
+                    first_error.get_or_insert((cert.clone(), e));
+                }
+            }
+        }
+
+        first_error
+            .map(|(cert, err)| Err(CertificateError::Invalid(Box::new(cert), err)))
+            .unwrap_or(Err(CertificateError::NotFound))
+    }
+
+    pub fn issue_cert_bundle(
+        &self,
+        request: CertificateRequest<R, KeyUnavailable>,
+        additional_fields: IssuerAdditionalFields,
+        key: KeyPair,
+    ) -> Result<CertificateBundle<R>, CertificateBundleError> {
+        let cert = self.get_lead_cert()?.clone().load_key(key)?;
+        let new_cert = cert.issue_cert(request, additional_fields)?;
+        let chain = match cert.hierarchy_level() {
+            // Root certs don't need to provide a certificate chain for the certificates they issue, because the root public keys will be known.
+            HierarchyKind::Root => None,
+            _ => Some(self.issue_chain()),
+        };
+        Ok(CertificateBundle::new(new_cert, chain))
     }
 
     /// Chain provided to any certificate or token issued by this certificate.
@@ -141,6 +196,88 @@ where
             certs,
             chain: self.chain,
         })
+    }
+}
+
+impl CertificateBundle<Exemption> {
+    pub fn issue_exemption_token_bundle(
+        &self,
+        token_request: ExemptionTokenRequest,
+        expiration: Expiration,
+        issuer_auth_devices: Vec<Authenticator>,
+        keypair: KeyPair,
+    ) -> Result<TokenBundle<ExemptionTokenGroup>, CertificateBundleError> {
+        let token = self
+            .get_lead_cert()?
+            .clone()
+            .load_key(keypair)?
+            .issue_exemption_token(token_request, expiration, issuer_auth_devices)?;
+        let chain = self.issue_chain();
+        Ok(TokenBundle::new(token, chain))
+    }
+}
+
+impl CertificateBundle<Infrastructure> {
+    pub fn issue_keyserver_token_bundle(
+        &self,
+        token_request: KeyserverTokenRequest,
+        expiration: Expiration,
+        keypair: KeyPair,
+    ) -> Result<TokenBundle<KeyserverTokenGroup>, CertificateBundleError> {
+        let token = self
+            .get_lead_cert()?
+            .clone()
+            .load_key(keypair)?
+            .issue_keyserver_token(token_request, expiration)?;
+        let chain = self.issue_chain();
+        Ok(TokenBundle::new(token, chain))
+    }
+
+    pub fn issue_database_token_bundle(
+        &self,
+        token_request: DatabaseTokenRequest,
+        expiration: Expiration,
+        keypair: KeyPair,
+    ) -> Result<TokenBundle<DatabaseTokenGroup>, CertificateBundleError> {
+        let token = self
+            .get_lead_cert()?
+            .clone()
+            .load_key(keypair)?
+            .issue_database_token(token_request, expiration)?;
+        let chain = self.issue_chain();
+        Ok(TokenBundle::new(token, chain))
+    }
+
+    pub fn issue_hlt_token_bundle(
+        &self,
+        token_request: HltTokenRequest,
+        expiration: Expiration,
+        keypair: KeyPair,
+    ) -> Result<TokenBundle<HltTokenGroup>, CertificateBundleError> {
+        let token = self
+            .get_lead_cert()?
+            .clone()
+            .load_key(keypair)?
+            .issue_hlt_token(token_request, expiration)?;
+        let chain = self.issue_chain();
+        Ok(TokenBundle::new(token, chain))
+    }
+}
+
+impl CertificateBundle<Manufacturer> {
+    pub fn issue_synthesizer_token_bundle(
+        &self,
+        token_request: SynthesizerTokenRequest,
+        expiration: Expiration,
+        keypair: KeyPair,
+    ) -> Result<TokenBundle<SynthesizerTokenGroup>, CertificateBundleError> {
+        let token = self
+            .get_lead_cert()?
+            .clone()
+            .load_key(keypair)?
+            .issue_synthesizer_token(token_request, expiration)?;
+        let chain = self.issue_chain();
+        Ok(TokenBundle::new(token, chain))
     }
 }
 

@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::types::ClientRequestType;
-use certificates::{DecodeError, SignatureVerificationError};
+use certificates::{Exemption, Manufacturer, SignatureVerificationError, TokenBundleError};
 use doprf::party::KeyserverId;
+use shared_types::error::{InvalidClientTokenBundle, InvalidInfrastructureTokenBundle};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ScepError<Inner: std::error::Error> {
@@ -29,8 +30,8 @@ pub enum ServerPrevalidation {
     ClientVersionTooLow,
     #[error("client version unsupported (too high)")]
     ClientVersionTooHigh,
-    #[error("provided certificate from client is invalid")]
-    InvalidCert,
+    #[error(transparent)]
+    InvalidCert(InvalidClientTokenBundle<Manufacturer>),
     #[error("nucleotide count is invalid")]
     InvalidNTC,
 }
@@ -39,8 +40,8 @@ pub enum ServerPrevalidation {
 pub enum ClientPrevalidation {
     #[error("server version lower than last recorded for this server")]
     VersionRollback,
-    #[error("provided certificate from server is invalid")]
-    InvalidCert,
+    #[error(transparent)]
+    InvalidCert(InvalidInfrastructureTokenBundle),
     #[error("server mutual authentication signature is invalid")]
     InvalidSignature,
     #[error("invalid keyserver id: expected {expected}, found {in_cert} in server cert")]
@@ -56,6 +57,8 @@ pub enum ServerAuthentication {
     ClientAlreadyAuthenticated,
     #[error("client mutual authentication signature is invalid")]
     InvalidSignature,
+    #[error(transparent)]
+    RevokedCert(InvalidClientTokenBundle<Manufacturer>),
     #[error("provided hash_total_count {hash_total_count} is unreasonable based on nucleotide_total_count {nucleotide_total_count}")]
     HtcUnreasonable {
         hash_total_count: u64,
@@ -81,44 +84,46 @@ pub enum Screen {
     WrongRequestType(ClientRequestType),
     #[error("client provided too many hashes: asked for {requested}, provided {provided}")]
     TooManyHashes { requested: u64, provided: u64 },
-    #[error("client tried ELT-screen-hashes before sending ELT")]
-    ScreenBeforeElt,
-    #[error("client tried ELT-screen-hashes before sending ELT-seq-hashes")]
-    ScreenBeforeEltHashes,
-    #[error("ELT validation error: {0}")]
-    EltValidation(String),
+    #[error("client tried exemption-screen-hashes before sending exemption")]
+    ScreenBeforeEt,
+    #[error("client tried exemption-screen-hashes before sending exemption-seq-hashes")]
+    ScreenBeforeEtHashes,
+    #[error("exemption token validation error: {0}")]
+    EtValidation(String),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ScreenWithEL {
     #[error("this client has not finished authenticating")]
     ClientNotAuthenticated,
-    #[error("client opened with request type {0:?} but tried to screen-with-EL")]
+    #[error("client opened with request type {0:?} but tried to screen-with-exemption")]
     WrongRequestType(ClientRequestType),
     #[error("client ELT_size too big {actual}, configured server maximum is {maximum}")]
-    EltSizeTooBig { actual: u64, maximum: u64 },
-    #[error("client tried screen-with-EL in wrong state")]
-    WrongEltState,
+    EtSizeTooBig { actual: u64, maximum: u64 },
+    #[error("client tried screen-with-exemption in wrong state")]
+    WrongEtState,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ELT {
+pub enum ET {
     #[error("this client has not finished authenticating")]
     ClientNotAuthenticated,
-    #[error("client tried to send ELT in wrong state")]
-    WrongEltState,
-    #[error("client ELT did not match promised size")]
+    #[error("client tried to send exemption token in wrong state")]
+    WrongEtState,
+    #[error("client exemption token did not match promised size")]
     SizeMismatch,
-    #[error("client ELT could not be decoded")]
-    DecodeError(#[from] DecodeError),
+    #[error("client exemption token JSON could not be decoded")]
+    JsonDecodeError(#[from] serde_json::Error),
+    #[error("client exemption token PEM could not be decoded")]
+    PemDecodeError(#[from] TokenBundleError<Exemption>),
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum EltSeqHashes {
+pub enum EtSeqHashes {
     #[error("this client has not finished authenticating")]
     ClientNotAuthenticated,
-    #[error("client tried to send ELT-seq-hashes in wrong state")]
-    WrongEltState,
+    #[error("client tried to send exemption-seq-hashes in wrong state")]
+    WrongEtState,
 }
 
 macro_rules! impl_signature_error {

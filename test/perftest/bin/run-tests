@@ -1,0 +1,134 @@
+### -*- Mode: shell-script -*-
+
+### Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+### SPDX-License-Identifier: MIT OR Apache-2.0
+
+# shellcheck disable=SC2148,SC2154,SC2206,SC2046,SC2059,SC2028,SC2005,SC2086,SC2068,SC2288,SC2119,SC2155,SC2207,SC2069,SC2034,SC2120,SC2004
+
+### +++ Performance testing.
+## ++ Dockerfile templates.
+perftop=$mygit/SecureDNA									# You must set mygit to point at the root of your git repos!
+perftest=$perftop/test
+perfhdb=$perftest/data/hdb
+perfcerts=$perftest/certs
+perfcfg=$perftest/cfg
+perf=$perftest/perftest
+perfconf=$perf/config
+perftemp=$perf/templates
+perflogs=$perf/logs
+perfseqs=$perf/seqs
+dcfnbase=docker-compose
+dcfntemp=$perftemp/$dcfnbase
+dctempbase=$dcfntemp-template-base.yml
+dctempkeys=$dcfntemp-template-keyserver.yml
+dcconfbase=$dcfnbase-config.yml
+perf_version=1.0.6
+perf_images=( non-as-$perf_version as-pre-fix-$perf_version $perf_version )			# Image names, minus trailing "-client".
+perf_names=( as-none as-vuln as-fixd )								# Docker-compose names which match the above.
+PERF_SCREEN_MULTIPLE=${PERF_SCREEN_MULTIPLE:-1}							# If set, run each inner screen this many times, for averaging.  DOES NOT RESET if this file is re-sourced, so as not to bash a setting.
+perf/imgseqs()  { seq 0 $((${#perf_images[@]}-1)); }						# Valid indices into perf_images|names.
+perf/client-i() { echo "${perf_images[$1]}-client"; }						# Full client image for this test index.  Doesn't include leading "ghcr.io/securedna/".
+perf/client-n() { echo "${perf_names[$1]}"; }							# Name we'll use for summarizing the tests.
+join1()         { local IFS="$1"; shift; echo "$*"; }						# Separate a series of values via $1, but only supports a single-character separator, and we need multi-character separators below.
+perf/nn()       { printf '%02i' $1; }								# Always canonicalize to two digits, so port numbers are correct.  Can't depend on -w arg to seq if we're defining fewer than 10 keyservers.
+perf/onetemp()  { sed -e "s@%KEY%@$1@g" -e "s@%SET%@$2@g" < $dctempkeys; }			# Make a single substitution of %KEY% for $1 and %SET% for %2 from the template.
+perf/alltemps() { for n in $(seq 1 $1); do perf/onetemp $(perf/nn $n) $(perf/nn $1); done }	# Spit out all the substitutions for all keyservers.
+perf/outtemp()  { echo $perfconf/$(perf/nn $1).$dcconfbase; }					# Where the template goes.  $1 = # KS.
+perf/keydep()   { printf "      - keyserver%02i" $1; }
+perf/keydepn()  { printf "$(perf/keydep $1)\\\n"; }						# Emits '\n' pairs and not true newlines, for sed's benefit.
+perf/keydeps()  { echo -n "    depends_on:\n"; for n in $(seq 1 $(( $1-1 )) ); do perf/keydepn $n; done; perf/keydep $1; }	# Substituted for "%DEPENDS%" in $dctempbase.
+perf/keydom()   { printf "keyserver%02i:53%02i" $1 $1; }
+perf/keydoms-1(){ for n in $(seq 1 $(( $1-1 )) ); do echo -n "$(perf/keydom $n),"; done; echo "$(perf/keydom $1)"; }
+perf/keydoms()  { echo "      \"--keyserver-domains\", \"$(perf/keydoms-1 $1)\","; }						# Substituted for "%DOMAINS%" in $dctempbase.
+perf/keytemp()  { sed -e "s@%DEPENDS%@$(perf/keydeps $1)@g" -e "s@%DOMAINS%@$(perf/keydoms $1)@g" < $dctempbase; } # Actually do substs in $dctempbase.  $1 = # KS.  You'll need to export TEST_CLIENT_IMAGE before docker-compose.
+perf/template() { (perf/keytemp $1 $2; perf/alltemps $1) > $(perf/outtemp $1); }		# Complete dockerfile, with a leading field indicating how many keyservers it defines.  $1 = # KS.
+perf/dock-sets(){ for n in ${perf_ks_numbers[@]}; do perf/template $n; done }			# The dockerfiles for all sets.
+perf/dock-all() { for i in $(perf/imgseqs); do perf/dock-sets $i; done }			# Toplevel:  Generates all dockerfiles for all # KS.  You'll need to export TEST_CLIENT_IMAGE before docker-compose.
+## ++ Keyshares and active security.
+test_master_key=31c863fab331e00437f7282c5cf19bd2138edac3ecce19ff39ad1f516e91f403		# This is not a production master key.
+perf/genksh()   { genkeyshares --keyholders-required $1 --num-keyholders $1 $test_master_key; }	# GENERATES DIFFERENT VALUES EVERY TIME, even for the same args.  This means YOU MUST CACHE ITS RESULTS and not call it twice.
+perf/keycache() { unset KEYSHARES; readarray -O 1 -t KEYSHARES < <(perf/genksh $1); export KEYSHARES; }
+perf/genkeys,() { join1 , ${KEYSHARES[@]}; }
+perf/genas()    { genactivesecuritykey --keyholders-required $1 --keyshares $(perf/genkeys,) $test_master_key; }
+perf/ascache()  { unset AS_KEYS; readarray -O 1 -t AS_KEYS < <(perf/genas $1); export AS_KEYS; }
+perf/genas,()   { join1 , ${AS_KEYS[@]}; }							# ..., ..., etc [but w/o the spaces]
+perf/genas,qtd(){ join1 , $(printf "\"%s\"\n" ${AS_KEYS[@]}); }					# "...", "...", etc [but w/o the spaces]
+perf/do-keys()  { perf/keycache $1; perf/ascache $1; }
+## ++ Writing the TOML files.  [Note:  Apparently "id = 01" is a parse error!  But "id = 1" is fine.  Simplistic docker parser...]
+perf_ks_numbers=( 1 3 5 7 10 20 )
+perf_toml_printf="[main]\naddress = \"0.0.0.0:53%s\"\nid = %s\nkeyholders_required = %s\nkeyshare = \"%s\"\nactive_security_key = [%s]\nmanufacturer_roots = \"../certs/manufacturer-roots\"\ntoken_file = \"../certs/keyserver-token-%s.kt\"\nkeypair_file = \"../certs/keyserver-token-%s.priv\"\nkeypair_passphrase_file = \"../certs/keyserver-token-%s.passphrase\"\nallow_insecure_cookie = true\n"
+perf/cfg-pfx()  { echo "$perfcfg/$(perf/nn "$1")"; }
+perf/toml-guts(){ local n="$1"; nn=$(perf/nn "$1") quorum="$2"; keyshare="$3"; askeys="$4"; printf "$perf_toml_printf" $nn $n $quorum $keyshare $askeys $nn $nn $nn; }	# Args are # KS, quorum, keyshares, AS keys
+perf/toml-one() { perf/toml-guts $1 $2 "${KEYSHARES[$1]}" "$(perf/genas,qtd)" > $(perf/cfg-pfx $3).keyserver-$(perf/nn $1).toml; }	# Make a single toml file.  Args are # KS, quorum, SET NUMBER (=qrm).
+perf/toml-set() { perf/do-keys $1; for n in $(seq 1 $1); do perf/toml-one $n $1 $1; done }		# Make a set of toml files for this particular number of keyservers.  Arg is $ KS (implicitly equal quorum).
+perf/toml-all() { for n in ${perf_ks_numbers[@]}; do perf/toml-set $n; done }				# Toplevel: Make all sets of TOML files.
+## ++ Bringing servers up and down.
+perf_daemonize='-d'	# Or '' to run connected.  Note that -d can only be supplied for "up"!  It barfs if you supply it for "down".
+perf/env-1()    { export TEST_CERTS_PATH="$perfcerts"; export TEST_CFG_PATH="$perfcfg"; export TEST_HDB_PATH="$perfhdb"; export SECUREDNA_TAG=latest; }		# Constant across all tests, but set here just in case.
+perf/env()      { export TEST_HDB_IMAGE="$perf_version-hdbserver"; export TEST_KS_IMAGE="$perf_version-keyserver"; perf/env-1; }				# Constant across all tests, but set here just in case.
+perf/env_()     { echo -e "TEST_CERTS_PATH=$TEST_CERTS_PATH\nTEST_CFG_PATH=$TEST_CFG_PATH\nTEST_HDB_PATH=$TEST_HDB_PATH\nSECUREDNA_TAG=$SECUREDNA_TAG"; }	# Debugging.
+perf/log()      { nsts >> "$perflogs/log"; }
+perf/set-image(){ export TEST_CLIENT_IMAGE="$(perf/client-i $1)"; }					# Export TEST_CLIENT_IMAGE so docker-compose knows which to use.
+perf/updown()   { if [[ "$1" = "up" ]]; then echo $1 $perf_daemonize; else echo "$1"; fi }
+perf/compose__(){ local cmd="docker compose -f $(perf/outtemp $1 $2) $(perf/updown $3)"; (echo "$TEST_CLIENT_IMAGE: $cmd"; $cmd) 2>&1 | perf/log; }		# Bring a container up or down.  $1 must be in nn format!
+perf/compose_() { perf/env "$1"; perf/set-image $2; perf/compose__ "$(perf/nn "$1")" "${@:2}"; }	# Guarantee format of # KS, and ensure the environment is correct.
+perf/delayfail(){ echo "Tried to set delay $1, but current delay is $(perf/get-d-ms)"; perf/abort; }
+perf/compose-d(){ perf/compose_ "$1" "$2" "$3"; if [[ -n "$4" ]] && (( $4 != 0 )); then perf/set-delay "$4"; if (( $(perf/get-d-ms) != $4 )); then perf/delay-fail $4; fi; fi; }
+perf/usage()    { echo "Usage: # KS, test index, up|down, optional delay"; }
+perf/compose()  { if (( $# < 3 )); then perf/usage; else perf/compose-d "$@"; fi }			# $1 = # KS; $2 = index into perf_images|names; $3 is one of up or down.  Optional $4 is delay to set in ms.
+## ++ Caching fixed test strings so there are no questions about disk access speed---all DB hashes will be in the block cache in RAM after perf/warm is run.
+perf_lengths=( 5000 10000 20000 )
+perf/lenseqs()  { seq 0 $((${#perf_lengths[@]}-1)); }							# Valid indices into perf_lengths.
+perf/cacheseqs(){ for len in ${perf_lengths[@]}; do dna $len > $perfseqs/dna.$l; done }			# Actually write the files, for use later.
+## ++ Getting runtime.  Accuracy is in units of $(getconf CLK_TCK), which in this kernel is 100 = 10 milliseconds.  Note that we are *not* actually calling getconf and doing the requisite arithmetic, so beware on other kernels.
+perf/seqs()     { cat $perfseqs/dna.${perf_lengths[$1]}; }
+perf/screen_()  { screen_url=http://localhost/v1/screen screen-string test "$(perf/seqs $1)"; }		# $1 = index into perf_lengths.
+perf/screen-1() { perf/screen_ $1 | perf/log; }								# Not inside the loop so perf/warm can call it.
+perf/screen()   { for n in $(seq 1 ${PERF_SCREEN_MULTIPLE:-1}); do perf/screen-1 $1; done }		# Throw away the result by stuffing it into the log, not stdout.  Runs each screen PERF_SCREEN_MULTIPLE times if set.
+perf/warm()     { for len in $(perf/lenseqs); do perf/screen-1 $len; done }				# Do a run on all the sequences to warm up the cache.  Done once per instantiation of synthclient.
+perf/runtime()  { local stat=($(sed -E 's/\([^)]+\)/X/' "/proc/$1/stat")) utime=${stat[13]} stime=${stat[14]}; echo $((utime + stime)); }	# Reads out in units of $(getconf CLK_TCK), which in this kernel is 100 = 10 milliseconds.
+perf/scrun()    { perf/runtime $(pidof synthclient); }							# synthclient had better exist and there had better be only one of them; we don't check.
+## ++ Getting elapsed time.  Using same scale as for runtime, hence in units of $(getconf CLK_TCK), which in this kernel is 100 = 10 milliseconds.  Note that we are *not* actually calling getconf and doing the requisite arithmetic.
+perf/nstime()   { date +%s%N; }										# Seconds and nanoseconds since the epoch, as a single 19-digit number.   Note that GNU date *does* zero-pad ns, so this works.
+perf/tickdiff() { echo $(( ($1 - $2) / 10000000 )); }							# End ($1) minus start ($2), in tens of milliseconds.  This will work if as long as bash is running on a 64-bit machine.
+## ++ Making sure the client is really available and then warming it up.
+perf/client-ok(){ until curl --no-progress-meter -m 3 -L http://localhost/version 2>&1 > /dev/null; do echo "Waiting for client..." | nsts; sleep 1; done }
+perf/go()       { perf/client-ok; perf/warm; }
+## ++ Actually running the tests.
+perf/abort()    { touch $perftest/..ABORT..; }								# Make it possible to abort cleanly after an iteration by setting this.  Otherwise you'll have to shut down random containers by hand.
+perf/unabort()  { rm -f $perftest/..ABORT..; }								# Undo the above.
+perf/abortp()   { [[ -e $perftest/..ABORT.. ]]; }							# If this is true, abort before bringing up the next container.
+perf/result()   { printf "%s\t%2i\t%3i\t%5i\t%5i\t%5i\n" "$@" | nsts; }					# Issue a line of results.  Args are perf_names #ks #delay #bp runtime elapsed.
+perf/run-one()  { perf/go; for len in $(perf/lenseqs); do start=$(perf/scrun); now=$(perf/nstime); perf/screen $len; end=$(perf/scrun); later=$(perf/nstime); used=$((end-start)); elapsed=$(perf/tickdiff $later $now); perf/result $(perf/client-n $1) $2 $3 ${perf_lengths[$len]} $used $elapsed; done }
+perf/run-1()    { perf/compose $1 $2 up $3; perf/run-one $2 $1 $3; perf/compose $1 $2 down; }		# $1 = KS; $2 = image; $3 = delay.
+perf/run-2()    { for image in $(perf/imgseqs); do for ks in ${perf_ks_numbers[@]}; do if perf/abortp; then return; else perf/run-1 $ks $image $1; fi; done; done }	# Run tests, but don't check if starting in aborted state.
+perf/run()      { if perf/abortp; then echo "Do perf/unabort first."; else perf/run-2 ${1:-0}; fi }	# Toplevel: Run all w/same delay.  (0 unless $1 is non-nil.)
+## ++ Introducing delay.  Do "git clone https://github.com/lukaszlach/docker-tc.git && cd docker-tc && docker-compose up -d" to get started; use "curl -X LIST localhost:4080" to check status.  Note that port is four zero eight zero.
+perf_delays=( 100 )											# List of delays, in ms.  Can also include 0 if you'd like to run that as part of the batch.
+perf_tc_port=4080											# Default docker-tc REST API port.
+perf_tc_target=config-client-1										# What the client winds up being called.
+perf/tc-updown(){ (cd $mygit/docker-tc && docker compose "$@" 2>/dev/null) }				# Args are either "up -d" or "down".
+perf/tc-up()    { perf/tc-updown up -d; }								# Bring up docker-tc.
+perf/tc-down()  { perf/tc-updown down; }								# Bring it back down.
+perf/tc-list()  { curl -X LIST localhost:$perf_tc_port; }						# Status for all containers.  You'll get a nonzero return code and text to stderr if it's not up.
+perf/tc-cmd()   { curl --no-progress-meter "$@" localhost:$perf_tc_port/$perf_tc_target 2>/dev/null; }	# Send a command to docker-tc's REST API.  Optional arg is presumably "-d delay=100ms".
+perf/get-delay(){ perf/tc-cmd | grep -oP 'delay \K[0-9]+'; }						# If no docker-tc or no delay, returns the empty string.  Assumes any delay set is already in ms or will definitely be wrong.
+perf/get-d-ms() { local d="$(perf/get-delay)"; if [[ -n "$d" ]]; then echo "$d"; else echo 0; fi }	# Delay as an integer no matter what.
+perf/set-delay(){ perf/tc-cmd "-d delay=$1ms" 2>&1 | perf/log; }					# Set client delay to $1 ms.  The client must be up first.  Cycling it down and up will lose the setting.
+perf/rundelays(){ for delay in ${perf_delays[@]}; do perf/run $delay; done }				# Run each set of tests with the given delay.
+perf/delaytop() { perf/tc-up && perf/rundelays; perf/tc-down; }						# Toplevel: Note that this takes docker-tc down afterwards whether or not the inner tests succeeded.
+## ++ Sorting results.
+perf/sort-len() { sort -n -s -t $'\t' -k4,4 "$@"; }
+perf/sort-ks()  { sort -n -s -t $'\t' -k1,1 "$@"; }
+perf/roundrob() { split -n r/$(( ${#perf_lengths[@]} * ${#perf_ks_numbers[@]} )) --filter=cat "$1"; }	# Round-robin split so each unique combination of #KS & length is presented with all the images clumped together.
+
+## ++ Small utilities.
+screen_tag='"provider_reference":"perf testing"'
+screen_region='"region":"all"'
+screen-string() { curl -L --max-redirs 5 --no-progress-meter "$screen_url" --data-raw "{\"fasta\":\">$1\n$2\",$screen_tag,$screen_region}"; echo; }	# $1 is record name after >, $2 is sequence
+dna()           { dna=( A C G T ); for x in $(seq 1 $1); do i=$(($RANDOM % 4)); echo -n ${dna[$i]}; done; echo; }					# Creates a random string of nucleotides.
+perf/get-nsts() { if [[ -n "$(which ts)" ]]; then nsts() { ts "%b %d %H:%M:%.S" "$@"; }; else nsts() { cat; }; fi }					# Timestamps log entries if `ts` from `moreutils` is available.
+## ++ Initialization.  Run this once to set things up.
+perf/init()     { perf/get-nsts; perf/cacheseqs; }
+
+# End of file.

@@ -356,7 +356,7 @@ impl<'a, R, C, F, D> Callbacks<'a, R, C, F, D> {
                     Ok(a) => a,
                     Err(err) => {
                         let err = ConnectionError::from(err);
-                        error!("{err}");
+                        error!("Couldn't accept connection: {err}");
                         failed.clone()(err);
                         continue;
                     }
@@ -400,7 +400,7 @@ impl<'a, R, C, F, D> Callbacks<'a, R, C, F, D> {
                             with_graceful_shutdown(http_connection, wants_shutdown);
 
                         if let Err(err) = http_connection.await {
-                            error!("{err}");
+                            error!("Error serving: {err}");
                             let err = ConnectionError::Http {
                                 peer_addr,
                                 source: err,

@@ -4,7 +4,7 @@
 use std::io::Write;
 use std::io::{stderr, stdout};
 
-use certificate_client::common::cli_default_directory;
+use certificate_client::default_filepath::cli_default_directory;
 use clap::Parser;
 
 use certificate_client::shims::merge_cert;

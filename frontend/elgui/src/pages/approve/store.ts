@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import {
+import type {
   Authenticator,
-  ExemptionListTokenRequest,
+  ExemptionTokenRequest,
   GenbankId,
   Result,
 } from "@securedna/frontend_common";
-import { AuthFileResult } from "src/components";
-import { needsScreening } from "src/util/eltr";
+import type { AuthFileResult } from "src/components";
+import { needsScreening } from "src/util/etr";
 import { create } from "zustand";
 
 export enum PageNumber {
@@ -21,24 +21,22 @@ export enum PageNumber {
 }
 
 interface ApprovalState {
-  eltrPem?: Result<Uint8Array, string>;
+  etrPem?: Result<Uint8Array, string>;
   certPem?: AuthFileResult;
-  apiKey: string;
   additionalAuthenticators: Authenticator[];
-  eltr?: ExemptionListTokenRequest;
+  etr?: ExemptionTokenRequest;
   screenedExemptions?: Map<string, Set<GenbankId>>;
   pageIndex: PageNumber;
   direction: number;
 
-  setEltr: (eltr: ExemptionListTokenRequest | undefined) => void;
-  setEltrPem: (eltrPem: Result<Uint8Array, string> | undefined) => void;
+  setEtr: (etr: ExemptionTokenRequest | undefined) => void;
+  setEtrPem: (etrPem: Result<Uint8Array, string> | undefined) => void;
   setCertPem: (certPem: AuthFileResult | undefined) => void;
-  setApiKey: (apiKey: string) => void;
   setScreenedExemptions: (
-    screenedExemptions: Map<string, Set<GenbankId>> | undefined
+    screenedExemptions: Map<string, Set<GenbankId>> | undefined,
   ) => void;
   setAdditionalAuthenticators: (
-    additionalAuthenticators: Authenticator[]
+    additionalAuthenticators: Authenticator[],
   ) => void;
 
   back: () => void;
@@ -46,15 +44,13 @@ interface ApprovalState {
 }
 
 export const useApprovalStore = create<ApprovalState>()((set) => ({
-  apiKey: "",
   additionalAuthenticators: [],
   pageIndex: 0,
   direction: 1,
 
-  setEltr: (eltr) => set({ eltr }),
-  setEltrPem: (eltrPem) => set({ eltrPem }),
+  setEtr: (etr) => set({ etr }),
+  setEtrPem: (etrPem) => set({ etrPem }),
   setCertPem: (certPem) => set({ certPem }),
-  setApiKey: (apiKey) => set({ apiKey }),
   setScreenedExemptions: (screenedExemptions) => set({ screenedExemptions }),
   setAdditionalAuthenticators: (additionalAuthenticators) =>
     set({ additionalAuthenticators }),
@@ -74,17 +70,16 @@ export const useApprovalStore = create<ApprovalState>()((set) => ({
         case PageNumber.Overview:
           return {
             ...backUpdate,
-            eltr: undefined,
-            eltrPem: undefined,
+            etr: undefined,
+            etrPem: undefined,
           };
         case PageNumber.Screen:
           return backUpdate;
         case PageNumber.Sign:
-          if (state.eltr && !needsScreening(state.eltr)) {
+          if (state.etr && !needsScreening(state.etr)) {
             return { ...backUpdate, pageIndex: state.pageIndex - 2 };
-          } else {
-            return backUpdate;
           }
+          return backUpdate;
       }
     }),
 
@@ -92,8 +87,8 @@ export const useApprovalStore = create<ApprovalState>()((set) => ({
     set((state) => ({
       direction: 1,
       ...(state.pageIndex + 1 === PageNumber.Screen &&
-      state.eltr &&
-      !needsScreening(state.eltr)
+      state.etr &&
+      !needsScreening(state.etr)
         ? { pageIndex: state.pageIndex + 2, screenedExemptions: new Map() }
         : { pageIndex: state.pageIndex + 1 }),
     })),

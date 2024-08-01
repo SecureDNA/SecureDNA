@@ -6,7 +6,7 @@
 // Types for the web form.
 // Underscores are used in field names to align with Rust/JSON formats.
 
-import {
+import type {
   Authenticator,
   Description,
   GenbankId,
@@ -26,6 +26,7 @@ export type FastaFile = Sequence;
 export type FastaRecord = Sequence["records"][number];
 
 export interface ShippingAddress {
+  id: string;
   /// An ISO 3166-1 Alpha-2 code.
   country: string;
   state: string | undefined;
@@ -35,31 +36,38 @@ export interface ShippingAddress {
   organization: string | undefined;
 }
 
-export interface ExemptionList {
+export interface Exemption {
+  publicKey: string | undefined;
   organisms: OrganismWithSource[];
   shippingAddresses: ShippingAddress[];
   requestor: Description;
   authenticators: Authenticator[];
 }
 
-export interface ExemptionListFormData extends ExemptionList {
+export interface ExemptionFormData extends Exemption {
   /// Used implicitly by Formik in <FastaField />.
   fastaEditor: string;
 }
 
-export const emptyShippingAddress: ShippingAddress = {
-  country: "",
-  state: "",
-  city: "",
-  postalCode: "",
-  streetAddress: "",
-  organization: "",
-};
+export function emptyShippingAddress(): ShippingAddress {
+  return {
+    id: crypto.randomUUID(),
+    country: "",
+    state: "",
+    city: "",
+    postalCode: "",
+    streetAddress: "",
+    organization: "",
+  };
+}
 
-export const emptyExemptionListFormData: ExemptionListFormData = {
-  organisms: [{ name: "", sequences: [] }],
-  shippingAddresses: [emptyShippingAddress],
-  requestor: { name: "", email: "", phone_number: "", orcid: "" },
-  authenticators: [],
-  fastaEditor: "",
-};
+export function emptyExemptionFormData(): ExemptionFormData {
+  return {
+    publicKey: undefined,
+    organisms: [{ name: "", sequences: [] }],
+    shippingAddresses: [emptyShippingAddress()],
+    requestor: { name: "", email: "", phone_number: "", orcid: "" },
+    authenticators: [],
+    fastaEditor: "",
+  };
+}

@@ -8,10 +8,10 @@ export const ProgressBar = (props: { percentage: number }) => (
     <div
       className="flex flex-col justify-center overflow-hidden bg-blue-500"
       role="progressbar"
-      style={{ width: props.percentage + "%" }}
+      style={{ width: `${props.percentage}%` }}
       aria-valuenow={props.percentage}
       aria-valuemin={0}
       aria-valuemax={100}
-    ></div>
+    />
   </div>
 );

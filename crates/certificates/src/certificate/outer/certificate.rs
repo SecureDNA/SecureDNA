@@ -11,8 +11,8 @@ use rasn::{AsnType, Decode, Encoder, Tag};
 use serde::Serialize;
 
 use crate::certificate::CertificateVersion;
+use crate::digest::Digestible;
 use crate::error::EncodeError;
-use crate::format::Formattable;
 use crate::issued::Issued;
 use crate::key_state::{KeyAvailable, KeyMismatchError, KeyUnavailable};
 use crate::key_traits::HasAssociatedKey;
@@ -21,10 +21,10 @@ use crate::pem::PemTaggable;
 use crate::shared_components::common::{Expiration, Id};
 use crate::shared_components::role::{Exemption, Infrastructure, Role};
 use crate::tokens::exemption::authenticator::Authenticator;
-use crate::tokens::exemption::exemption_list::{ExemptionListToken, ExemptionListTokenRequest};
+use crate::tokens::exemption::et::{ExemptionToken, ExemptionTokenRequest};
 use crate::tokens::infrastructure::keyserver::{KeyserverToken, KeyserverTokenRequest};
 use crate::{
-    CertificateRequest, DatabaseToken, DatabaseTokenRequest, HierarchyKind, HltToken,
+    CertificateRequest, DatabaseToken, DatabaseTokenRequest, Description, HierarchyKind, HltToken,
     HltTokenRequest, IssuerAdditionalFields, KeyPair, Manufacturer, SignatureVerificationError,
     SynthesizerToken, SynthesizerTokenRequest,
 };
@@ -64,6 +64,10 @@ where
 
     pub fn request(&self) -> CertificateRequest<R, KeyUnavailable> {
         CertificateRequest::new(self.version.request().clone())
+    }
+
+    pub fn requestor_description(&self) -> &Description {
+        self.version.requestor_description()
     }
 }
 
@@ -154,7 +158,7 @@ where
     }
 }
 
-impl<R, K> Formattable for Certificate<R, K>
+impl<R, K> Digestible for Certificate<R, K>
 where
     R: Role,
 {
@@ -263,7 +267,7 @@ impl<R> Certificate<R, KeyAvailable>
 where
     R: Role,
 {
-    pub fn issue_cert(
+    pub(crate) fn issue_cert(
         &self,
         req: CertificateRequest<R, KeyUnavailable>,
         additional_fields: IssuerAdditionalFields,
@@ -286,13 +290,13 @@ impl<K> Certificate<Exemption, K> {
 }
 
 impl Certificate<Exemption, KeyAvailable> {
-    pub fn issue_elt(
+    pub(crate) fn issue_exemption_token(
         &self,
-        token_request: ExemptionListTokenRequest,
+        token_request: ExemptionTokenRequest,
         expiration: Expiration,
         issuer_auth_devices: Vec<Authenticator>,
-    ) -> Result<ExemptionListToken<KeyUnavailable>, IssuanceError> {
-        self.version.issue_elt(
+    ) -> Result<ExemptionToken<KeyUnavailable>, IssuanceError> {
+        self.version.issue_exemption_token(
             token_request,
             expiration,
             issuer_auth_devices,
@@ -302,7 +306,7 @@ impl Certificate<Exemption, KeyAvailable> {
 }
 
 impl Certificate<Infrastructure, KeyAvailable> {
-    pub fn issue_keyserver_token(
+    pub(crate) fn issue_keyserver_token(
         &self,
         token_request: KeyserverTokenRequest,
         expiration: Expiration,
@@ -311,7 +315,7 @@ impl Certificate<Infrastructure, KeyAvailable> {
             .issue_keyserver_token(token_request, expiration, self.key_state.kp())
     }
 
-    pub fn issue_database_token(
+    pub(crate) fn issue_database_token(
         &self,
         token_request: DatabaseTokenRequest,
         expiration: Expiration,
@@ -320,7 +324,7 @@ impl Certificate<Infrastructure, KeyAvailable> {
             .issue_database_token(token_request, expiration, self.key_state.kp())
     }
 
-    pub fn issue_hlt_token(
+    pub(crate) fn issue_hlt_token(
         &self,
         token_request: HltTokenRequest,
         expiration: Expiration,
@@ -331,7 +335,7 @@ impl Certificate<Infrastructure, KeyAvailable> {
 }
 
 impl Certificate<Manufacturer, KeyAvailable> {
-    pub fn issue_synthesizer_token(
+    pub(crate) fn issue_synthesizer_token(
         &self,
         token_request: SynthesizerTokenRequest,
         expiration: Expiration,

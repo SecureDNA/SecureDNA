@@ -3,15 +3,15 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import React from "react";
+import type React from "react";
 import { twMerge } from "tailwind-merge";
 
 export const Button = (props: React.ComponentPropsWithoutRef<"button">) => (
   <button
     {...props}
     className={twMerge(
-      "enabled:border border-primary enabled:hover:bg-primary/10 text-primary py-2 px-4 rounded transition disabled:bg-black/10 disabled:text-black/20",
-      props.className
+      "enabled:border rounded-lg border-secondary enabled:hover:bg-secondary enabled:hover:text-white enabled:hover:opacity-90 py-2 px-4 transition disabled:bg-black/10 disabled:text-black/20",
+      props.className,
     )}
   />
 );

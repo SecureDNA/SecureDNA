@@ -8,7 +8,7 @@ use minhttp::mpserver::common::run_server;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-
     let opts = hdbserver::Opts::parse();
-    run_server(opts.cfg_path, hdbserver::server_setup()).await
+    let load_cfg_fn = opts.config.into_load_cfg_fn();
+    run_server(load_cfg_fn, hdbserver::server_setup()).await
 }

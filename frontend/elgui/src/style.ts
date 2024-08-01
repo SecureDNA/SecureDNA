@@ -4,5 +4,5 @@
  */
 
 import "./index.css";
-import "@fontsource-variable/inter";
-import "@fontsource/inter";
+import "@fontsource-variable/dm-sans";
+import "@fontsource/dm-sans";

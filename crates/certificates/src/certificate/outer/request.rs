@@ -15,7 +15,7 @@ use crate::certificate::{
 };
 use crate::{
     certificate::inner::{Intermediate1, Leaf1, Root1},
-    format::Formattable,
+    digest::Digestible,
     key_state::{KeyAvailable, KeyMismatchError, KeyUnavailable},
     keypair::PublicKey,
     pem::PemTaggable,
@@ -73,7 +73,7 @@ where
     }
 }
 
-impl<R, K> Formattable for CertificateRequest<R, K>
+impl<R, K> Digestible for CertificateRequest<R, K>
 where
     R: Role,
 {

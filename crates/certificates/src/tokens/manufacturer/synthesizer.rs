@@ -4,12 +4,11 @@
 //! This module contains functionality for creating an `SynthesizerTokenRequest`.
 //! A `Certificate` with the `Manufacturer` role is able to sign a `SynthesizerTokenRequest` to issue a `SynthesizerToken`.
 
-use std::{fmt::Display, str::FromStr};
+use std::str::FromStr;
 
 use rasn::{types::*, Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::validation_failure::ValidationFailure;
 use crate::{
     asn::ToASN1DerBytes,
     ecies::{EncryptionKeyParseError, EncryptionPublicKey},
@@ -22,15 +21,14 @@ use crate::{
     key_traits::HasAssociatedKey,
     keypair::{PublicKey, Signature},
     pem::PemTaggable,
-    shared_components::{
-        common::{
-            CompatibleIdentity, ComponentVersionGuard, Expiration, Id, Signed, VersionedComponent,
-        },
-        digest::{INDENT, INDENT2},
+    shared_components::common::{
+        CompatibleIdentity, ComponentVersionGuard, Expiration, Id, Signed, VersionedComponent,
     },
     tokens::{TokenData, TokenGroup},
-    CertificateChain, Formattable, KeyAvailable, KeyPair, KeyUnavailable, Manufacturer,
+    CertificateChain, Digestible, KeyAvailable, KeyPair, KeyUnavailable, Manufacturer, TokenKind,
 };
+
+use super::digest::{SynthesizerTokenDigest, SynthesizerTokenRequestDigest};
 
 /// Represents a recipient in the context of an audit process. This struct encapsulates the necessary
 /// information to securely send encrypted audit data. It includes the recipient's email and their
@@ -50,8 +48,8 @@ use crate::{
     Deserialize,
 )]
 pub struct AuditRecipient {
-    email: String,
-    public_key: EncryptionPublicKey,
+    pub(crate) email: String,
+    pub(crate) public_key: EncryptionPublicKey,
 }
 
 impl AuditRecipient {
@@ -84,13 +82,13 @@ impl AuditRecipient {
 #[rasn(automatic_tags)]
 pub(crate) struct SynthesizerTokenRequest1 {
     guard: ComponentVersionGuard<Self>,
-    request_id: Id,
-    public_key: PublicKey,
-    manufacturer_domain: String,
-    model: String,
-    serial_number: String,
-    max_dna_base_pairs_per_day: u64,
-    audit_recipient: Option<AuditRecipient>,
+    pub(crate) request_id: Id,
+    pub(crate) public_key: PublicKey,
+    pub(crate) manufacturer_domain: String,
+    pub(crate) model: String,
+    pub(crate) serial_number: String,
+    pub(crate) max_dna_base_pairs_per_day: u64,
+    pub(crate) audit_recipient: Option<AuditRecipient>,
 }
 
 impl SynthesizerTokenRequest1 {
@@ -163,6 +161,10 @@ impl SynthesizerTokenRequest {
     }
 }
 
+impl Digestible for SynthesizerTokenRequest {
+    type Digest = SynthesizerTokenRequestDigest;
+}
+
 impl PemTaggable for SynthesizerTokenRequest {
     fn tag() -> String {
         "SECUREDNA SYNTHESIZER TOKEN REQUEST".to_string()
@@ -202,9 +204,9 @@ impl Decode for SynthesizerTokenRequest {
 #[rasn(automatic_tags)]
 pub(crate) struct SynthesizerTokenIssuer1 {
     guard: ComponentVersionGuard<Self>,
-    issuance_id: Id,
-    identity: CompatibleIdentity,
-    expiration: Expiration,
+    pub(crate) issuance_id: Id,
+    pub(crate) identity: CompatibleIdentity,
+    pub(crate) expiration: Expiration,
 }
 
 impl SynthesizerTokenIssuer1 {
@@ -303,6 +305,10 @@ impl<K> SynthesizerToken<K> {
     }
 }
 
+impl<K> Digestible for SynthesizerToken<K> {
+    type Digest = SynthesizerTokenDigest;
+}
+
 impl<K> PemTaggable for SynthesizerToken<K> {
     fn tag() -> String {
         "SECUREDNA SYNTHESIZER TOKEN".to_string()
@@ -339,6 +345,10 @@ impl TokenGroup for SynthesizerTokenGroup {
     type TokenRequest = SynthesizerTokenRequest;
     type Token = SynthesizerToken<KeyUnavailable>;
     type ChainType = CertificateChain<Self::AssociatedRole>;
+
+    fn token_kind() -> TokenKind {
+        TokenKind::Synthesizer
+    }
 }
 
 impl_boilerplate_for_token_request_version! {SynthesizerTokenRequestVersion, V1}
@@ -353,196 +363,17 @@ impl_boilerplate_for_token! {SynthesizerToken<K>}
 impl_encoding_boilerplate! {SynthesizerToken<K>}
 impl_key_boilerplate_for_token! {SynthesizerToken}
 
-impl Formattable for SynthesizerTokenRequest {
-    type Digest = SynthesizerTokenRequestDigest;
-}
-
-#[derive(Serialize)]
-pub struct SynthesizerTokenRequestDigest {
-    version: String,
-    request_id: Id,
-    public_key: PublicKey,
-    manufacturer_domain: String,
-    model: String,
-    serial_number: String,
-    max_dna_base_pairs_per_day: u64,
-    audit_recipient: Option<AuditRecipient>,
-}
-
-impl From<SynthesizerTokenRequest> for SynthesizerTokenRequestDigest {
-    fn from(value: SynthesizerTokenRequest) -> Self {
-        match value.version {
-            SynthesizerTokenRequestVersion::V1(r) => {
-                let version = "V1".to_string();
-                let request_id = r.request_id;
-                let public_key = r.public_key;
-                let manufacturer_domain = r.manufacturer_domain;
-                let model = r.model;
-                let serial_number = r.serial_number;
-                let max_dna_base_pairs_per_day = r.max_dna_base_pairs_per_day;
-                let audit_recipient = r.audit_recipient;
-                SynthesizerTokenRequestDigest {
-                    version,
-                    request_id,
-                    public_key,
-                    manufacturer_domain,
-                    model,
-                    serial_number,
-                    max_dna_base_pairs_per_day,
-                    audit_recipient,
-                }
-            }
-        }
-    }
-}
-
-impl Display for SynthesizerTokenRequestDigest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} Synthesizer Token Request", self.version)?;
-        writeln!(f, "{:INDENT$}Request ID:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.request_id)?;
-        writeln!(f, "{:INDENT$}Public Key:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.public_key)?;
-        writeln!(f, "{:INDENT$}Manufacturer Domain:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.manufacturer_domain)?;
-        writeln!(f, "{:INDENT$}Model:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.model)?;
-        writeln!(f, "{:INDENT$}Serial Number:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.serial_number)?;
-        writeln!(f, "{:INDENT$}Rate Limit:", "")?;
-        writeln!(
-            f,
-            "{:INDENT2$}{} base pairs per day",
-            "", self.max_dna_base_pairs_per_day
-        )?;
-        if let Some(audit_recipient) = &self.audit_recipient {
-            writeln!(f, "{:INDENT$}Audit Recipient:", "")?;
-            writeln!(
-                f,
-                "{:INDENT2$}{} ({})",
-                "", audit_recipient.email, audit_recipient.public_key
-            )?;
-        }
-        Ok(())
-    }
-}
-
-impl<K> Formattable for SynthesizerToken<K> {
-    type Digest = SynthesizerTokenDigest;
-}
-
-#[derive(Serialize)]
-pub struct SynthesizerTokenDigest {
-    version: String,
-    request_id: Id,
-    issuance_id: Id,
-    public_key: PublicKey,
-    manufacturer_domain: String,
-    model: String,
-    serial_number: String,
-    max_dna_base_pairs_per_day: u64,
-    audit_recipient: Option<AuditRecipient>,
-    issued_by: CompatibleIdentity,
-    expiration: Expiration,
-    signature: Signature,
-    validation_failure: Option<ValidationFailure>,
-}
-
-impl<K> From<SynthesizerToken<K>> for SynthesizerTokenDigest {
-    fn from(value: SynthesizerToken<K>) -> Self {
-        let validation_failure = value.check_signature_and_expiry().err();
-        match value.version {
-            SynthesizerTokenVersion::V1(t) => {
-                let version = "V1".to_string();
-
-                let request_id = t.data.request.request_id;
-                let issuance_id = t.data.issuer_fields.issuance_id;
-                let public_key = t.data.request.public_key;
-                let manufacturer_domain = t.data.request.manufacturer_domain;
-                let model = t.data.request.model;
-                let serial_number = t.data.request.serial_number;
-                let max_dna_base_pairs_per_day = t.data.request.max_dna_base_pairs_per_day;
-                let audit_recipient = t.data.request.audit_recipient;
-                let expiration = t.data.issuer_fields.expiration;
-                let signature = t.signature;
-                let issued_by = t.data.issuer_fields.identity;
-
-                SynthesizerTokenDigest {
-                    version,
-                    request_id,
-                    issuance_id,
-                    public_key,
-                    manufacturer_domain,
-                    model,
-                    serial_number,
-                    max_dna_base_pairs_per_day,
-                    audit_recipient,
-                    expiration,
-                    signature,
-                    issued_by,
-                    validation_failure,
-                }
-            }
-        }
-    }
-}
-
-impl Display for SynthesizerTokenDigest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} Synthesizer Token", self.version)?;
-        writeln!(f, "{:INDENT$}Issuance ID:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.issuance_id)?;
-        writeln!(f, "{:INDENT$}Request ID:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.request_id)?;
-        writeln!(f, "{:INDENT$}Public Key:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.public_key)?;
-        writeln!(f, "{:INDENT$}Manufacturer Domain:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.manufacturer_domain)?;
-        writeln!(f, "{:INDENT$}Model:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.model)?;
-        writeln!(f, "{:INDENT$}Serial Number:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.serial_number)?;
-        writeln!(f, "{:INDENT$}Rate Limit:", "")?;
-        writeln!(
-            f,
-            "{:INDENT2$}{} base pairs per day",
-            "", self.max_dna_base_pairs_per_day
-        )?;
-        if let Some(audit_recipient) = &self.audit_recipient {
-            writeln!(f, "{:INDENT$}Audit Recipient:", "")?;
-            writeln!(
-                f,
-                "{:INDENT2$}{} ({})",
-                "", audit_recipient.email, audit_recipient.public_key
-            )?;
-        }
-        writeln!(f, "{:INDENT$}Issued by:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.issued_by)?;
-        write!(f, "{}", self.expiration)?;
-        writeln!(f, "{:INDENT$}Signature:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.signature)?;
-
-        if let Some(validation_failure) = &self.validation_failure {
-            writeln!(f)?;
-            write!(f, "{}", validation_failure)?;
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod test {
     use crate::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
-    use crate::test_helpers::{create_intermediate_bundle, BreakableSignature};
+    use crate::test_helpers::create_intermediate_bundle;
     use crate::{
-        concat_with_newline,
         test_helpers::{
-            create_leaf_cert, create_synth_token_request,
-            expected_synthesizer_token_plaintext_display,
+            create_leaf_cert, create_synth_token_request, expected_synthesizer_token_display,
         },
         tokens::manufacturer::synthesizer::AuditRecipient,
-        Builder, Description, Expiration, FormatMethod, Formattable, Issued,
-        IssuerAdditionalFields, KeyPair, Manufacturer, RequestBuilder, SynthesizerTokenRequest,
+        Builder, Description, Digestible, Expiration, Issued, IssuerAdditionalFields, KeyPair,
+        Manufacturer, RequestBuilder, SynthesizerTokenRequest,
     };
 
     #[test]
@@ -551,70 +382,6 @@ mod test {
         let (req, _) = create_synth_token_request();
         cert.issue_synthesizer_token(req, Expiration::default())
             .unwrap();
-    }
-
-    #[test]
-    fn plaintext_display_for_synthesizer_token_without_audit_recipient_matches_expected_display() {
-        let cert = create_leaf_cert::<Manufacturer>();
-        let kp = KeyPair::new_random();
-        let req = SynthesizerTokenRequest::v1_token_request(
-            kp.public_key(),
-            "maker.synth",
-            "XL",
-            "10AK",
-            10_000u64,
-            None,
-        );
-        let token = cert
-            .issue_synthesizer_token(req, Expiration::default())
-            .unwrap();
-        let expected_text = expected_synthesizer_token_plaintext_display(
-            &token,
-            "maker.synth",
-            "XL",
-            "10AK",
-            "10000 base pairs per day",
-            None,
-            &format!("(public key: {})", token.issuer_public_key()),
-            None,
-        );
-        let text = token.format(&FormatMethod::PlainDigest).unwrap();
-        assert_eq!(text, expected_text);
-    }
-
-    #[test]
-    fn plaintext_display_for_synthesizer_token_warns_if_signature_invalid() {
-        let cert = create_leaf_cert::<Manufacturer>();
-        let kp = KeyPair::new_random();
-        let req = SynthesizerTokenRequest::v1_token_request(
-            kp.public_key(),
-            "maker.synth",
-            "XL",
-            "10AK",
-            10_000u64,
-            None,
-        );
-        let mut token = cert
-            .issue_synthesizer_token(req, Expiration::default())
-            .unwrap();
-
-        token.break_signature();
-
-        let expected_text = expected_synthesizer_token_plaintext_display(
-            &token,
-            "maker.synth",
-            "XL",
-            "10AK",
-            "10000 base pairs per day",
-            None,
-            &format!("(public key: {})", token.issuer_public_key()),
-            Some(concat_with_newline!(
-                "",
-                "INVALID: The signature failed verification"
-            )),
-        );
-        let text = token.format(&FormatMethod::PlainDigest).unwrap();
-        assert_eq!(text, expected_text);
     }
 
     #[test]
@@ -640,7 +407,7 @@ mod test {
         let token = cert
             .issue_synthesizer_token(req, Expiration::default())
             .unwrap();
-        let expected_text = expected_synthesizer_token_plaintext_display(
+        let expected_text = expected_synthesizer_token_display(
             &token,
             "maker.synth",
             "XL",
@@ -648,9 +415,8 @@ mod test {
             "10000 base pairs per day",
             Some("anna@example.com (03f29057c21d3eb14815eefa0127895b57278fd41c2bad78861ff7a5b1c9b5adae)"),
             &format!("(public key: {})", token.issuer_public_key()),
-            None,
         );
-        let text = token.format(&FormatMethod::PlainDigest).unwrap();
+        let text = token.into_digest().to_string();
         assert_eq!(text, expected_text);
     }
 

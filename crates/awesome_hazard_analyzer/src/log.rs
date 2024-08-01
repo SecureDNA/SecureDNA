@@ -42,7 +42,7 @@ pub fn init_log(log_level: filter::LevelFilter, time_offset: time::UtcOffset) ->
         .with(layer.with_writer(std::io::stdout).with_filter(filter))
         .try_init()?;
 
-    info!("Logging at level {}", log_level);
+    info!("Logging at level {log_level}");
 
     Ok(())
 }

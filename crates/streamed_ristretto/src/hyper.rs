@@ -147,14 +147,6 @@ mod tests {
         }
     }
 
-    struct SomeError;
-
-    impl HasShortErrorMsg for SomeError {
-        fn short_err_msg(&self) -> ShortErrorMsg {
-            *b"placeholder error has occurred"
-        }
-    }
-
     #[test]
     fn smoke_test_from_request() {
         let body = http_body_util::Full::new(

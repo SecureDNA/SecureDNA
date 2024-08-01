@@ -25,11 +25,11 @@ $cargo build --profile "$profile" --bin hdbserver --bin keyserver --bin synthcli
 
 $cargo run --profile "$profile" --bin hdbserver -- --cfg-path test/cfg/database.toml &
 
-$cargo run --profile "$profile" --bin keyserver -- --cfg-path test/cfg/keyserver1.toml &
+$cargo run --profile "$profile" --bin keyserver -- --cfg-path test/cfg/03.keyserver-01.toml &
 
-$cargo run --profile "$profile" --bin keyserver -- --cfg-path test/cfg/keyserver2.toml &
+$cargo run --profile "$profile" --bin keyserver -- --cfg-path test/cfg/03.keyserver-02.toml &
 
-$cargo run --profile "$profile" --bin keyserver -- --cfg-path test/cfg/keyserver3.toml &
+$cargo run --profile "$profile" --bin keyserver -- --cfg-path test/cfg/03.keyserver-03.toml &
 
 sleep 5
 $cargo run --profile "$profile" --bin synthclient -- \
@@ -40,6 +40,6 @@ $cargo run --profile "$profile" --bin synthclient -- \
     --use-test-roots-do-not-use-this-in-prod \
     --token-file test/certs/synthesizer-token.st \
     --keypair-file test/certs/synthesizer-token.priv \
-    --keypair-passphrase-file test/certs/synthesizer-passphrase.txt &
+    --keypair-passphrase-file test/certs/synthesizer-token.passphrase &
 
 wait

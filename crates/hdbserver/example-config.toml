@@ -3,6 +3,15 @@ address = "127.0.0.1:8080"
 # IPv6 addresses are supported
 #address = "[::1]:8080"
 
+# (optional) Address to listen on for incoming TLS connections.
+#tls_address = "127.0.0.1:8090"
+
+# (optional) Path to TLS certificate in PEM format.
+#tls_certificate = "tls/cert.pem"
+
+# (optional) Path to TLS private key in PEM format.
+#tls_private_key = "tls/key.pem"
+
 # Maximum number of simultaneous HTTP connections
 # max_connections = 16384
 
@@ -22,22 +31,28 @@ database = "data/hdb"
 #hash_spec_path = "hash_spec.json"
 
 # (optional) Yubico API client ID. This is a short digit string, used to verify YubiKey OTPs
-# when handling an order with a 2FA-enabled exemption list. If set to the string 'allow_all',
+# when handling an order with a 2FA-enabled exemption. If set to the string 'allow_all',
 # all YubiKey OTPs are treated as valid.
 #yubico_api_client_id = ""
 
 # (optional) Yubico API secret key. This is a base-64 string,
-# used to verify YubiKey OTPs when handling an order with a 2FA-enabled exemption list.
+# used to verify YubiKey OTPs when handling an order with a 2FA-enabled exemption.
 #yubico_api_secret_key = ""
 
 # (optional) Size limit for JSON request bodies in SCEP
 #scep_json_size_limit = 100000
 
-# (optional) Size limit for exemption list tokens
-#elt_size_limit = 100000
+# (optional) Size limit for exemption tokens
+#et_size_limit = 100000
+
+# Directory containing exemption root certs for SCEP exemption token chain verification
+exemption_roots = "certs/exemption-roots/"
 
 # Directory containing manufacturer root certs for SCEP client cert verification
-manufacturer_roots = "certs/manufacturer_roots/"
+manufacturer_roots = "certs/manufacturer-roots/"
+
+# (optional) Path to certificate revocation list TOML file
+#revocation_list = "revocation_list.toml"
 
 # Path to the database's token and certificate chain bundle file, used for SCEP
 token_file = "database-token.dt"
@@ -47,7 +62,7 @@ keypair_file = "database-token.priv"
 
 # The file containing the passphrase to decrypt the database's .priv keypair file
 # (keypair_file setting)
-keypair_passphrase_file = "database-passphrase.txt"
+keypair_passphrase_file = "database-token.passphrase"
 
 # (optional) Do not set the `secure` flag on session cookies, allowing them to be transported
 # over http://. This is useful for local testing.
@@ -62,12 +77,30 @@ keypair_passphrase_file = "database-passphrase.txt"
 #[monitoring]
 #address = "127.0.0.1:8081"
 
+# (optional) Address to listen on for incoming TLS connections.
+#tls_address = "127.0.0.1:8091"
+
+# (optional) Path to TLS certificate in PEM format.
+#tls_certificate = "tls/cert.pem"
+
+# (optional) Path to TLS private key in PEM format.
+#tls_private_key = "tls/key.pem"
+
 # Maximum number of simultaneous HTTP connections
 # max_connections = 16384
 
 
 #[control]
 #address = "127.0.0.1:8082"
+
+# (optional) Address to listen on for incoming TLS connections.
+#tls_address = "127.0.0.1:8092"
+
+# (optional) Path to TLS certificate in PEM format.
+#tls_certificate = "tls/cert.pem"
+
+# (optional) Path to TLS private key in PEM format.
+#tls_private_key = "tls/key.pem"
 
 # Maximum number of simultaneous HTTP connections
 # max_connections = 16384

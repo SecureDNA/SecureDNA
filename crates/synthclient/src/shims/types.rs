@@ -3,11 +3,13 @@
 
 use std::env;
 use std::net::IpAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use anyhow::Context;
 use clap::{crate_version, ArgAction, Args, CommandFactory, Parser};
+use serde::{de, Deserialize, Deserializer};
 use tokio::sync::Mutex;
 use url::Url;
 
@@ -15,6 +17,7 @@ use crate::parsefasta::{CurrentSystemLoadTracker, LimitConfiguration};
 use crate::rate_limiter::{RateLimiter, SystemTimeHourProvider};
 use crate::shims::event_store::Connection;
 use doprf_client::server_selection::{ServerEnumerationSource, ServerSelector};
+use minhttp::mpserver::{cli::ServerConfigSource, traits::RelativeConfig};
 use scep_client_helpers::ClientCerts;
 use shared_types::metrics::SynthClientMetrics;
 use shared_types::server_selection::Tier;
@@ -26,25 +29,22 @@ use shared_types::server_selection::Tier;
     version = crate_version!()
 )]
 pub struct Opts {
-    // WARNING: keyservers use num_args (multi-argument)
-    // and hence it is discouraged to use positional arguments
-    // https://docs.rs/clap/latest/clap/struct.Arg.html#method.num_args
-    #[clap(
-        short,
-        long,
-        help = "Port to listen on.",
-        default_value = "80",
-        env = "SECUREDNA_SYNTHCLIENT_PORT"
-    )]
-    pub port: u16,
-
     #[command(flatten)]
+    pub config: ServerConfigSource<Config>,
+}
+
+#[derive(Clone, Debug, Args, Deserialize)]
+pub struct Config {
+    #[command(flatten)]
+    #[serde(flatten)]
     pub enumeration: EnumerationArgs,
 
     #[command(flatten)]
+    #[serde(flatten)]
     pub selection_refresh: SelectionRefreshArgs,
 
     #[command(flatten)]
+    #[serde(flatten)]
     pub certs: CertificateArgs,
 
     #[clap(
@@ -58,24 +58,19 @@ pub struct Opts {
         long,
         help = "By default, screening requests are limited to this many base pairs.",
         env = "SECUREDNA_SYNTHCLIENT_DEFAULT_MAX_REQUEST_BP",
-        default_value = "1000000"
+        default_value_t = Config::default_default_max_request_bp(),
     )]
+    #[serde(default = "Config::default_default_max_request_bp")]
     pub default_max_request_bp: usize,
 
     #[clap(
         long,
         help = "In a public demo setting, screening requests are limited to this many base pairs.",
         env = "SECUREDNA_SYNTHCLIENT_LIMITED_MAX_REQUEST_BP",
-        default_value = "10000"
+        default_value_t = Config::default_limited_max_request_bp(),
     )]
+    #[serde(default = "Config::default_limited_max_request_bp")]
     pub limited_max_request_bp: usize,
-
-    #[clap(
-        long,
-        help = "Disable Prometheus statistics",
-        env = "SECUREDNA_SYNTHCLIENT_DISABLE_STATISTICS"
-    )]
-    pub disable_statistics: bool,
 
     #[clap(
         long,
@@ -87,9 +82,10 @@ pub struct Opts {
     #[clap(
         long,
         help = "Hourly rate limit on reCAPTCHA screening requests from the same IP address",
-        default_value = "5",
-        env = "SECUREDNA_SYNTHCLIENT_RECAPTCHA_REQUESTS_PER_HOUR"
+        env = "SECUREDNA_SYNTHCLIENT_RECAPTCHA_REQUESTS_PER_HOUR",
+        default_value_t = Config::default_recaptcha_requests_per_hour(),
     )]
+    #[serde(default = "Config::default_recaptcha_requests_per_hour")]
     pub recaptcha_requests_per_hour: usize,
 
     #[clap(
@@ -103,67 +99,90 @@ pub struct Opts {
         long,
         help = "Redirect from / to this URL.",
         env = "SECUREDNA_FRONTEND_URL",
-        default_value = "https://pages.securedna.org/demo/"
+        default_value_t = Config::default_frontend_url(),
+    )]
+    #[serde(
+        deserialize_with = "deserialize_via_parse",
+        default = "Config::default_frontend_url"
     )]
     pub frontend_url: Url,
 
     #[clap(
-        short,
-        long,
-        help = "Port to listen on for monitoring plane.",
-        env = "SECUREDNA_HDBSERVER_MONITORING_PLANE_PORT"
-    )]
-    pub monitoring_plane_port: Option<u16>,
-
-    #[clap(
-        long,
-        help = "Maximum simultaneously connected clients before connections are no longer accepted",
-        default_value = "1024",
-        env = "SECUREDNA_SYNTHCLIENT_MAX_CLIENTS"
-    )]
-    pub max_clients: usize,
-
-    #[clap(
-        long,
-        help = "Maximum simultaneously connected monitoring plane clients before connections are no longer accepted",
-        default_value = "1024",
-        env = "SECUREDNA_SYNTHCLIENT_MAX_MONITORING_PLANE_CLIENTS"
-    )]
-    pub max_monitoring_plane_clients: usize,
-
-    #[clap(
         long,
         help = "Maximum size of JSON request bodies",
-        default_value = "100000",
-        env = "SECUREDNA_SYNTHCLIENT_JSON_SIZE_LIMIT"
+        env = "SECUREDNA_SYNTHCLIENT_JSON_SIZE_LIMIT",
+        default_value_t = Config::default_json_size_limit(),
     )]
+    #[serde(default = "Config::default_json_size_limit")]
     pub json_size_limit: u64,
 
     #[clap(
         long,
         help = "Writable path where synthclient can persist event store data (known server versions, etc). The default is :memory:, which is an in-memory store that will be erased on shutdown.",
         env = "SECUREDNA_SYNTHCLIENT_EVENT_STORE_PATH",
-        default_value = ":memory:"
-    )]
+        default_value_os_t = Config::default_event_store_path(),
+     )]
+    #[serde(default = "Config::default_event_store_path")]
     pub event_store_path: PathBuf,
 }
 
-#[derive(Args, Debug)]
+impl Config {
+    fn default_default_max_request_bp() -> usize {
+        1000000
+    }
+
+    fn default_limited_max_request_bp() -> usize {
+        10000
+    }
+
+    fn default_recaptcha_requests_per_hour() -> usize {
+        5
+    }
+
+    fn default_frontend_url() -> Url {
+        "https://pages.securedna.org/web-interface/"
+            .parse()
+            .unwrap()
+    }
+
+    fn default_json_size_limit() -> u64 {
+        100000
+    }
+
+    fn default_event_store_path() -> PathBuf {
+        ":memory:".into()
+    }
+}
+
+impl RelativeConfig for Config {
+    fn relative_to(mut self, base: impl AsRef<Path>) -> Self {
+        let base = base.as_ref();
+        self.certs = self.certs.relative_to(base);
+        if self.event_store_path != Path::new(":memory:") {
+            self.event_store_path = base.join(self.event_store_path);
+        }
+        self
+    }
+}
+
+#[derive(Args, Clone, Debug, Deserialize)]
 pub struct EnumerationArgs {
     #[clap(
         long,
         help = "Server tier to use for enumeration.",
-        default_value = "prod",
-        env = "SECUREDNA_SYNTHCLIENT_ENUMERATE_TIER"
-    )]
+        env = "SECUREDNA_SYNTHCLIENT_ENUMERATE_TIER",
+        default_value_t = EnumerationArgs::default_enumerate_tier(),
+     )]
+    #[serde(default = "EnumerationArgs::default_enumerate_tier")]
     pub enumerate_tier: Tier,
 
     #[clap(
         long,
         help = "Apex domain to use for enumeration.",
-        default_value = "securedna.org",
-        env = "SECUREDNA_SYNTHCLIENT_ENUMERATE_APEX"
-    )]
+        env = "SECUREDNA_SYNTHCLIENT_ENUMERATE_APEX",
+        default_value_t = EnumerationArgs::default_enumerate_apex(),
+     )]
+    #[serde(default = "EnumerationArgs::default_enumerate_apex")]
     pub enumerate_apex: String,
 
     #[clap(
@@ -193,6 +212,14 @@ pub struct EnumerationArgs {
 }
 
 impl EnumerationArgs {
+    fn default_enumerate_tier() -> Tier {
+        "prod".into()
+    }
+
+    fn default_enumerate_apex() -> String {
+        "securedna.org".to_owned()
+    }
+
     /// Attempts to validate the provided enumeration arguments, exiting with an error if
     /// they aren't valid, and returns a enumeration source config
     pub fn validate_and_build(&self) -> ServerEnumerationSource {
@@ -224,43 +251,74 @@ impl EnumerationArgs {
     }
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Clone, Debug, Deserialize)]
 pub struct SelectionRefreshArgs {
     #[clap(
         long,
         action = ArgAction::Set,
-        default_value = "1day",
         help = "Timeout before a cached selection will be refreshed in the background. Uses formatting from the `humantime` crate.",
         env = "SECUREDNA_SYNTHCLIENT_SOFT_TIMEOUT",
+        default_value_t = SelectionRefreshArgs::default_soft_timeout(),
+     )]
+    #[serde(
+        default = "SelectionRefreshArgs::default_soft_timeout",
+        deserialize_with = "deserialize_via_parse"
     )]
     pub soft_timeout: humantime::Duration,
+
     #[clap(
         long,
         action = ArgAction::Set,
-        default_value = "1week",
         help = "Timeout before a cached selection will be refreshed in the _foreground_, making all requests wait. Uses formatting from the `humantime` crate.",
         env = "SECUREDNA_SYNTHCLIENT_BLOCKING_TIMEOUT",
+        default_value_t = SelectionRefreshArgs::default_blocking_timeout(),
+     )]
+    #[serde(
+        default = "SelectionRefreshArgs::default_blocking_timeout",
+        deserialize_with = "deserialize_via_parse"
     )]
     pub blocking_timeout: humantime::Duration,
+
     #[clap(
         long,
         action = ArgAction::Set,
-        default_value = "1",
         help = "If nonzero, an extra amount of good keyservers, on top of the quorum threshold, below which the selection will be refreshed in the background.",
         env = "SECUREDNA_SYNTHCLIENT_SOFT_EXTRA_KS",
-    )]
+        default_value_t = SelectionRefreshArgs::default_soft_extra_keyserver_threshold(),
+     )]
+    #[serde(default = "SelectionRefreshArgs::default_soft_extra_keyserver_threshold")]
     pub soft_extra_keyserver_threshold: u32,
+
     #[clap(
         long,
         action = ArgAction::Set,
-        default_value = "1",
         help = "If nonzero, an extra amount of good hdbs, on top of the one needed for quorum, below which the selection will be refreshed in the background.",
         env = "SECUREDNA_SYNTHCLIENT_SOFT_EXTRA_HDB",
-    )]
+        default_value_t = SelectionRefreshArgs::default_soft_extra_hdb_threshold(),
+     )]
+    #[serde(default = "SelectionRefreshArgs::default_soft_extra_hdb_threshold")]
     pub soft_extra_hdb_threshold: u32,
 }
 
-#[derive(Args, Debug)]
+impl SelectionRefreshArgs {
+    fn default_soft_timeout() -> humantime::Duration {
+        "1day".parse().unwrap()
+    }
+
+    fn default_blocking_timeout() -> humantime::Duration {
+        "1week".parse().unwrap()
+    }
+
+    fn default_soft_extra_keyserver_threshold() -> u32 {
+        1
+    }
+
+    fn default_soft_extra_hdb_threshold() -> u32 {
+        1
+    }
+}
+
+#[derive(Args, Clone, Debug, Deserialize)]
 pub struct CertificateArgs {
     #[clap(
         long,
@@ -307,8 +365,29 @@ impl CertificateArgs {
     }
 }
 
+impl RelativeConfig for CertificateArgs {
+    fn relative_to(mut self, base: impl AsRef<Path>) -> Self {
+        let base = base.as_ref();
+        self.token_file = base.join(self.token_file);
+        self.keypair_file = base.join(self.keypair_file);
+        self.keypair_passphrase_file = base.join(self.keypair_passphrase_file);
+        self
+    }
+}
+
+fn deserialize_via_parse<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr,
+    <T as FromStr>::Err: std::fmt::Display,
+{
+    let s = String::deserialize(deserializer)?;
+    FromStr::from_str(&s).map_err(de::Error::custom)
+}
+
 pub struct SynthClientState {
-    pub opts: Opts,
+    pub app_cfg: Config,
+    pub is_serving_https: bool,
     pub server_selector: Arc<ServerSelector>,
     pub metrics: Option<Arc<SynthClientMetrics>>,
     pub limits: CurrentSystemLoadTracker,
@@ -328,14 +407,14 @@ pub enum ScreeningType {
 impl SynthClientState {
     pub fn max_request_bp(&self, screening_type: ScreeningType) -> usize {
         match screening_type {
-            ScreeningType::Demo => self.opts.limited_max_request_bp,
-            ScreeningType::Normal => self.opts.default_max_request_bp,
+            ScreeningType::Demo => self.app_cfg.limited_max_request_bp,
+            ScreeningType::Normal => self.app_cfg.default_max_request_bp,
         }
     }
 
     pub fn limit_config(&self, screening_type: ScreeningType) -> LimitConfiguration {
         LimitConfiguration {
-            memory_limit: self.opts.memorylimit,
+            memory_limit: self.app_cfg.memorylimit,
             max_request_bp: self.max_request_bp(screening_type),
             limits: &self.limits,
         }

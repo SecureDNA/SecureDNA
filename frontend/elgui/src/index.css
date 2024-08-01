@@ -8,7 +8,7 @@
 @tailwind utilities;
 
 :root {
-  font-family: "Inter Variable", Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-family: "DM Sans Variable", "DM Sans", Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 24px;
   font-weight: 400;
@@ -20,12 +20,6 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
-  font-feature-settings:
-    "kern" 1,
-    "ss02" 1;
-  -webkit-font-feature-settings:
-    "kern" 1,
-    "ss02" 1;
 }
 
 @layer base {
@@ -35,7 +29,8 @@
   h2 {
     @apply text-xl font-bold my-4;
   }
-  a {
-    @apply text-blue-500 hover:underline;
+  a[href]:not(.opaque) {
+    @apply underline hover:opacity-50;
+    /* @apply text-primary-light hover:underline; */
   }
 }

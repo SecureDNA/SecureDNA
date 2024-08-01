@@ -6,8 +6,8 @@ use std::sync::Arc;
 use crate::ClientCerts;
 use certificates::key_traits::CanLoadKey;
 use certificates::{
-    DatabaseTokenGroup, ExemptionListTokenGroup, KeyPair, KeyserverTokenGroup, PublicKey,
-    TokenBundle, TokenGroup,
+    DatabaseTokenGroup, ExemptionTokenGroup, KeyPair, KeyserverTokenGroup, PublicKey, TokenBundle,
+    TokenGroup,
 };
 use doprf::prf::CompletedHashValue;
 use doprf::{
@@ -17,12 +17,13 @@ use doprf::{
 };
 use http_client::{BaseApiClient, HttpError};
 use packed_ristretto::PackedRistrettos;
-use scep::steps::EltEndpointResponse;
-use scep::types::ScreenWithElParams;
+use scep::steps::EtEndpointResponse;
+use scep::types::ScreenWithExemptionParams;
 use scep::{
     states::{InitializedClientState, OpenedClientState},
     types::{ClientRequestType, ScreenCommon},
 };
+use shared_types::et::WithOtps;
 use shared_types::{hdb::HdbScreeningResult, synthesis_permission::Region};
 
 pub struct ScepClient<ServerTokenKind> {
@@ -74,6 +75,7 @@ where
         nucleotide_total_count: u64,
         last_server_version: Option<u64>,
         keyserver_id_set: KeyserverIdSet,
+        debug_info: bool,
         prevalidate_fn: impl FnOnce(
             serde_json::Value,
             InitializedClientState,
@@ -91,6 +93,7 @@ where
             nucleotide_total_count,
             last_server_version,
             keyserver_id_set,
+            debug_info,
         );
 
         let open_response: serde_json::Value = self
@@ -157,12 +160,14 @@ impl ScepClient<KeyserverTokenGroup> {
         last_server_version: Option<u64>,
         keyserver_id_set: KeyserverIdSet,
         expected_keyserver_id: KeyserverId,
+        debug_info: bool,
     ) -> Result<OpenedClientState, Error<scep::error::ClientPrevalidation>> {
         self.generic_open(
             ClientRequestType::Keyserve,
             nucleotide_total_count,
             last_server_version,
             keyserver_id_set,
+            debug_info,
             |open_response: serde_json::Value,
              client_state: InitializedClientState,
              client_keypair: KeyPair,
@@ -198,15 +203,16 @@ impl ScepClient<DatabaseTokenGroup> {
         nucleotide_total_count: u64,
         last_server_version: Option<u64>,
         keyserver_id_set: KeyserverIdSet,
+        debug_info: bool,
         region: Region,
-        with_exemption_list: bool,
+        with_exemption: bool,
     ) -> Result<OpenedClientState, Error<scep::error::ClientPrevalidation>> {
         let common = ScreenCommon {
             region,
             provider_reference: None,
         };
-        let request_type = if with_exemption_list {
-            ClientRequestType::ScreenWithEl(common)
+        let request_type = if with_exemption {
+            ClientRequestType::ScreenWithExemption(common)
         } else {
             ClientRequestType::Screen(common)
         };
@@ -215,6 +221,7 @@ impl ScepClient<DatabaseTokenGroup> {
             nucleotide_total_count,
             last_server_version,
             keyserver_id_set,
+            debug_info,
             scep::steps::client_prevalidate_and_mutual_auth_hdb,
         )
         .await
@@ -229,45 +236,54 @@ impl ScepClient<DatabaseTokenGroup> {
             .await
     }
 
-    pub async fn screen_with_elt(
+    pub async fn screen_with_ets(
         &self,
         hashes: &PackedRistrettos<TaggedHash>,
-        elt: &TokenBundle<ExemptionListTokenGroup>,
-        elt_hashes: &PackedRistrettos<CompletedHashValue>,
-        otp: String,
+        ets: &[WithOtps<TokenBundle<ExemptionTokenGroup>>],
+        et_hashes: &PackedRistrettos<CompletedHashValue>,
     ) -> Result<HdbScreeningResult, HttpError> {
-        let elt_wire = elt.to_wire_format().map_err(|e| HttpError::EncodeError {
-            encoding: "ELT".to_owned(),
+        let et_pems: Result<Vec<_>, _> = ets
+            .iter()
+            .map(|w| w.as_ref().try_map(|e| e.to_file_contents()))
+            .collect();
+        let et_pems = et_pems.map_err(|e| HttpError::EncodeError {
+            encoding: "exemption token".to_owned(),
             source: e.into(),
         })?;
+        let et_wire: Vec<u8> =
+            serde_json::to_vec(&et_pems).map_err(|e| HttpError::EncodeError {
+                encoding: "exemption token".to_owned(),
+                source: e.into(),
+            })?;
+
         self.api_client
             .json_json_post::<_, serde_json::Value>(
-                &format!("{}{}", self.domain, scep::SCREEN_WITH_EL_ENDPOINT),
-                &ScreenWithElParams {
-                    elt_size: elt_wire.len().try_into().unwrap_or(u64::MAX),
-                    otp,
+                &format!("{}{}", self.domain, scep::SCREEN_WITH_EXEMPTION_ENDPOINT),
+                &ScreenWithExemptionParams {
+                    et_size: et_wire.len().try_into().unwrap_or(u64::MAX),
                 },
             )
             .await?;
-        let response: EltEndpointResponse = self
+        let response: EtEndpointResponse = self
             .api_client
             .bytes_json_post(
-                &format!("{}{}", self.domain, scep::ELT_ENDPOINT),
-                elt_wire.into(),
-                "application/x-x509-ca-cert",
+                &format!("{}{}", self.domain, scep::EXEMPTION_ENDPOINT),
+                et_wire.into(),
+                "application/json",
             )
             .await?;
 
-        if response.needs_hashes && !elt.token.has_dna_sequences() {
+        let has_dna = ets.iter().any(|w| w.et.token.has_dna_sequences());
+        if response.needs_hashes && !has_dna {
             return Err(HttpError::ProtocolError {
-                error: "Server says we need to send hashes but our ELT has no DNA sequences."
+                error: "Server says we need to send hashes but our exemption tokens have no DNA sequences."
                     .to_owned(),
             });
         }
 
-        if !response.needs_hashes && elt.token.has_dna_sequences() {
+        if !response.needs_hashes && has_dna {
             return Err(HttpError::ProtocolError {
-                error: "Server says we don't need to send hashes, but our ELT has DNA sequences."
+                error: "Server says we don't need to send hashes, but our exemption tokens have DNA sequences."
                     .to_owned(),
             });
         }
@@ -275,14 +291,14 @@ impl ScepClient<DatabaseTokenGroup> {
         if response.needs_hashes {
             self.api_client
                 .ristretto_json_post::<_, serde_json::Value>(
-                    &format!("{}{}", self.domain, scep::ELT_SEQ_HASHES_ENDPOINT),
-                    elt_hashes,
+                    &format!("{}{}", self.domain, scep::EXEMPTION_SEQ_HASHES_ENDPOINT),
+                    et_hashes,
                 )
                 .await?;
         }
         self.api_client
             .ristretto_json_post(
-                &format!("{}{}", self.domain, scep::ELT_SCREEN_HASHES_ENDPOINT),
+                &format!("{}{}", self.domain, scep::EXEMPTION_SCREEN_HASHES_ENDPOINT),
                 hashes,
             )
             .await

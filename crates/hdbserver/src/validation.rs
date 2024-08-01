@@ -6,31 +6,36 @@
 use std::collections::HashSet;
 
 use certificates::{
-    Authenticator, ExemptionListTokenGroup, TokenBundle, TokenBundleError, YubikeyId,
+    revocation::RevocationList, Authenticator, ChainTraversal, Exemption, ExemptionTokenGroup,
+    PublicKey, TokenBundle, TokenBundleError, YubikeyId,
 };
 use hdb::{Entry, Exemptions};
-
 use serde::Serialize;
+use shared_types::{error::InvalidClientTokenBundle, et::WithOtps};
 use thiserror::Error;
 use yubico::yubicoerror::YubicoError;
 
 #[derive(Debug)]
 /// Specifies where a list of 2FA authenticators orginiates from.
 pub enum AuthenticatorSource {
-    /// The authenticators were added during ELTR creation by the requestor.
+    /// The authenticators were added during ETR creation by the requestor.
     Requestor,
-    /// The authenticators were added during ELT approval by the issuer.
+    /// The authenticators were added during ET approval by the issuer.
     Issuer,
 }
 
 #[derive(Debug, Error)]
 pub enum ValidationError {
-    #[error("Error decoding exemption list token: {0}")]
-    DecodeError(#[from] TokenBundleError),
-    #[error("Exemption list token has no 2FA authenticators")]
-    EltMissing2fa,
+    #[error("Error decoding exemption token: {0}")]
+    DecodeError(#[from] TokenBundleError<Exemption>),
+    #[error("Exemption token has no 2FA authenticators")]
+    EtMissing2fa,
+    #[error("Exemption token has issuer-supplied 2FA authenticators, but no issuer_otp")]
+    EtMissingIssuer2fa,
     #[error("All {0:?} authenticators failed: {1:?}")]
     AuthFailed(AuthenticatorSource, Vec<AuthenticatorError>),
+    #[error(transparent)]
+    Chain(#[from] InvalidClientTokenBundle<Exemption>),
 }
 
 #[derive(Debug, Error)]
@@ -85,17 +90,16 @@ pub trait Validator {
         &self,
         authenticator_source: AuthenticatorSource,
         authenticators: &[Authenticator],
-        yubico_otp: &Option<String>,
-        totp_otp: &Option<String>,
+        otp: &Option<String>,
     ) -> Result<(), ValidationError> {
         let mut failures: Vec<AuthenticatorError> = vec![];
         for auth in authenticators {
             match auth {
-                Authenticator::Yubikey(id) => match self.validate_yubico(id, yubico_otp).await {
+                Authenticator::Yubikey(id) => match self.validate_yubico(id, otp).await {
                     Ok(()) => return Ok(()),
                     Err(e) => failures.push(AuthenticatorError::Yubico(e)),
                 },
-                Authenticator::Totp(id) => match self.validate_totp(id, totp_otp).await {
+                Authenticator::Totp(id) => match self.validate_totp(id, otp).await {
                     Ok(()) => return Ok(()),
                     Err(e) => failures.push(AuthenticatorError::Totp(e)),
                 },
@@ -104,31 +108,40 @@ pub trait Validator {
         Err(ValidationError::AuthFailed(authenticator_source, failures))
     }
 
-    /// Validate an ELT TokenBundle:
+    /// Validate an exemption token bundle:
     ///
     /// - It must have at least one non-empty list of authenticators.
     /// - If there are requestor-sourced auths, one of them must validate.
     /// - If there are issuer-sourced auths, one of them must validate.
-    async fn validate_elt(
+    async fn validate_et(
         &self,
-        elt_bundle: &TokenBundle<ExemptionListTokenGroup>,
-        yubico_otp: &Option<String>,
-        totp_otp: &Option<String>,
+        et_bundle: &WithOtps<TokenBundle<ExemptionTokenGroup>>,
     ) -> Result<(), ValidationError> {
-        let request_auths = elt_bundle.token.requestor_auth_devices();
-        let issuer_auths = elt_bundle.token.issuer_auth_devices();
+        let requestor_auths = et_bundle.et.token.requestor_auth_devices();
+        let issuer_auths = et_bundle.et.token.issuer_auth_devices();
 
-        if request_auths.is_empty() && issuer_auths.is_empty() {
-            return Err(ValidationError::EltMissing2fa);
+        if requestor_auths.is_empty() && issuer_auths.is_empty() {
+            return Err(ValidationError::EtMissing2fa);
         }
 
-        for (source, auths) in [
-            (AuthenticatorSource::Requestor, request_auths),
-            (AuthenticatorSource::Issuer, issuer_auths),
-        ] {
-            if !auths.is_empty() {
-                self.validate_one_of(source, auths, yubico_otp, totp_otp)
-                    .await?;
+        self.validate_one_of(
+            AuthenticatorSource::Requestor,
+            requestor_auths,
+            &Some(et_bundle.requestor_otp.clone()),
+        )
+        .await?;
+
+        if !issuer_auths.is_empty() {
+            match &et_bundle.issuer_otp {
+                Some(otp) => {
+                    self.validate_one_of(
+                        AuthenticatorSource::Issuer,
+                        issuer_auths,
+                        &Some(otp.clone()),
+                    )
+                    .await?
+                }
+                None => return Err(ValidationError::EtMissingIssuer2fa),
             }
         }
 
@@ -161,7 +174,7 @@ impl Validator for NetworkingValidator {
             (Some("allow_all"), _) => Ok(()),
             (Some(id), Some(key)) => {
                 // Sanity check: the OTP they submitted should start with the
-                // 12-character Yubikey ID in the ELT.
+                // 12-character Yubikey ID in the ET.
                 if !otp.starts_with(&yubikey_id.to_string()) {
                     return Err(YubicoValidationError::OtpMismatch);
                 }
@@ -223,17 +236,27 @@ impl Validator for NetworkingValidator {
     }
 }
 
-pub async fn exemptions_from_otp(
-    token_bundles: Vec<TokenBundle<ExemptionListTokenGroup>>,
+pub async fn exemptions_after_validation(
+    token_bundles: Vec<WithOtps<TokenBundle<ExemptionTokenGroup>>>,
     hashes: HashSet<[u8; Entry::HASH_LENGTH]>,
     validator: &(impl Validator + std::marker::Sync),
-    yubico_otp: &Option<String>,
-    totp_otp: &Option<String>,
+    exemptions_roots: &[PublicKey],
+    revocation_list: &RevocationList,
 ) -> Result<Exemptions, ValidationError> {
     for bundle in &token_bundles {
-        validator.validate_elt(bundle, yubico_otp, totp_otp).await?;
+        validator.validate_et(bundle).await?;
+        bundle
+            .et
+            .validate_path_to_issuers(exemptions_roots, Some(revocation_list))
+            .map_err(|error| InvalidClientTokenBundle {
+                error,
+                token_kind: certificates::TokenKind::Exemption,
+            })?;
     }
-    Ok(Exemptions::new_unchecked(token_bundles, hashes))
+    Ok(Exemptions::new_unchecked(
+        token_bundles.into_iter().map(|bundle| bundle.et).collect(),
+        hashes,
+    ))
 }
 
 #[cfg(test)]

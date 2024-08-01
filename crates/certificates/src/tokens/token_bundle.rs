@@ -1,19 +1,24 @@
 // Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::fmt::{Display, Error, Formatter};
+
 use rasn::{AsnType, Decode, Encode};
 use thiserror::Error;
 
 use crate::chain::Chain;
+use crate::traversal::ChainValidationError;
 use crate::{
     asn::{FromASN1DerBytes, ToASN1DerBytes},
-    ChainItem, ChainTraversal, DecodeError, EncodeError, Exemption, ExemptionListTokenGroup,
+    ChainItem, ChainTraversal, DecodeError, EncodeError, Exemption, ExemptionTokenGroup,
     MultiItemPemBuilder,
 };
+use crate::{Authenticator, ExemptionTokenRequest, Expiration, IssuanceError, KeyPair, Role};
 
+use super::exemption::et::EtLoadKeyError;
 use super::TokenGroup;
 
-/// The contents of a token file (for example an .elt file). Holds the token,
+/// The contents of a token file (for example an .et file). Holds the token,
 /// and the certificate chain showing the provenance of the token.
 #[derive(Debug, Clone, AsnType, Encode, Decode)]
 pub struct TokenBundle<T>
@@ -47,7 +52,9 @@ where
     }
 
     /// Parsing from file contents
-    pub fn from_file_contents(contents: impl AsRef<[u8]>) -> Result<Self, TokenBundleError> {
+    pub fn from_file_contents(
+        contents: impl AsRef<[u8]>,
+    ) -> Result<Self, TokenBundleError<T::AssociatedRole>> {
         let pem_items = MultiItemPemBuilder::parse(contents)?;
 
         let token = pem_items
@@ -88,7 +95,24 @@ impl<T: TokenGroup> ChainTraversal for TokenBundle<T> {
     }
 }
 
-impl TokenBundle<ExemptionListTokenGroup> {
+impl TokenBundle<ExemptionTokenGroup> {
+    pub fn issue_exemption_token_bundle(
+        &self,
+        token_request: ExemptionTokenRequest,
+        expiration: Expiration,
+        issuer_auth_devices: Vec<Authenticator>,
+        keypair: KeyPair,
+    ) -> Result<TokenBundle<ExemptionTokenGroup>, TokenBundleError<Exemption>> {
+        self.path_to_leaf()
+            .map_err(TokenBundleError::NoValidChainToLeaf)?;
+        let token = self
+            .token
+            .clone()
+            .load_key(keypair)?
+            .issue_exemption_token(token_request, expiration, issuer_auth_devices)?;
+        let chain = self.issue_chain();
+        Ok(TokenBundle::new(token, chain))
+    }
     pub fn issue_chain(&self) -> Chain<Exemption> {
         let mut new_chain = self.chain.clone();
         new_chain.add_item(self.token.clone());
@@ -97,13 +121,36 @@ impl TokenBundle<ExemptionListTokenGroup> {
 }
 
 #[derive(Debug, Error)]
-pub enum TokenBundleError {
-    #[error("did not find a token when parsing contents")]
+pub enum TokenBundleError<R: Role> {
     NoTokenFound,
-    #[error("did not find a certificate chain when parsing contents")]
     NoChainFound,
-    #[error(transparent)]
     Decode(#[from] DecodeError),
+    KeyLoad(#[from] EtLoadKeyError),
+    Issuance(#[from] IssuanceError),
+    NoValidChainToLeaf(ChainValidationError<R>),
+}
+
+impl<R: Role> Display for TokenBundleError<R> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            TokenBundleError::NoTokenFound => {
+                write!(f, "did not find a token when parsing contents")
+            }
+            TokenBundleError::NoChainFound => {
+                write!(f, "did not find a certificate chain when parsing contents")
+            }
+            TokenBundleError::Decode(e) => e.fmt(f),
+            TokenBundleError::KeyLoad(e) => e.fmt(f),
+            TokenBundleError::Issuance(e) => e.fmt(f),
+            TokenBundleError::NoValidChainToLeaf(e) => {
+                write!(
+                    f,
+                    "one or more items in the token file are not valid:\n{}\n",
+                    e
+                )
+            }
+        }
+    }
 }
 
 #[cfg(test)]

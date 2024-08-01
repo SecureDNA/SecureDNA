@@ -6,11 +6,12 @@ use std::time::Duration;
 
 use futures::stream::FuturesUnordered;
 use futures::TryStreamExt;
+use shared_types::et::WithOtps;
 
 use crate::error::DoprfError;
 use crate::retry_if;
 use crate::server_selection::{bad_flag::ServerBadFlag, SelectedHdb, SelectedKeyserver};
-use certificates::{DatabaseTokenGroup, ExemptionListTokenGroup, KeyserverTokenGroup, TokenBundle};
+use certificates::{DatabaseTokenGroup, ExemptionTokenGroup, KeyserverTokenGroup, TokenBundle};
 use doprf::party::{KeyserverId, KeyserverIdSet};
 use doprf::prf::{CompletedHashValue, HashPart, Query};
 use doprf::tagged::TaggedHash;
@@ -26,6 +27,7 @@ pub struct ClientConfig {
     pub api_client: BaseApiClient,
     pub certs: Arc<ClientCerts>,
     pub version_hint: String,
+    pub debug_info: bool,
 }
 
 pub struct HdbClient {
@@ -43,7 +45,7 @@ impl HdbClient {
         last_server_version: Option<u64>,
         keyserver_id_set: KeyserverIdSet,
         region: Region,
-        with_exemption_list: bool,
+        with_exemption: bool,
     ) -> Result<Self, DoprfError> {
         let client = ScepClient::<DatabaseTokenGroup>::new(
             config.api_client,
@@ -59,8 +61,9 @@ impl HdbClient {
                         nucleotide_total_count,
                         last_server_version,
                         keyserver_id_set.clone(),
+                        config.debug_info,
                         region,
-                        with_exemption_list,
+                        with_exemption,
                     )
                     .await?)
             },
@@ -104,12 +107,11 @@ impl HdbClient {
     }
 
     /// Post packed `CompletedHashValue`s to the HDB, and return the HDB response set
-    pub async fn query_with_elt(
+    pub async fn query_with_ets(
         self,
         hashes: &PackedRistrettos<TaggedHash>,
-        elt: &TokenBundle<ExemptionListTokenGroup>,
-        elt_hashes: PackedRistrettos<CompletedHashValue>,
-        otp: String,
+        ets: &[WithOtps<TokenBundle<ExemptionTokenGroup>>],
+        et_hashes: PackedRistrettos<CompletedHashValue>,
     ) -> Result<HdbScreeningResult, DoprfError> {
         let hash_total_count = hashes
             .len()
@@ -128,12 +130,7 @@ impl HdbClient {
         .await?;
 
         retry_with_timeout_and_mark_bad(
-            || async {
-                Ok(self
-                    .client
-                    .screen_with_elt(hashes, elt, &elt_hashes, otp.clone())
-                    .await?)
-            },
+            || async { Ok(self.client.screen_with_ets(hashes, ets, &et_hashes).await?) },
             &self.server.bad_flag,
         )
         .await
@@ -177,6 +174,7 @@ impl KeyserverClient {
                         last_server_version,
                         keyserver_id_set.clone(),
                         server.id,
+                        config.debug_info,
                     )
                     .await?)
             },

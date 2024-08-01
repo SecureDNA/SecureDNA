@@ -5,8 +5,10 @@ use std::cmp::min;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use certificates::{ExemptionListTokenGroup, TokenBundle};
+use certificates::{ExemptionTokenGroup, TokenBundle};
+use shared_types::et::WithOtps;
 use thiserror::Error;
+use tracing::info;
 
 use crate::api::ApiWarning;
 use crate::{
@@ -27,7 +29,6 @@ use quickdna::{
 };
 use scep_client_helpers::ClientCerts;
 use shared_types::hdb::{ConsolidatedHazardResult, DebugSeqHdbResponse, Organism};
-use shared_types::info_with_timestamp;
 use shared_types::metrics::SynthClientMetrics;
 use shared_types::requests::{RequestContext, RequestId};
 use shared_types::synthesis_permission;
@@ -76,10 +77,8 @@ pub struct CheckerConfiguration<'a> {
     pub provider_reference: Option<String>,
     /// `version_hint` we will pass to doprf_client
     pub synthclient_version_hint: &'a str,
-    /// An exemption list token.
-    pub elt: Option<TokenBundle<ExemptionListTokenGroup>>,
-    /// A 2FA one-time password for the exemption list token.
-    pub otp: Option<String>,
+    /// Exemption tokens.
+    pub ets: Vec<WithOtps<TokenBundle<ExemptionTokenGroup>>>,
     pub server_version_handler: LastServerVersionHandler,
 }
 
@@ -300,18 +299,17 @@ pub async fn check_parsed_fasta<T: NucleotideLike>(
                 request_ctx: &request_ctx,
                 certs: config.certs.clone(),
                 region: config.region.into(),
-                debug: config.include_debug_info,
+                debug_info: config.include_debug_info,
                 sequences: &sequences,
                 max_windows,
                 version_hint: config.synthclient_version_hint.to_owned(),
-                elt: config.elt.clone(),
-                otp: config.otp.clone(),
+                ets: config.ets.clone(),
                 server_version_handler: &config.server_version_handler,
             })
         },
         |err: &DoprfError| {
             if err.is_retriable() {
-                info_with_timestamp!("{}: retrying after error: {}", request_ctx, err);
+                info!("{request_ctx}: retrying after error: {err}");
 
                 true
             } else {
@@ -321,7 +319,7 @@ pub async fn check_parsed_fasta<T: NucleotideLike>(
     )
     .await
     .map_err(|e| {
-        info_with_timestamp!("{}: internal DOPRF error: {}", request_ctx, e);
+        info!("{request_ctx}: internal DOPRF error: {e}");
         e
     })?;
 

@@ -9,11 +9,14 @@ use rusqlite::{
     ToSql,
 };
 pub use rusqlite_migration::{self, Migrations, M};
+pub use time::{Duration, OffsetDateTime};
 pub use tokio_rusqlite::{self, params, Connection};
 
 use shared_types::synthesis_permission::{Region, SynthesisPermission};
 
+pub mod certs;
 pub mod open_events;
+pub mod statistics;
 
 #[derive(Debug, thiserror::Error)]
 pub enum OpenError {
@@ -46,9 +49,12 @@ pub async fn open_db(
 
     // run migrations. rusqlite_migrations has an async feature, but it's in alpha
     conn.call(move |sync_conn| {
+        // Turn foreign key constraints off for the duration of the migration
+        sync_conn.pragma_update(None, "foreign_keys", "OFF")?;
         migrations
             .to_latest(sync_conn)
             .map_err(|e| tokio_rusqlite::Error::Other(e.into()))?;
+        sync_conn.pragma_update(None, "foreign_keys", "ON")?;
         Ok(())
     })
     .await
@@ -57,14 +63,44 @@ pub async fn open_db(
     Ok(conn)
 }
 
-/// Get the UTC unix timestamp
-pub fn now_utc() -> i64 {
-    time::OffsetDateTime::now_utc().unix_timestamp()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SqlOffsetDateTime(pub OffsetDateTime);
+
+impl From<OffsetDateTime> for SqlOffsetDateTime {
+    fn from(value: OffsetDateTime) -> Self {
+        Self(value)
+    }
 }
 
-/// Get the UTC timestamp for 1 day ago
-pub fn one_day_ago_utc() -> i64 {
-    (time::OffsetDateTime::now_utc() - time::Duration::days(1)).unix_timestamp()
+impl From<SqlOffsetDateTime> for OffsetDateTime {
+    fn from(value: SqlOffsetDateTime) -> Self {
+        value.0
+    }
+}
+
+impl ToSql for SqlOffsetDateTime {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.0.unix_timestamp()))
+    }
+}
+
+impl FromSql for SqlOffsetDateTime {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let ts = value.as_i64()?;
+        Ok(Self(OffsetDateTime::from_unix_timestamp(ts).map_err(
+            |e| FromSqlError::Other(format!("decoding timestamp: {e}").into()),
+        )?))
+    }
+}
+
+impl SqlOffsetDateTime {
+    pub fn now_utc() -> Self {
+        Self(OffsetDateTime::now_utc())
+    }
+
+    pub fn one_day_ago_utc() -> Self {
+        Self(OffsetDateTime::now_utc() - Duration::days(1))
+    }
 }
 
 /// Wrapper that implements ToSql / FromSql for Region

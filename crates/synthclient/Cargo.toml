@@ -37,7 +37,8 @@ serde = "^1"
 serde_json = "^1"
 thiserror = "1.0.47"
 tokio = { version = "1", default-features = false, features = ["sync"] }
-uuid = { version = "1.8.0", features = ["v4"] }
+tracing = { workspace = true }
+uuid = { version = "1.10.0", features = ["v4"] }
 
 certificates = { path = "../certificates" }
 doprf = { path = "../doprf" }
@@ -55,13 +56,13 @@ hyper = { workspace = true }
 minhttp = { path = "../minhttp" }
 once_cell = "1.19.0"
 regex = "1.10.3"
-reqwest = { version = "0.11.20" }
+reqwest = "0.12.5"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = "2.5.0"
 
 persistence = { path = "../persistence" }
-shared_types = { path = "../shared_types", features = ["http", "reqwest"] }
+shared_types = { path = "../shared_types", features = ["http"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 async-std = "1.12.0"

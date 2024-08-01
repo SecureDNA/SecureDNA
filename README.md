@@ -20,6 +20,7 @@ This is the monorepo for the [SecureDNA](https://securedna.org) project.
    - `base64_helper`: Base64 serialization helpers for 32-byte arrays
    - `certificate_client/`: a command line interface for managing SecureDNA certificates.
    - `certificates/`: a library for managing SecureDNA certificates, used to request exemptions from DNA synthesis restrictions.
+   - `certificate_tests/`: tests that our test and production certificates and tokens function as expected.
    - `doprf/`: a Rust implementation of DOPRF ("distributed oblivious pseudo-random function"), the distributed hashing technique we use.
    - `doprf_client/`: a Rust server that actually talks to keyservers using DOPRF and sends the result to the HDB.
    - `hdb/`: the HDB (hash database) implementation.
@@ -38,9 +39,9 @@ This is the monorepo for the [SecureDNA](https://securedna.org) project.
 - `bin/`: assorted shell scripts.
 - `docs/`: assorted general documentation.
 - `frontend/`: React and TypeScript code for the various web interfaces to SecureDNA.
-   - `common/`: React components and type definitions shared by `demo_gui` and `elgui`.
-   - `demo_gui/`: for easily submitting queries to your local `synthclient`.
-   - `elgui/`: for requesting and approving exemption lists (ELs).
+   - `common/`: React components and type definitions shared by `web-interface` and `elgui`.
+   - `web-interface/`: for easily submitting queries to your local `synthclient`.
+   - `elgui/`: for requesting and approving exemptions.
    - `tsgen/`: translates Rust type definitions into TypeScript.
 - `test/`: test data used for local development. You can `ln -s test/data data` to run the system with a small "test HDB".
 - `Earthfile`: Similar to a Makefile, script for building containers for `synthclient`, `hdbserver`, and each `keyserver`. Requires [Earthly](https://earthly.dev).

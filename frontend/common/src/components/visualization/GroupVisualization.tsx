@@ -3,11 +3,10 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import React from "react";
 import { useRef, useState } from "react";
 import Popup from "reactjs-popup";
 import { copyToClipboard, ncbi } from "../..";
-import { FastaRecordHits, HazardHits, HitRegion } from "../..";
+import type { FastaRecordHits, HitRegion } from "../..";
 import { HitVisualization, organismHue } from "./HitVisualization";
 
 export interface GroupVisualizationProps {
@@ -17,7 +16,7 @@ export interface GroupVisualizationProps {
 }
 
 function wrap(seq: string, width: number): string {
-  let lines = [];
+  const lines = [];
   for (let i = 0; i < seq.length; i += width) {
     lines.push(seq.slice(i, i + width));
   }
@@ -32,17 +31,17 @@ function copyHitsToClipboard(
   header: string,
   type: "nuc" | "aa",
   hitRegions: HitRegion[],
-  organismName: string
+  organismName: string,
 ) {
   const title = header.replace(/\r?\n.*/ms, "");
   const fasta = hitRegions
     .map(
       (region) =>
         `>Hit for ${organismName} at position ${region.seq_range_start} in "${title}"\n` +
-        `${wrap(region.seq, 60)}\n`
+        `${wrap(region.seq, 60)}\n`,
     )
     .join("\n");
-  copyToClipboard(hitTypeName(type) + " hits for " + organismName, fasta);
+  copyToClipboard(`${hitTypeName(type)} hits for ${organismName}`, fasta);
 }
 
 export interface OrganismNameProps {
@@ -55,7 +54,7 @@ export interface OrganismNameProps {
 export const OrganismName = (props: OrganismNameProps) => {
   const { name, index, group, setHovered } = props;
   const ref = useRef(null);
-  let hits: { nuc: HitRegion[]; aa: HitRegion[] } = { nuc: [], aa: [] };
+  const hits: { nuc: HitRegion[]; aa: HitRegion[] } = { nuc: [], aa: [] };
   for (const region of group.hits_by_hazard) {
     if (region.most_likely_organism.name === name) {
       hits[region.type].push(...region.hit_regions);
@@ -110,7 +109,7 @@ export const OrganismName = (props: OrganismNameProps) => {
 function notchIncrement(length: number): number {
   const atLeast = length / 10;
   // Round down to nearest power of 10:
-  const n = Math.pow(10, Math.floor(Math.log10(atLeast)));
+  const n = 10 ** Math.floor(Math.log10(atLeast));
   if (n >= atLeast) return n;
   if (2 * n >= atLeast) return 2 * n;
   if (5 * n >= atLeast) return 5 * n;
@@ -132,18 +131,18 @@ export const GroupVisualization = (props: GroupVisualizationProps) => {
 
   const length = group.sequence_length;
   const increment = notchIncrement(length);
-  let indices = [];
+  const indices = [];
   for (let i = 0; i < length; i += increment) {
     indices.push(i);
   }
   indices.push(length);
-  let markers = indices.map((i) => {
+  const markers = indices.map((i) => {
     const percentage = (i / length) * 100;
     return (
       <div
         key={i}
         style={{
-          left: percentage + "%",
+          left: `${percentage}%`,
           transform: "translate(-50%, -1rem)",
         }}
         className="opacity-50 text-xs text-center absolute inline-block translate"
@@ -176,6 +175,7 @@ export const GroupVisualization = (props: GroupVisualizationProps) => {
         {group.hits_by_hazard.flatMap((hit, i) =>
           hit.hit_regions.map((region, j) => (
             <HitVisualization
+              // biome-ignore lint/suspicious/noArrayIndexKey: the array won't change.
               key={(i << 16) | j}
               hit={hit}
               region={region}
@@ -183,7 +183,7 @@ export const GroupVisualization = (props: GroupVisualizationProps) => {
               group={group}
               allLikelyOrganisms={allLikelyOrganisms}
             />
-          ))
+          )),
         )}
       </div>
       <div
@@ -196,7 +196,7 @@ export const GroupVisualization = (props: GroupVisualizationProps) => {
         <span className="-ml-4 mr-1">Organisms (click for options): </span>
         {allLikelyOrganisms.map((name, index) => (
           <OrganismName
-            key={index}
+            key={name}
             name={name}
             index={index}
             group={group}
@@ -222,6 +222,7 @@ export const GroupVisualization = (props: GroupVisualizationProps) => {
             className="px-1 text-primary font-bold cursor-pointer hover:underline"
             target="_blank"
             href={ncbi.url(an)}
+            rel="noreferrer"
           >
             {an}
           </a>

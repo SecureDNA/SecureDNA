@@ -1,0 +1,128 @@
+version: '3'
+
+# SecureDNA env vars are picked up through `.env` in the repo root.
+
+x-environment: &keyserver-common-env
+    {}
+    #"RUST_LOG": "info"
+
+services:
+  client:
+    image: ghcr.io/securedna/${TEST_CLIENT_IMAGE}:${SECUREDNA_TAG}
+    ports:
+      - "80:80"
+    depends_on:
+      - keyserver01
+      - keyserver02
+      - keyserver03
+      - keyserver04
+      - keyserver05
+    command: [
+      "./synthclient",
+      "--hdb-domains", "hdbserver:5300",
+      "--keyserver-domains", "keyserver01:5301,keyserver02:5302,keyserver03:5303,keyserver04:5304,keyserver05:5305",
+      "--use-http",
+      "--use-test-roots-do-not-use-this-in-prod",
+    ]
+    volumes:
+      - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
+    environment:
+      "SECUREDNA_SYNTHCLIENT_TOKEN_FILE": "/certs/synthesizer-token.st"
+      "SECUREDNA_SYNTHCLIENT_KEYPAIR_FILE": "/certs/synthesizer-token.priv"
+      "SECUREDNA_SYNTHCLIENT_KEYPAIR_PASSPHRASE_FILE": "/certs/synthesizer-token.passphrase"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+  hdbserver:
+    image: ghcr.io/securedna/${TEST_HDB_IMAGE}:${SECUREDNA_TAG}
+    ports:
+      - "5300:5300"
+    volumes:
+      - "${TEST_HDB_PATH:-./data/hdb}:/data/hdb"
+      - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
+    environment:
+      "SECUREDNA_HDBSERVER_CFG_PATH": "/cfg/database.toml"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+  keyserver01:
+    image: ghcr.io/securedna/${TEST_KS_IMAGE}:${SECUREDNA_TAG}
+    ports:
+      - "5301:5301"
+    volumes:
+      - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
+    environment:
+      <<: *keyserver-common-env
+      "SECUREDNA_KEYSERVER_CFG_PATH": "/cfg/05.keyserver-01.toml"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+  keyserver02:
+    image: ghcr.io/securedna/${TEST_KS_IMAGE}:${SECUREDNA_TAG}
+    ports:
+      - "5302:5302"
+    volumes:
+      - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
+    environment:
+      <<: *keyserver-common-env
+      "SECUREDNA_KEYSERVER_CFG_PATH": "/cfg/05.keyserver-02.toml"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+  keyserver03:
+    image: ghcr.io/securedna/${TEST_KS_IMAGE}:${SECUREDNA_TAG}
+    ports:
+      - "5303:5303"
+    volumes:
+      - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
+    environment:
+      <<: *keyserver-common-env
+      "SECUREDNA_KEYSERVER_CFG_PATH": "/cfg/05.keyserver-03.toml"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+  keyserver04:
+    image: ghcr.io/securedna/${TEST_KS_IMAGE}:${SECUREDNA_TAG}
+    ports:
+      - "5304:5304"
+    volumes:
+      - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
+    environment:
+      <<: *keyserver-common-env
+      "SECUREDNA_KEYSERVER_CFG_PATH": "/cfg/05.keyserver-04.toml"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+  keyserver05:
+    image: ghcr.io/securedna/${TEST_KS_IMAGE}:${SECUREDNA_TAG}
+    ports:
+      - "5305:5305"
+    volumes:
+      - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
+    environment:
+      <<: *keyserver-common-env
+      "SECUREDNA_KEYSERVER_CFG_PATH": "/cfg/05.keyserver-05.toml"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G

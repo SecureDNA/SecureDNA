@@ -3,17 +3,6 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import React from "react";
-import { ReactNode, useEffect, useState } from "react";
-import { GroupVisualization } from "./GroupVisualization";
-import {
-  ApiWarning as WarningType,
-  ApiError as ErrorType,
-  ApiResponse,
-} from "../..";
-import { ExampleHitRectangle } from "./HitRectangle";
-import { copyToClipboard, download } from "../..";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCheck,
   faCopy,
@@ -21,9 +10,19 @@ import {
   faTimes,
   faWarning,
 } from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import type { ReactNode } from "react";
+import type {
+  ApiResponse,
+  ApiError as ErrorType,
+  ApiWarning as WarningType,
+} from "../..";
+import { copyToClipboard, download } from "../..";
+import { GroupVisualization } from "./GroupVisualization";
+import { ExampleHitRectangle } from "./HitRectangle";
 
 export interface ScreeningVisualizationProps {
-  result: ApiResponse;
+  result: ApiResponse | { error: { description: string; reason: string } };
   compact?: boolean;
 }
 
@@ -66,18 +65,20 @@ export const ScreeningVisualization = (props: ScreeningVisualizationProps) => {
   const { result, compact } = props;
   let warnings = undefined;
 
-  if ("error" in (result as any)) {
-    let { description, reason, code } = (result as any).error;
-    if (reason) {
-      description += ` (${reason})`;
-    }
-    return <Failure>An error occured: {description}.</Failure>;
+  if ("error" in result) {
+    const { description, reason } = result.error;
+    return (
+      <Failure>
+        An error occurred: {description}
+        {reason ? ` (${reason})` : ""}.
+      </Failure>
+    );
   }
   if ("errors" in result && result.errors) {
     return (
       <Failure>
         <FontAwesomeIcon icon={faTimes} className="mr-3" />
-        An error occured:
+        An error occurred:
         <br />
         <Diagnostics diagnostics={result.errors} />
       </Failure>
@@ -127,7 +128,7 @@ export const ScreeningVisualization = (props: ScreeningVisualizationProps) => {
                 onClick={() =>
                   copyToClipboard(
                     "JSON screening result",
-                    JSON.stringify(result)
+                    JSON.stringify(result),
                   )
                 }
               >
@@ -139,7 +140,7 @@ export const ScreeningVisualization = (props: ScreeningVisualizationProps) => {
                   download(
                     JSON.stringify(result),
                     "application/json",
-                    "screening-result.json"
+                    "screening-result.json",
                   )
                 }
               >
@@ -166,6 +167,7 @@ export const ScreeningVisualization = (props: ScreeningVisualizationProps) => {
       {result.hits_by_record?.map((group, index) => {
         return (
           <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: the array won't change.
             key={index}
             className={compact ? "" : "px-4 py-2 mt-4 bg-black/5 rounded-lg"}
           >

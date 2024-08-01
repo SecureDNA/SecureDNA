@@ -133,11 +133,17 @@ pub enum Tag {
     /// Internal tag: treat DNA matches from this organism specially in the HDB
     /// Intended for use with "regulatory compliance only" genomes like E. coli
     SdnaLowRiskDNA,
+    /// Internal tag: treat peptide matches from this organism specially in the HDB
+    /// Intended for use with "regulatory compliance only" genomes like E. coli
+    /// TODO: can this be merged with SdnaLowRiskDna? Or should it be kept separate.
+    SdnaLowRiskPeptide,
     /// Internal tag: normally we exempt virus wild types from reverse screening
     /// (by treating all RS matches against virus wild types as self matches),
     /// but for certain large viruses we don't want to do that. This tag turns off that
     /// behavior so the virus wild type will be reverse screened like virus variants.
     SdnaForceVirusReverseScreening,
+    /// Internal tag: skip functional prediction step in pipeline.
+    SdnaNoFuncPred,
     /// USA Select agent: US Department of Health and Human Services
     SelectAgentHhs,
     /// USA Select agent: US Department of Agriculture
@@ -155,7 +161,10 @@ impl Tag {
     /// maintain an exhaustive list of internal tags anyways.
     pub fn is_internal(&self) -> bool {
         match self {
-            Tag::SdnaLowRiskDNA | Tag::SdnaForceVirusReverseScreening => true,
+            Tag::SdnaLowRiskDNA
+            | Tag::SdnaLowRiskPeptide
+            | Tag::SdnaForceVirusReverseScreening
+            | Tag::SdnaNoFuncPred => true,
             Tag::ArthropodToHuman
             | Tag::AustraliaGroupHumanAnimalPathogen
             | Tag::AustraliaGroupPlantPathogen

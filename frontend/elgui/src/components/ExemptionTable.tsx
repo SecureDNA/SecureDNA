@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { FieldArray, FieldArrayRenderProps } from "formik";
+import { FieldArray, type FieldArrayRenderProps } from "formik";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRef, useState } from "react";
-import { OrganismWithSource } from "src/types";
+import type { OrganismWithSource } from "src/types";
 import { parseExemptionsFromSpreadsheetData } from "src/util/spreadsheet";
 
 import { Button } from "./Button";
@@ -34,7 +34,7 @@ export const ExemptionTable = (props: ExemptionTableProps) => {
   const spreadsheetFileInputRef = useRef<HTMLInputElement>(null);
 
   function handleSpreadsheetSelect(
-    event: React.ChangeEvent<HTMLInputElement>
+    event: React.ChangeEvent<HTMLInputElement>,
   ): void {
     const genericError = "The file could not be loaded.";
     if (!event.target.files) {
@@ -81,11 +81,15 @@ export const ExemptionTable = (props: ExemptionTableProps) => {
             exit={{ opacity: 0, height: 0, overflow: "hidden" }}
             key={(organism as any)?.animationKey ?? index}
           >
-            <div className="border shadow-lg rounded-lg p-6 mb-4">
+            <h2>Organisms</h2>
+            <p className="my-4">
+              Specify the organisms you are requesting an exemption for.
+            </p>
+            <div className="border border-secondary rounded-lg p-6 mb-4">
               <h2 className="-mt-2">
                 Organism #{index + 1}{" "}
                 <RemoveButton
-                  className="align-text-bottom disabled:opacity-20 float-right w-6 hover:bg-black/10 rounded-xl"
+                  className="align-text-bottom disabled:opacity-20 float-right w-6 hover:bg-black/10 rounded-lg"
                   disabled={organisms.length <= 1}
                   onClick={() => {
                     if (organisms.length > 1) {

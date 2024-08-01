@@ -224,6 +224,7 @@ impl Display for Description {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+// tsgen
 pub enum OutsideValidityPeriod {
     Expired,
     NotYetValid,
@@ -252,6 +253,7 @@ pub struct Expiration {
 }
 
 impl Expiration {
+    pub const DEFAULT_DAYS: i64 = 28;
     pub fn validate(&self) -> Result<(), OutsideValidityPeriod> {
         let now = now_utc().unix_timestamp();
         if now < self.not_valid_before {
@@ -282,7 +284,7 @@ impl Expiration {
 
 impl Default for Expiration {
     fn default() -> Self {
-        Self::unchecked_expiring_in_days(28)
+        Self::unchecked_expiring_in_days(Self::DEFAULT_DAYS)
     }
 }
 

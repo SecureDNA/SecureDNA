@@ -7,16 +7,18 @@ use std::path::Path;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
 
-use futures::StreamExt;
+use futures::{future::Either, StreamExt};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use smallvec::SmallVec;
 use tokio::sync::{mpsc, watch};
 use tracing::{info, info_span, warn, Instrument};
 
+use super::tls::{redirect_to_https, terminate_tls_to_listener, TlsConfig};
 use super::traits::{
-    AppConfig, AppState, ConnectedFn, ConnectionFailedFn, ConnectionState, DisconnectedFn,
-    ListenFn, Listener, RelativeConfig, ResponseFn, ValidExternalWorld, ValidServerSetup,
+    either_response_fn, AppConfig, AppState, ConnectedFn, ConnectionFailedFn, ConnectionState,
+    DisconnectedFn, ListenFn, Listener, ReadFileFn, RelativeConfig, ResponseFn, ValidExternalWorld,
+    ValidServerSetup,
 };
 use super::{MissingCallback, ServerSetup};
 use crate::server::Server;
@@ -69,6 +71,10 @@ struct AppStateTransitionInfo {
     /// This isn't directly used; it's held until [`Self::previous_state_listeners`] needs it.
     latest_state_listeners: mpsc::Receiver<()>,
 }
+
+#[derive(thiserror::Error, Debug)]
+#[error("Main service plane had no address/port.")]
+struct MainPlaneDisabled;
 
 impl MultiplaneServer {
     /// Creates a new [`ServerSetup`] with a few defaults.
@@ -301,6 +307,7 @@ impl MultiplaneServer {
                     state.clone(),
                     server_setup,
                     &mut listener_cache_updater,
+                    external_world.read_file,
                     server_config,
                     tracker,
                 )
@@ -355,6 +362,7 @@ impl BundledServer {
         app_state: Arc<AS>,
         server_setup: impl ValidServerSetup<AC, AS>,
         listener_cache: &mut ListenerCacheUpdater<'_, impl ListenFn, 3>,
+        read_file: impl ReadFileFn,
         server_cfg: ServerConfig,
         tracker: mpsc::Sender<()>,
     ) -> anyhow::Result<Self> {
@@ -366,14 +374,30 @@ impl BundledServer {
             disconnected: server_setup.disconnected,
         };
 
-        let (main_server, main_listener) =
-            Self::server_and_listener(Some(server_cfg.main), listener_cache, tracker.clone())
+        if !server_cfg.main.is_enabled() {
+            return Err(MainPlaneDisabled.into());
+        }
+        let main_tls_port = Self::tls_port(&server_cfg.main);
+        let (main_server, main_http_listener, main_https_listener) = Self::server_and_listeners(
+            server_cfg.main,
+            listener_cache,
+            read_file.clone(),
+            tracker.clone(),
+        )
+        .await?;
+        let monitoring_tls_port = Self::tls_port(&server_cfg.monitoring);
+        let (monitoring_server, monitoring_http_listener, monitoring_https_listener) =
+            Self::server_and_listeners(
+                server_cfg.monitoring,
+                listener_cache,
+                read_file.clone(),
+                tracker.clone(),
+            )
+            .await?;
+        let control_tls_port = Self::tls_port(&server_cfg.control);
+        let (control_server, control_http_listener, control_https_listener) =
+            Self::server_and_listeners(server_cfg.control, listener_cache, read_file, tracker)
                 .await?;
-        let (monitoring_server, monitoring_listener) =
-            Self::server_and_listener(server_cfg.monitoring, listener_cache, tracker.clone())
-                .await?;
-        let (control_server, control_listener) =
-            Self::server_and_listener(server_cfg.control, listener_cache, tracker).await?;
 
         let respond_to_main = server_setup.respond;
         let respond_to_monitoring = server_setup.respond_to_monitoring;
@@ -381,34 +405,65 @@ impl BundledServer {
         let serve_fn: Box<dyn BundledServeFn> = Box::new(move |this| {
             let common_data = common_data.clone();
             let respond_to_main = respond_to_main.clone();
-            let main_listener = main_listener.clone();
+            let main_http_listener = main_http_listener.clone();
+            let main_https_listener = main_https_listener.clone();
             let respond_to_monitoring = respond_to_monitoring.clone();
-            let monitoring_listener = monitoring_listener.clone();
+            let monitoring_http_listener = monitoring_http_listener.clone();
+            let monitoring_https_listener = monitoring_https_listener.clone();
             let respond_to_control = respond_to_control.clone();
-            let control_listener = control_listener.clone();
+            let control_http_listener = control_http_listener.clone();
+            let control_https_listener = control_https_listener.clone();
 
             Box::pin(async move {
-                let serve_main = Self::serve_internal(
+                let serve_main_http = Self::serve_internal(
                     &common_data,
-                    main_listener,
-                    respond_to_main,
+                    main_http_listener,
+                    Self::respond_or_redirect(&respond_to_main, main_tls_port),
                     &this.main_server,
                 );
-                let serve_monitoring = Self::serve_internal(
+                let serve_main_https = Self::serve_internal(
                     &common_data,
-                    monitoring_listener,
-                    respond_to_monitoring,
+                    main_https_listener,
+                    respond_to_main,
+                    &this.main_server,
+                )
+                .instrument(info_span!("tls"));
+                let serve_monitoring_http = Self::serve_internal(
+                    &common_data,
+                    monitoring_http_listener,
+                    Self::respond_or_redirect(&respond_to_monitoring, monitoring_tls_port),
                     &this.monitoring_server,
                 )
                 .instrument(info_span!("monitoring-plane"));
-                let serve_control = Self::serve_internal(
+                let serve_monitoring_https = Self::serve_internal(
                     &common_data,
-                    control_listener,
-                    respond_to_control,
+                    monitoring_https_listener,
+                    respond_to_monitoring,
+                    &this.monitoring_server,
+                )
+                .instrument(info_span!("monitoring-plane-tls"));
+                let serve_control_http = Self::serve_internal(
+                    &common_data,
+                    control_http_listener,
+                    Self::respond_or_redirect(&respond_to_control, control_tls_port),
                     &this.control_server,
                 )
                 .instrument(info_span!("control-plane"));
-                tokio::join!(serve_main, serve_monitoring, serve_control);
+                let serve_control_https = Self::serve_internal(
+                    &common_data,
+                    control_https_listener,
+                    respond_to_control,
+                    &this.control_server,
+                )
+                .instrument(info_span!("control-plane-tls"));
+                tokio::join!(
+                    serve_main_http,
+                    serve_main_https,
+                    serve_monitoring_http,
+                    serve_monitoring_https,
+                    serve_control_http,
+                    serve_control_https
+                );
             })
         });
         let serve_fn = std::sync::Mutex::new(serve_fn);
@@ -442,19 +497,43 @@ impl BundledServer {
         );
     }
 
-    async fn server_and_listener<Listen: ListenFn>(
-        plane_cfg: Option<PlaneConfig>,
+    async fn server_and_listeners<Listen: ListenFn>(
+        plane_cfg: PlaneConfig,
         listener_cache: &mut ListenerCacheUpdater<'_, Listen, 3>,
+        read_file: impl ReadFileFn,
         tracker: mpsc::Sender<()>,
-    ) -> std::io::Result<(Option<crate::Server>, Option<impl Listener>)> {
-        let Some(plane_cfg) = plane_cfg else {
-            return Ok((None, None));
-        };
+    ) -> anyhow::Result<(
+        Option<crate::Server>,
+        Option<impl Listener>,
+        Option<impl Listener>,
+    )> {
         let max_connections = usize::try_from(plane_cfg.max_connections).unwrap_or(usize::MAX);
-        let server = crate::Server::new(max_connections);
-        let listener =
-            bundle_raii_with_listener(tracker, listener_cache.listen(plane_cfg.address).await?);
-        Ok((Some(server), Some(listener)))
+        let http_listener = match plane_cfg.address {
+            Some(addr) => {
+                let listener = listener_cache.listen(addr).await?;
+                Some(bundle_raii_with_listener(tracker.clone(), listener))
+            }
+            None => None,
+        };
+
+        let https_listener = match plane_cfg.tls_config {
+            Some(tls_config) => {
+                let listener = listener_cache.listen(tls_config.tls_address).await?;
+                let tls_listener = terminate_tls_to_listener(
+                    read_file,
+                    &tls_config.tls_certificate,
+                    &tls_config.tls_private_key,
+                    listener,
+                )
+                .await?;
+                Some(bundle_raii_with_listener(tracker, tls_listener))
+            }
+            None => None,
+        };
+
+        let server = (http_listener.is_some() || https_listener.is_some())
+            .then_some(crate::Server::new(max_connections));
+        Ok((server, http_listener, https_listener))
     }
 
     async fn serve_internal<
@@ -486,6 +565,23 @@ impl BundledServer {
                 .serve(listener())
                 .await;
         }
+    }
+
+    fn tls_port<T>(plane_cfg: &PlaneConfig<T>) -> Option<u16> {
+        plane_cfg
+            .tls_config
+            .as_ref()
+            .map(|cfg| cfg.tls_address.port())
+    }
+
+    fn respond_or_redirect<AS: AppState>(
+        respond: &impl ResponseFn<AS>,
+        tls_port: Option<u16>,
+    ) -> impl ResponseFn<AS> {
+        either_response_fn(match tls_port {
+            None => Either::Left(respond.clone()),
+            Some(port) => Either::Right(redirect_to_https(port)),
+        })
     }
 
     fn noop_serve_fn() -> Box<dyn BundledServeFn> {
@@ -576,32 +672,37 @@ fn bundle_raii_with_listener(
     }
 }
 
+// Unfortunately, these two structs needs to be kept in sync with minhttp::mpserver::cli
+
 /// Connection-related server configuration
 ///
 /// This represents general server configuration, such as addresses to listen on,
 /// connection limits, etc. If `T` is specified, it represents app-specific
 /// configuration, and is treated as part of the `main` config.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ServerConfig<T = ()> {
     /// Configuration for the main service
     pub main: PlaneConfig<T>,
 
     /// Configuration for the monitoring plane
-    ///
-    /// If omitted, no monitoring plane will be operational.
-    pub monitoring: Option<PlaneConfig>,
+    #[serde(default)]
+    pub monitoring: PlaneConfig,
 
     /// Configuration for the control plane
-    ///
-    /// If omitted, no control plane will be operational.
-    pub control: Option<PlaneConfig>,
+    #[serde(default)]
+    pub control: PlaneConfig,
 }
 
 /// Per-plane (main, monitoring, control) configuration
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct PlaneConfig<T = ()> {
-    /// Address to listen on
-    pub address: SocketAddr,
+    /// Address to listen on for HTTP.
+    pub address: Option<SocketAddr>,
+
+    /// Tls configuation specific to a plane.
+    #[serde(flatten)]
+    #[serde(deserialize_with = "TlsConfig::deserialize_option")]
+    pub tls_config: Option<TlsConfig>,
 
     /// Maximum simultaneous connections that may be accepted before the server returns 503.
     #[serde(default = "PlaneConfig::default_max_connections")]
@@ -617,11 +718,12 @@ impl<T> ServerConfig<T> {
         ServerConfig {
             main: PlaneConfig {
                 address: self.main.address,
+                tls_config: self.main.tls_config.clone(),
                 max_connections: self.main.max_connections,
                 custom: (),
             },
-            monitoring: self.monitoring,
-            control: self.control,
+            monitoring: self.monitoring.clone(),
+            control: self.control.clone(),
         }
     }
 }
@@ -629,13 +731,9 @@ impl<T> ServerConfig<T> {
 impl<T: RelativeConfig> RelativeConfig for ServerConfig<T> {
     fn relative_to(self, base: impl AsRef<Path>) -> Self {
         ServerConfig {
-            main: PlaneConfig {
-                address: self.main.address,
-                max_connections: self.main.max_connections,
-                custom: self.main.custom.relative_to(base),
-            },
-            monitoring: self.monitoring,
-            control: self.control,
+            main: self.main.relative_to(&base),
+            monitoring: self.monitoring.relative_to(&base),
+            control: self.control.relative_to(&base),
         }
     }
 }
@@ -643,8 +741,26 @@ impl<T: RelativeConfig> RelativeConfig for ServerConfig<T> {
 impl PlaneConfig {
     pub const DEFAULT_MAX_CONNECTIONS: u32 = 1024;
 
-    fn default_max_connections() -> u32 {
-        Self::DEFAULT_MAX_CONNECTIONS
+    pub fn default_max_connections() -> u32 {
+        1024
+    }
+}
+
+impl<T> PlaneConfig<T> {
+    /// Returns if this plane is configured to listen on any ports.
+    pub fn is_enabled(&self) -> bool {
+        self.address.is_some() || self.tls_config.is_some()
+    }
+}
+
+impl<T: RelativeConfig> RelativeConfig for PlaneConfig<T> {
+    fn relative_to(self, base: impl AsRef<Path>) -> Self {
+        PlaneConfig {
+            address: self.address,
+            tls_config: self.tls_config.map(|cfg| cfg.relative_to(&base)),
+            max_connections: self.max_connections,
+            custom: self.custom.relative_to(&base),
+        }
     }
 }
 
@@ -653,11 +769,15 @@ impl PlaneConfig {
 /// This allows tests to e.g. hook up several servers together using a purely in-memory network.
 /// There's not yet support for specifying the flow of time.
 #[derive(Clone)]
-pub struct ExternalWorld<Listen, LoadCfg> {
+pub struct ExternalWorld<Listen, LoadCfg, ReadFile> {
     /// Callback determining how to listen on ports; must be a [`ListenFn`].
     pub listen: Listen,
     /// Callback determining how configuration files are loaded; must be a [`LoadConfigFn`](super::traits::LoadConfigFn).
     pub load_cfg: LoadCfg,
+    /// Callback determining how to read small files; must be a [`ReadFileFn`](super::traits::ReadFileFn).
+    ///
+    /// NOTE: Not yet used by [`load_cfg`](Self::load_cfg).
+    pub read_file: ReadFile,
 }
 
 #[cfg(test)]
@@ -668,7 +788,7 @@ mod tests {
 
     use hyper::StatusCode;
 
-    use crate::mpserver::common::stub_cfg;
+    use crate::mpserver::common::{read_no_disk, stub_cfg};
     use crate::response::text;
     use crate::test::{send_request, FakeNetwork};
 
@@ -692,18 +812,20 @@ mod tests {
 
         let cfg = Arc::new(std::sync::Mutex::new(ServerConfig {
             main: PlaneConfig {
-                address: server_addr,
+                address: Some(server_addr),
+                tls_config: None,
                 max_connections: 4,
                 custom: "Hello world!",
             },
-            monitoring: None,
-            control: None,
+            monitoring: PlaneConfig::default(),
+            control: PlaneConfig::default(),
         }));
 
         let cfg2 = cfg.clone();
         let external_world = ExternalWorld {
             listen: network.listen_fn(),
-            load_cfg: stub_cfg(move || *cfg2.lock().unwrap()),
+            load_cfg: stub_cfg(move || cfg2.lock().unwrap().clone()),
+            read_file: read_no_disk,
         };
 
         let server = MultiplaneServer::builder()
@@ -747,22 +869,25 @@ mod tests {
 
         let cfg = Arc::new(std::sync::Mutex::new(ServerConfig {
             main: PlaneConfig {
-                address: server_addr,
+                address: Some(server_addr),
+                tls_config: None,
                 max_connections: 4,
                 custom: "Hello world!",
             },
-            monitoring: None,
-            control: Some(PlaneConfig {
-                address: control_addr,
+            monitoring: PlaneConfig::default(),
+            control: PlaneConfig {
+                address: Some(control_addr),
+                tls_config: None,
                 max_connections: 4,
                 custom: (),
-            }),
+            },
         }));
 
         let cfg2 = cfg.clone();
         let external_world = ExternalWorld {
             listen: network.listen_fn(),
-            load_cfg: stub_cfg(move || *cfg2.lock().unwrap()),
+            load_cfg: stub_cfg(move || cfg2.lock().unwrap().clone()),
+            read_file: read_no_disk,
         };
 
         let server = Arc::new_cyclic(|server| {
@@ -787,9 +912,7 @@ mod tests {
 
             cfg.lock().unwrap().main.custom = "Second hello!";
             let new_control_addr = "198.51.100.3:80".parse().unwrap();
-            if let Some(ref mut control) = cfg.lock().unwrap().control {
-                control.address = new_control_addr;
-            }
+            cfg.lock().unwrap().control.address = Some(new_control_addr);
 
             let conn = network.connect(control_addr).await.unwrap();
             let http_res = send_request(conn, "POST /reload HTTP/1.1\r\n\r\n")
@@ -820,16 +943,18 @@ mod tests {
 
         let cfg = ServerConfig {
             main: PlaneConfig {
-                address: server_addr,
+                address: Some(server_addr),
+                tls_config: None,
                 max_connections: 4,
                 custom: (),
             },
-            monitoring: None,
-            control: None,
+            monitoring: PlaneConfig::default(),
+            control: PlaneConfig::default(),
         };
         let external_world = ExternalWorld {
             listen: network.listen_fn(),
-            load_cfg: stub_cfg(move || cfg),
+            load_cfg: stub_cfg(move || cfg.clone()),
+            read_file: read_no_disk,
         };
 
         let server = MultiplaneServer::builder()
@@ -872,26 +997,30 @@ mod tests {
 
         let cfg = Arc::new(std::sync::Mutex::new(ServerConfig {
             main: PlaneConfig {
-                address: addr1,
+                address: Some(addr1),
+                tls_config: None,
                 max_connections: 4,
                 custom: (),
             },
-            monitoring: Some(PlaneConfig {
-                address: addr2,
+            monitoring: PlaneConfig {
+                address: Some(addr2),
+                tls_config: None,
                 max_connections: 4,
                 custom: (),
-            }),
-            control: Some(PlaneConfig {
-                address: addr3,
+            },
+            control: PlaneConfig {
+                address: Some(addr3),
+                tls_config: None,
                 max_connections: 4,
                 custom: (),
-            }),
+            },
         }));
 
         let cfg2 = cfg.clone();
         let external_world = ExternalWorld {
             listen: network.listen_fn(),
-            load_cfg: stub_cfg(move || *cfg2.lock().unwrap()),
+            load_cfg: stub_cfg(move || cfg2.lock().unwrap().clone()),
+            read_file: read_no_disk,
         };
 
         let server = Arc::new_cyclic(|server| {
@@ -920,20 +1049,23 @@ mod tests {
 
             *cfg.lock().unwrap() = ServerConfig {
                 main: PlaneConfig {
-                    address: addr2,
+                    address: Some(addr2),
+                    tls_config: None,
                     max_connections: 4,
                     custom: (),
                 },
-                monitoring: Some(PlaneConfig {
-                    address: addr3,
+                monitoring: PlaneConfig {
+                    address: Some(addr3),
+                    tls_config: None,
                     max_connections: 4,
                     custom: (),
-                }),
-                control: Some(PlaneConfig {
-                    address: addr1,
+                },
+                control: PlaneConfig {
+                    address: Some(addr1),
+                    tls_config: None,
                     max_connections: 4,
                     custom: (),
-                }),
+                },
             };
 
             assert_eq!(network.open_ports(), all_addrs.into());
@@ -954,20 +1086,23 @@ mod tests {
 
             *cfg.lock().unwrap() = ServerConfig {
                 main: PlaneConfig {
-                    address: addr1,
+                    address: Some(addr1),
+                    tls_config: None,
                     max_connections: 4,
                     custom: (),
                 },
-                monitoring: Some(PlaneConfig {
-                    address: addr2,
+                monitoring: PlaneConfig {
+                    address: Some(addr2),
+                    tls_config: None,
                     max_connections: 4,
                     custom: (),
-                }),
-                control: Some(PlaneConfig {
-                    address: addr3,
+                },
+                control: PlaneConfig {
+                    address: Some(addr3),
+                    tls_config: None,
                     max_connections: 4,
                     custom: (),
-                }),
+                },
             };
 
             assert_eq!(network.open_ports(), all_addrs.into());
@@ -1003,16 +1138,18 @@ mod tests {
 
         let cfg = ServerConfig {
             main: PlaneConfig {
-                address: server_addr,
+                address: Some(server_addr),
+                tls_config: None,
                 max_connections: 4,
                 custom: (),
             },
-            monitoring: None,
-            control: None,
+            monitoring: PlaneConfig::default(),
+            control: PlaneConfig::default(),
         };
         let external_world = ExternalWorld {
             listen: network.listen_fn(),
-            load_cfg: stub_cfg(move || cfg),
+            load_cfg: stub_cfg(move || cfg.clone()),
+            read_file: read_no_disk,
         };
 
         let server = MultiplaneServer::builder()
@@ -1042,26 +1179,30 @@ mod tests {
 
         let cfg = Arc::new(std::sync::Mutex::new(ServerConfig {
             main: PlaneConfig {
-                address: server_addr,
+                address: Some(server_addr),
+                tls_config: None,
                 max_connections: 4,
                 custom: (),
             },
-            monitoring: Some(PlaneConfig {
-                address: monitoring_addr,
+            monitoring: PlaneConfig {
+                address: Some(monitoring_addr),
+                tls_config: None,
                 max_connections: 4,
                 custom: (),
-            }),
-            control: Some(PlaneConfig {
-                address: control_addr,
+            },
+            control: PlaneConfig {
+                address: Some(control_addr),
+                tls_config: None,
                 max_connections: 4,
                 custom: (),
-            }),
+            },
         }));
 
         let cfg2 = cfg.clone();
         let external_world = ExternalWorld {
             listen: network.listen_fn(),
-            load_cfg: stub_cfg(move || *cfg2.lock().unwrap()),
+            load_cfg: stub_cfg(move || cfg2.lock().unwrap().clone()),
+            read_file: read_no_disk,
         };
 
         let server = MultiplaneServer::builder()
@@ -1091,22 +1232,24 @@ mod tests {
             let http_res = send_request(conn, "GET / HTTP/1.1\r\n\r\n").await.unwrap();
             assert!(http_res.ends_with("\r\ncontrol"));
 
-            cfg.lock().unwrap().monitoring = None;
-            cfg.lock().unwrap().control = None;
+            cfg.lock().unwrap().monitoring = PlaneConfig::default();
+            cfg.lock().unwrap().control = PlaneConfig::default();
             server.reload_cfg().await.unwrap();
 
             assert_eq!(network.open_ports(), [server_addr].into());
 
-            cfg.lock().unwrap().monitoring = Some(PlaneConfig {
-                address: monitoring_addr,
+            cfg.lock().unwrap().monitoring = PlaneConfig {
+                address: Some(monitoring_addr),
+                tls_config: None,
                 max_connections: 4,
                 custom: (),
-            });
-            cfg.lock().unwrap().control = Some(PlaneConfig {
-                address: control_addr,
+            };
+            cfg.lock().unwrap().control = PlaneConfig {
+                address: Some(control_addr),
+                tls_config: None,
                 max_connections: 4,
                 custom: (),
-            });
+            };
             server.reload_cfg().await.unwrap();
 
             assert_eq!(
@@ -1126,5 +1269,36 @@ mod tests {
 
             assert!(network.open_ports().is_empty());
         });
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn main_plane_is_required() {
+        let network = Arc::new(FakeNetwork::default());
+
+        let cfg = ServerConfig {
+            main: PlaneConfig {
+                address: None,
+                tls_config: None,
+                max_connections: 4,
+                custom: "Hello world!",
+            },
+            monitoring: PlaneConfig::default(),
+            control: PlaneConfig::default(),
+        };
+
+        let external_world = ExternalWorld {
+            listen: network.listen_fn(),
+            load_cfg: stub_cfg(move || cfg.clone()),
+            read_file: read_no_disk,
+        };
+
+        let server = MultiplaneServer::builder()
+            .with_reconfigure(|conf, _prev| async move {
+                Ok::<_, Infallible>(Arc::new(conf.main.custom))
+            })
+            .with_response(|state, _addr, _req| async { text(StatusCode::OK, state) })
+            .build_with_external_world(external_world);
+
+        server.reload_cfg().await.unwrap_err();
     }
 }

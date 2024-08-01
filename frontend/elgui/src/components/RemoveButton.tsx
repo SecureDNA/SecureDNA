@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import React from "react";
+import type React from "react";
 
 export const RemoveButton = (props: React.ComponentProps<"button">) => {
-  let { ...rest } = props;
+  const { ...rest } = props;
   return (
     <button type="button" {...rest}>
       <span className="sr-only">Remove</span>

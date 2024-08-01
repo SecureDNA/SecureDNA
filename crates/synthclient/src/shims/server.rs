@@ -1,14 +1,13 @@
 // Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use anyhow::Context;
 use bytes::Bytes;
-use certificates::TokenBundle;
+use certificates::{ChainTraversal, ExemptionTokenGroup, TokenBundle};
 use futures::future::join_all;
 use futures::FutureExt;
 use http_body_util::BodyExt;
@@ -17,20 +16,21 @@ use hyper::{HeaderMap, Method, Request, StatusCode, Uri};
 use once_cell::sync::Lazy;
 use regex::bytes::Regex as BytesRegex;
 use serde::de::DeserializeOwned;
-use tokio::net::TcpListener;
+use shared_types::error::InvalidClientTokenBundle;
+use shared_types::et::WithOtps;
 use tokio::sync::Mutex;
-use tracing::{error, info, info_span, Instrument};
+use tracing::{error, info};
 
 use doprf::party::KeyserverId;
 use doprf_client::server_selection::ServerSelector;
 use doprf_client::server_version_handler::LastServerVersionHandler;
+use minhttp::error::ErrWrapper;
+use minhttp::mpserver::traits::ValidServerSetup;
+use minhttp::mpserver::{MultiplaneServer, ServerConfig};
 use minhttp::response::{self, GenericResponse};
-use minhttp::server::Server;
-use minhttp::signal::{fast_shutdown_requested, graceful_shutdown_requested};
 use quickdna::NucleotideAmbiguous;
 use securedna_versioning::version::get_version;
 use shared_types::http::add_cors_headers;
-use shared_types::info_with_timestamp;
 use shared_types::metrics::{get_metrics_output, SynthClientMetrics};
 use shared_types::requests::RequestId;
 use shared_types::server_versions::{HdbVersion, KeyserverVersion};
@@ -45,23 +45,40 @@ use crate::rate_limiter::{RateLimiter, SystemTimeHourProvider};
 
 use crate::shims::recaptcha::validate_recaptcha;
 use crate::shims::server_selection::initialize_server_selector;
-use crate::shims::types::{Opts, SynthClientState};
+use crate::shims::types::{Config, SynthClientState};
 
 use super::types::ScreeningType;
 
-pub async fn run(opts: Opts, post_setup_hook: impl Future<Output = ()>) -> anyhow::Result<()> {
-    if let Some(limit) = opts.memorylimit {
-        info_with_timestamp!("Running with memory limit: {}B", limit);
+pub fn server_setup() -> impl ValidServerSetup<Config, SynthClientState> {
+    MultiplaneServer::builder()
+        .with_reconfigure(reconfigure)
+        .with_response(respond)
+        .with_response_to_monitoring(respond_to_monitoring_plane)
+}
+
+async fn reconfigure(
+    server_cfg: ServerConfig<Config>,
+    prev_state: Weak<SynthClientState>,
+) -> Result<Arc<SynthClientState>, ErrWrapper> {
+    let app_cfg = server_cfg.main.custom;
+    let prev_state = Weak::upgrade(&prev_state);
+
+    if let Some(limit) = app_cfg.memorylimit {
+        info!("Running with memory limit: {limit}B");
     }
 
-    let certs = Arc::new(opts.certs.validate_and_build()?);
+    let certs = Arc::new(app_cfg.certs.validate_and_build()?);
 
-    info_with_timestamp!("Initializing server selector...");
-    let server_selector = initialize_server_selector(&opts).await.unwrap();
-    info_with_timestamp!("Finished initializing server selector");
-    let metrics = if !opts.disable_statistics {
+    info!("Initializing server selector...");
+    let server_selector = initialize_server_selector(&app_cfg).await.unwrap();
+    info!("Finished initializing server selector");
+    // Once metrics are enabled, they can't be disabled.
+    // (at least, I don't yet know enough about our metrics code to be sure that's sensible)
+    let metrics = if let Some(prev_metrics) = prev_state.as_ref().map(|s| &s.metrics) {
+        prev_metrics.clone()
+    } else if server_cfg.monitoring.is_enabled() {
         let m = SynthClientMetrics::default();
-        let max_clients: i64 = opts.max_clients.try_into().unwrap();
+        let max_clients: i64 = server_cfg.main.max_connections.into();
         m.max_clients.set(max_clients);
         Some(Arc::new(m))
     } else {
@@ -73,56 +90,32 @@ pub async fn run(opts: Opts, post_setup_hook: impl Future<Output = ()>) -> anyho
     };
 
     let rate_limiter = Mutex::new(RateLimiter::<IpAddr, _>::new(
-        opts.recaptcha_requests_per_hour,
+        app_cfg.recaptcha_requests_per_hour,
         SystemTimeHourProvider,
     ));
 
-    let server = Server::new(opts.max_clients);
-    // Note: Separate server so regular connections don't count against the monitoring plane limit.
-    let monitoring_plane_server = Server::new(opts.max_monitoring_plane_clients);
-
-    let address = SocketAddr::from(([0, 0, 0, 0], opts.port));
-    info!("Listening on {address}");
-    let listener = TcpListener::bind(address)
-        .await
-        .map_err(|err| PortAdvice::new(opts.port, err))
-        .with_context(|| format!("Couldn't listen on port {}.", opts.port))?;
-    let connections = futures::stream::unfold(listener, |listener| async {
-        Some((listener.accept().await, listener))
-    });
-
-    let run_monitoring_plane = if let Some(port) = opts.monitoring_plane_port {
-        let address = SocketAddr::from(([0, 0, 0, 0], port));
-        info!("Listening on {address} for monitoring plane");
-        let listener = TcpListener::bind(address)
-            .await
-            .map_err(|err| PortAdvice::new(port, err))
-            .with_context(|| format!("Couldn't listen on port {port} for monitoring plane."))?;
-        let connections = futures::stream::unfold(listener, |listener| async {
-            Some((listener.accept().await, listener))
-        });
-
-        let run = monitoring_plane_server
-            .with_callbacks()
-            .respond(respond_to_monitoring_plane)
-            .serve(connections)
-            .instrument(info_span!("monitoring-plane"));
-
-        run.left_future()
-    } else {
-        async {}.right_future()
-    };
-
     let synthclient_version = securedna_versioning::version::get_version();
 
-    let persistence_connection = Arc::new(
-        crate::shims::event_store::open_db(&opts.event_store_path)
+    let persistence_connection = if let Some(prev_state) = prev_state {
+        if app_cfg.event_store_path != prev_state.app_cfg.event_store_path {
+            return Err(anyhow::anyhow!(
+                "Changes to event_store_path not supported: expected {:?}, but found {:?}",
+                prev_state.app_cfg.event_store_path,
+                app_cfg.event_store_path,
+            )
+            .into());
+        }
+        prev_state.persistence_connection.clone()
+    } else {
+        let connection = crate::shims::event_store::open_db(&app_cfg.event_store_path)
             .await
-            .context("opening event store db")?,
-    );
+            .context("opening event store db")?;
+        Arc::new(connection)
+    };
 
-    let sc_state = Arc::new(SynthClientState {
-        opts,
+    Ok(Arc::new(SynthClientState {
+        app_cfg,
+        is_serving_https: server_cfg.main.tls_config.is_some(),
         server_selector: Arc::new(server_selector),
         metrics: metrics.clone(),
         limits,
@@ -130,44 +123,7 @@ pub async fn run(opts: Opts, post_setup_hook: impl Future<Output = ()>) -> anyho
         certs,
         synthclient_version,
         persistence_connection,
-    });
-
-    // let metrics2 = metrics.clone();
-    let run = server
-        .with_callbacks()
-        .respond(move |request, peer| {
-            let sc_state = sc_state.clone();
-            async move { respond(sc_state.clone(), peer, request).await }
-        })
-        .connected(|_| metrics.as_ref().map(|m| m.connected_clients()))
-        .failed(move |_| {
-            // synthclient doesn't count bad requests
-            // if let Some(m) = metrics2 {
-            //     m.bad_requests.inc();
-            // }
-        })
-        .serve(connections);
-
-    let graceful_shutdown = async {
-        graceful_shutdown_requested().await;
-        info!("Graceful shutdown requested...");
-        tokio::join!(
-            server.graceful_shutdown(),
-            monitoring_plane_server.graceful_shutdown()
-        );
-    };
-
-    // Note: Monitoring plane comes first to prioritize handling its traffic.
-    let run_until_gracefully_shutdown =
-        async { tokio::join!(run_monitoring_plane, run, graceful_shutdown) };
-    post_setup_hook.await;
-    tokio::select! {
-        biased;
-        _ = fast_shutdown_requested() => info!("Fast shutdown requested..."),
-        _ = run_until_gracefully_shutdown => {}
-    };
-
-    Ok(())
+    }))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -204,6 +160,11 @@ async fn respond(
     let method = request.method().clone();
     let headers = request.headers().clone();
     let path = request.uri().path();
+    let real_ip = headers
+        .get("X-Real-Ip")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<IpAddr>().ok())
+        .unwrap_or(peer.ip());
 
     let mut response = match (method, ScreenSource::parse(path), path) {
         (Method::OPTIONS, _, _) => response::empty(),
@@ -211,7 +172,7 @@ async fn respond(
         (Method::GET, _, "/") => index(&sc_state, request),
         (Method::POST, Some(source), _) => {
             let mut provider_reference: Option<String> = None;
-            match screen(source, &sc_state, peer, request, &mut provider_reference).await {
+            match screen(source, &sc_state, real_ip, request, &mut provider_reference).await {
                 Ok(api_response) => json_api_response(StatusCode::OK, api_response),
                 Err(api_error) => json_api_error(api_error, provider_reference),
             }
@@ -224,8 +185,9 @@ async fn respond(
 }
 
 async fn respond_to_monitoring_plane(
-    request: Request<Incoming>,
+    _sc_state: Arc<SynthClientState>,
     _peer: SocketAddr,
+    request: Request<Incoming>,
 ) -> GenericResponse {
     match (request.method(), request.uri().path()) {
         (&Method::GET, "/metrics") => query_server_metrics(),
@@ -244,11 +206,9 @@ async fn init_request(common: &RequestCommon) -> RequestId {
 
     // TODO: this should be associated with the request tracing span eventually,
     //       but we haven't gotten tracing working yet
-    info_with_timestamp!(
+    info!(
         "{}: validated request with provider_reference={:?} and region={:?}",
-        request_id,
-        common.provider_reference,
-        common.region
+        request_id, common.provider_reference, common.region
     );
 
     request_id
@@ -298,7 +258,7 @@ fn index(state: &SynthClientState, request: Request<Incoming>) -> GenericRespons
         .get(hyper::header::HOST)
         .and_then(|hv| std::str::from_utf8(hv.as_bytes()).ok())
         .map(|host| {
-            if forwarded_from_https(request.headers()) {
+            if state.is_serving_https || forwarded_from_https(request.headers()) {
                 format!("https://{host}")
             } else {
                 format!("http://{host}")
@@ -306,23 +266,23 @@ fn index(state: &SynthClientState, request: Request<Incoming>) -> GenericRespons
         });
 
     if let Some(host) = host {
-        let mut url = state.opts.frontend_url.clone();
+        let mut url = state.app_cfg.frontend_url.clone();
         url.query_pairs_mut().append_pair("api", host.as_str());
         response::see_other(url.as_str())
     } else {
-        response::see_other(state.opts.frontend_url.as_str())
+        response::see_other(state.app_cfg.frontend_url.as_str())
     }
 }
 
 async fn screen(
     source: ScreenSource,
     state: &SynthClientState,
-    peer: SocketAddr,
+    real_ip: IpAddr,
     request: Request<Incoming>,
     out_provider_reference: &mut Option<String>,
 ) -> Result<ApiResponse, ApiError> {
     let (parts, body) = request.into_parts();
-    let body = check_and_extract_json_body(body, state.opts.json_size_limit).await?;
+    let body = check_and_extract_json_body(body, state.app_cfg.json_size_limit).await?;
 
     let _gauge = state.metrics.as_ref().map(|m| m.connected_clients());
     if let Some(m) = state.metrics.as_ref() {
@@ -332,12 +292,12 @@ async fn screen(
     let (sequence, common, request_id) = match source {
         ScreenSource::Ncbi => {
             let CheckNcbiRequest { id, common } = serde_json::from_slice(&body)?;
-            *out_provider_reference = common.provider_reference.clone();
+            out_provider_reference.clone_from(&common.provider_reference);
             let request_id = init_request(&common).await;
 
-            info_with_timestamp!("{}: begin fetching {} from NCBI", request_id, id);
+            info!("{request_id}: begin fetching {id} from NCBI");
             let sequence = download_fasta_by_acc_number(&request_id, id).await?;
-            info_with_timestamp!(
+            info!(
                 "{}: begin checking NCBI FASTA (length {})",
                 request_id,
                 sequence.len()
@@ -346,22 +306,18 @@ async fn screen(
         }
         ScreenSource::Fasta | ScreenSource::FastaDemo => {
             let CheckFastaRequest { fasta, common } = serde_json::from_slice(&body)?;
-            *out_provider_reference = common.provider_reference.clone();
+            out_provider_reference.clone_from(&common.provider_reference);
             let request_id = init_request(&common).await;
 
             if source == ScreenSource::FastaDemo {
-                let client_ip = peer.ip();
+                let client_ip = real_ip;
                 let recaptcha_token = str_param(&parts.uri, "recaptcha_token").unwrap_or_default();
 
-                info_with_timestamp!(
-                    "{}: screen ({:?}) client_ip={}, recaptcha_token={}",
-                    request_id,
-                    source,
-                    client_ip,
-                    recaptcha_token
+                info!(
+                    "{request_id}: screen ({source:?}) client_ip={client_ip}, recaptcha_token={recaptcha_token}",
                 );
 
-                let secret = state.opts.recaptcha_secret_key.as_deref();
+                let secret = state.app_cfg.recaptcha_secret_key.as_deref();
                 validate_recaptcha(&recaptcha_token, secret, client_ip).await?;
                 state.demo_rate_limiter.lock().await.request(client_ip)?;
             }
@@ -398,10 +354,19 @@ async fn screen(
         },
     );
 
-    let elt = match common.elt_pem {
-        None => None,
-        Some(pem) => Some(TokenBundle::from_file_contents(pem)?),
-    };
+    type Et = WithOtps<TokenBundle<ExemptionTokenGroup>>;
+    let ets: Vec<Et> = common
+        .ets
+        .into_iter()
+        .map(|et| et.try_map(TokenBundle::<ExemptionTokenGroup>::from_file_contents))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for WithOtps { et, .. } in &ets {
+        et.path_to_leaf().map_err(|err| InvalidClientTokenBundle {
+            error: err,
+            token_kind: certificates::TokenKind::Exemption,
+        })?;
+    }
 
     let config = CheckerConfiguration {
         server_selector: Arc::clone(&state.server_selector),
@@ -410,20 +375,18 @@ async fn screen(
         metrics: state.metrics.as_ref().map(Arc::clone),
         region: common.region,
         limit_config: state.limit_config(source.screening_type()),
-        use_http: state.opts.use_http,
+        use_http: state.app_cfg.use_http,
         provider_reference: common.provider_reference,
         synthclient_version_hint: &state.synthclient_version,
-        elt,
-        otp: common.otp,
+        ets,
         server_version_handler,
     };
 
     let api_response = check_fasta::<NucleotideAmbiguous>(&request_id, sequence, &config).await?;
 
-    info_with_timestamp!(
+    info!(
         "{}: finished, status = {:?}",
-        request_id,
-        api_response.synthesis_permission
+        request_id, api_response.synthesis_permission
     );
 
     Ok(api_response)
@@ -431,13 +394,13 @@ async fn screen(
 
 async fn query_server_version(state: &SynthClientState) -> GenericResponse {
     let synthclient_version = get_version();
-    let hdb_version = get_hdb_version(state.server_selector.clone(), state.opts.use_http).await;
+    let hdb_version = get_hdb_version(state.server_selector.clone(), state.app_cfg.use_http).await;
     let (hdbserver_version, hdb_timestamp) = match hdb_version {
         Some(v) => (Some(v.server_version), v.hdb_timestamp),
         None => (None, None),
     };
     let keyserver_versions =
-        get_keyserver_versions(state.server_selector.clone(), state.opts.use_http).await;
+        get_keyserver_versions(state.server_selector.clone(), state.app_cfg.use_http).await;
 
     // this serialization can't fail
     let json = serde_json::to_string(&VersionInfo {
@@ -454,28 +417,23 @@ async fn get_json_version<T: DeserializeOwned>(url: impl AsRef<str>) -> Option<T
     let url = url.as_ref();
     let response = reqwest::get(url)
         .await
-        .map_err(|err| info_with_timestamp!("error when getting {}: {}", url, err))
+        .inspect_err(|err| info!("error when getting {url}: {err}"))
         .ok()?;
     let status = response.status();
     let text = response
         .text()
         .await
-        .map_err(|err| info_with_timestamp!("error when getting text from {}: {}", url, err))
+        .inspect_err(|err| info!("error when getting text from {url}: {err}"))
         .ok()?;
 
     if status != reqwest::StatusCode::OK {
-        info_with_timestamp!("{} returned non-200 response: {}", url, text);
+        info!("{url} returned non-200 response: {text}");
         return None;
     }
     match serde_json::from_str(&text) {
         Ok(hdb_version) => Some(hdb_version),
         Err(err) => {
-            info_with_timestamp!(
-                "{} returned unparsesable response: {} (from {:?})",
-                url,
-                err,
-                text
-            );
+            info!("{url} returned unparsesable response: {err} (from {text:?})",);
             None
         }
     }
@@ -553,29 +511,5 @@ fn forwarded_from_https(headers: &HeaderMap) -> bool {
         ON.is_match(x_fwd_ssl.as_bytes())
     } else {
         false
-    }
-}
-
-#[derive(Debug)]
-struct PortAdvice {
-    port: u16,
-    inner: std::io::Error,
-}
-
-impl PortAdvice {
-    fn new(port: u16, inner: std::io::Error) -> Self {
-        Self { port, inner }
-    }
-}
-
-impl std::error::Error for PortAdvice {}
-
-impl std::fmt::Display for PortAdvice {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        self.inner.fmt(f)?;
-        if self.inner.kind() == std::io::ErrorKind::PermissionDenied && self.port < 1024 {
-            write!(f, "\n(ports under 1024 usually require admin privileges)")?;
-        }
-        Ok(())
     }
 }

@@ -1,0 +1,26 @@
+[main]
+address = "0.0.0.0:80"
+
+# (optional) Explicit keyserver domains to use, instead of enumerating.
+# Requires hdb_domains setting.
+keyserver_domains = ["keyserver1:5301", "keyserver2:5302", "keyserver3:5303"]
+
+# (optional) Explicit hdb domains to use, instead of enumerating.
+# Requires keyserver_domains setting.
+hdb_domains = ["hdbserver:5300"]
+
+# Path to your manufacturer token
+token_file = "../certs/synthesizer-token.st"
+
+# Path to the .priv keypair file for your token.
+keypair_file = "../certs/synthesizer-token.priv"
+
+# The file containing the passphrase to decrypt the .priv keypair file (keypair_file setting)
+keypair_passphrase_file = "../certs/synthesizer-token.passphrase"
+
+# Use a test root when validating certificates.  This will never work against production servers.
+use_test_roots_do_not_use_this_in_prod = true
+
+# Use http (instead of https) for all requests to internal servers (hdb and keyservers).
+# Useful for local development, will not work with securedna.org servers.
+use_http = true

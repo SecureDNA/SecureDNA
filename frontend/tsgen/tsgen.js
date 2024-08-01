@@ -26,7 +26,15 @@ function translate(typeName, selfName) {
   if ((m = typeName.match(/^Option<(.+)>$/))) {
     return translate(m[1], selfName) + " | null";
   }
+  if ((m = typeName.match(/^Result<(.+), (.+)>$/))) {
+    const ok = translate(m[1], selfName);
+    const err = translate(m[2], selfName);
+    return `{Ok: ${ok}} | {Err: ${err}}`;
+  }
   if ((m = typeName.match(/^Cow<'.+, (.+)>$/))) {
+    return translate(m[1], selfName);
+  }
+  if ((m = typeName.match(/^Box<(.+)>$/))) {
     return translate(m[1], selfName);
   }
   if ((m = typeName.match(/^\[(.+);/))) {

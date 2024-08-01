@@ -2,44 +2,54 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use pathfinding::prelude::dfs;
+use serde::Serialize;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
+use time::Duration;
 
 use crate::chain::Chain;
-use crate::chain_item::ChainItem;
+use crate::chain_item::{ChainItem, ChainItemValidationError};
 use crate::keypair::PublicKey;
 use crate::revocation::RevocationList;
 use crate::shared_components::role::Role;
-use crate::validation_failure::ValidationFailure;
-
-pub type ChainItemFailure<R> = (ChainItem<R>, ValidationFailure);
+use crate::{now_utc, ChainItemDigest, Digestible, HierarchyKind};
 
 /// Holds any items that failed to validate, with the reasons for failure.
 /// If no items were found, then the incorrect roots may have been used.
 #[derive(Debug)]
-pub struct ChainValidationFailure<R: Role> {
-    causes: Vec<ChainItemFailure<R>>,
+pub struct ChainValidationError<R: Role> {
+    pub invalid_items: Vec<ChainItemValidationError<R>>,
 }
 
-impl<R: Role> ChainValidationFailure<R> {
-    pub fn new(causes: Vec<ChainItemFailure<R>>) -> Self {
-        Self { causes }
+impl<R: Role> ChainValidationError<R> {
+    pub fn new(mut invalid_items: Vec<ChainItemValidationError<R>>) -> Self {
+        invalid_items.sort_by(|a, b| a.item.cmp(&b.item));
+        Self { invalid_items }
+    }
+    pub fn user_friendly_text(&self) -> String {
+        self.invalid_items
+            .iter()
+            .map(|ChainItemValidationError { item, error }| {
+                format!(
+                    "the {} is not valid due to {}",
+                    item.user_friendly_text(),
+                    error.user_friendly_text()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
-impl<R: Role> Display for ChainValidationFailure<R> {
+impl<R: Role> Display for ChainValidationError<R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.causes.is_empty() {
-            write!(
-                f,
-                "Could not validate the chain but no individual items failed validation. You may be using the wrong roots.")?;
-        } else {
-            write!(
-                f,
-                "Could not validate the chain. Items that failed verification: {:?}",
-                self.causes
-            )?;
+        let mut items_iter = self.invalid_items.iter().peekable();
+        while let Some(item) = items_iter.next() {
+            write!(f, "{}", item)?;
+            if items_iter.peek().is_some() {
+                writeln!(f, "\n")?;
+            }
         }
         Ok(())
     }
@@ -48,28 +58,21 @@ impl<R: Role> Display for ChainValidationFailure<R> {
 pub trait ChainTraversal {
     type R: Role;
 
-    /// Checks for a path to the supplied issuer public key is found.
+    /// Checks that a path to the supplied issuer public key(s) is found.
     /// If no path is found the invalid chain items will be returned, along with their reasons for failure.
     fn validate_path_to_issuers(
         &self,
         issuer_pks: &[PublicKey],
         list: Option<&RevocationList>,
-    ) -> Result<(), ChainValidationFailure<Self::R>> {
-        let mut invalid_items = HashSet::new();
-
-        for cert in self.bundle_subjects() {
-            match validate_path_from_item(cert, &self.chain(), issuer_pks, list) {
-                Ok(_) => return Ok(()),
-                Err(e) => {
-                    for invalid_item in e {
-                        invalid_items.insert(invalid_item);
-                    }
-                }
-            }
-        }
-        Err(ChainValidationFailure::new(
-            invalid_items.into_iter().collect(),
-        ))
+    ) -> Result<(), ChainValidationError<Self::R>> {
+        find_first_path_from_items(
+            self.bundle_subjects(),
+            &self.chain(),
+            |c: &ChainItem<Self::R>| issuer_pks.iter().any(|pk| c.was_issued_by_public_key(pk)),
+            list,
+        )
+        .map(|_| ())
+        .map_err(ChainValidationError::new)
     }
 
     /// Returns a vec of each valid path through the chain to the supplied issuer public key.
@@ -83,7 +86,7 @@ pub trait ChainTraversal {
     }
 
     /// Returns all items which do not form part of a valid path to the issuer public key.
-    /// These items may or may not be valid.
+    /// These items may not be valid.
     fn find_items_not_part_of_valid_path(
         &self,
         issuer_pks: &[PublicKey],
@@ -103,6 +106,88 @@ pub trait ChainTraversal {
             .chain(subjects)
             .filter(|x| !all_valid_certs.contains(x))
             .collect()
+    }
+
+    /// Finds a valid path to the leaf certificate.
+    /// If a path is not found then all invalid items up to the leaf are returned.
+    fn path_to_leaf(&self) -> Result<Vec<ChainItem<Self::R>>, ChainValidationError<Self::R>> {
+        let subjects = self.bundle_subjects();
+        let chain = self.chain();
+
+        find_first_path_from_items(
+            subjects,
+            &chain,
+            |c: &ChainItem<Self::R>| c.is_at_hierarchy_level(&HierarchyKind::Leaf),
+            None,
+        )
+        .map_err(|invalid_items| {
+            let invalid_to_leaf = invalid_items
+                .into_iter()
+                .filter(|ChainItemValidationError { item, .. }| {
+                    item.is_at_or_below_hierarchy_level(&HierarchyKind::Leaf)
+                })
+                .collect();
+            ChainValidationError::new(invalid_to_leaf)
+        })
+    }
+
+    /// Identifies items that will expire at the specified number of days in the future or earlier.
+    /// Only returns valid items up to the leaf certificate.
+    fn expiry_within_days(&self, days: i64) -> Vec<ChainItem<Self::R>> {
+        let path_to_leaf = self.path_to_leaf().unwrap_or_default();
+
+        let expiry_check_ts = (now_utc() + Duration::days(days)).unix_timestamp();
+        let expiring_items = path_to_leaf
+            .into_iter()
+            .filter(|item| item.expiration().not_valid_after <= expiry_check_ts)
+            .collect();
+        expiring_items
+    }
+
+    /// Identifies items that will expire at the specified number of days in the future or earlier.
+    /// Excludes items whose total validity period is less than or equal to the specified number of days.
+    /// Only returns valid items up to the leaf certificate.
+    fn expiry_within_days_excluding_shorter_validity(&self, days: i64) -> Vec<ChainItem<Self::R>> {
+        let days_in_seconds = time::Duration::days(days).whole_seconds();
+        let expiring_items = self
+            .expiry_within_days(days)
+            .into_iter()
+            .filter(|item| {
+                let expiration = item.expiration();
+                let item_validity_duration =
+                    expiration.not_valid_after - expiration.not_valid_before;
+                item_validity_duration > days_in_seconds
+            })
+            .collect();
+        expiring_items
+    }
+
+    /// Identifies items that will expire at the specified number of days in the future or earlier.
+    /// Excludes items whose total validity period is less than or equal to the specified number of days.
+    /// Only returns valid items up to the leaf certificate.
+    /// Also returns the timestamp of the earliest expiry within the returned items.
+    fn check_for_expiry_warning(&self, days: i64) -> Option<ExpiryWarning> {
+        let expiring_items = self.expiry_within_days_excluding_shorter_validity(days);
+
+        if expiring_items.is_empty() {
+            return None;
+        }
+
+        let first_expiry = expiring_items
+            .iter()
+            .map(|item| item.expiration().not_valid_after)
+            .min()
+            .unwrap();
+
+        let expiring_item_digests = expiring_items
+            .into_iter()
+            .map(|item| item.into_digest())
+            .collect();
+
+        Some(ExpiryWarning {
+            expiring_items: expiring_item_digests,
+            first_expiry,
+        })
     }
 
     /// Items included with the bundle's main certificate(s) or token in order to prove their provenance
@@ -126,39 +211,60 @@ fn find_valid_issuers<R: Role>(
         .collect::<Vec<_>>()
 }
 
-/// Finds first valid path from `item` to any of the provided issuer public keys
-/// If a path is not found then all invalid items are returned
-fn validate_path_from_item<R>(
+/// Finds the first valid path from any item in `items` to a chain item that satisfies the success function.
+/// If a path is not found then all invalid items are returned.
+fn find_first_path_from_items<R: Role>(
+    items: Vec<ChainItem<R>>,
+    chain: &Chain<R>,
+    success_fn: impl Fn(&ChainItem<R>) -> bool,
+    list: Option<&RevocationList>,
+) -> Result<Vec<ChainItem<R>>, Vec<ChainItemValidationError<R>>> {
+    let mut invalid_items = HashSet::new();
+
+    for item in items {
+        match path_from_item(item, chain, &success_fn, list) {
+            Ok(path) => return Ok(path),
+            Err(e) => {
+                invalid_items.extend(e);
+            }
+        }
+    }
+    Err(invalid_items.into_iter().collect())
+}
+
+/// Finds the first valid path from `item` to a chain item that satisfies the success function.
+/// If a path is not found then all invalid items are returned.
+fn path_from_item<R, F>(
     item: ChainItem<R>,
     chain: &Chain<R>,
-    issuer_pks: &[PublicKey],
+    success_fn: F,
     list: Option<&RevocationList>,
-) -> Result<(), Vec<ChainItemFailure<R>>>
+) -> Result<Vec<ChainItem<R>>, Vec<ChainItemValidationError<R>>>
 where
     R: Role,
+    F: Fn(&ChainItem<R>) -> bool,
 {
     let issuers = |item: &ChainItem<R>| find_valid_issuers(item, chain, list);
-    let success = |c: &ChainItem<R>| issuer_pks.iter().any(|pk| c.was_issued_by_public_key(pk));
 
     let mut invalid_items = vec![];
     match item.validate(list) {
         Ok(()) => {
-            if dfs(item, issuers, success).is_some() {
-                return Ok(());
+            if let Some(path) = dfs(item, issuers, success_fn) {
+                return Ok(path);
             };
         }
-        Err(failure) => invalid_items.push((item, failure)),
+        Err(error) => invalid_items.push(ChainItemValidationError::new(item, error)),
     };
     for chain_item in chain {
         if let Err(err) = chain_item.validate(list) {
-            invalid_items.push((chain_item.clone(), err))
+            invalid_items.push(ChainItemValidationError::new(chain_item.clone(), err))
         }
     }
     Err(invalid_items)
 }
 
 /// Finds all possible paths to issuer public keys from each item in `start_points`
-fn find_all_paths_to_issuers<'a, R: Role + 'a>(
+fn find_all_paths_to_issuers<R: Role>(
     start_points: &[ChainItem<R>],
     chain: &Chain<R>,
     issuer_pks: &[PublicKey],
@@ -233,27 +339,37 @@ fn all_dfs_paths<C, F, G>(
     visited.remove(start);
 }
 
+/// Items nearing expiration and the earliest of their expiry dates as a unix timestamp
+#[derive(Serialize)]
+// tsgen
+pub struct ExpiryWarning {
+    expiring_items: Vec<ChainItemDigest>,
+    first_expiry: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::key_traits::HasAssociatedKey;
-    use crate::test_helpers::create_exemptions;
     use crate::test_helpers::{
-        create_eltr_with_options, create_issuing_exemption_list_token_bundle, create_leaf_bundle,
+        create_etr_with_options, create_issuing_exemption_token_bundle, create_leaf_bundle,
     };
-    use crate::tokens::exemption::exemption_list::issue_elt_without_compliance_check;
-    use crate::validation_failure::InvalidityCause;
+    use crate::test_helpers::{create_exemption_token_bundle, create_exemptions};
+    use crate::tokens::exemption::et::issue_exemption_token_without_compliance_check;
+    use crate::validation_error::InvalidityCause;
+    use crate::ValidationError;
     use crate::{
         certificate::{IssuerAdditionalFields, RequestBuilder},
         shared_components::role::Exemption,
         test_for_all_token_types, test_for_token_types,
         test_helpers::{
-            create_cross_signed_intermediate_bundle, create_eltr, create_intermediate_bundle,
+            create_cross_signed_intermediate_bundle, create_etr, create_intermediate_bundle,
             BreakableSignature,
         },
         Builder, Certificate, CertificateBundle, CertificateRequest, Description,
-        ExemptionListTokenGroup, ExemptionListTokenRequest, Expiration, GenbankId, Issued, KeyPair,
+        ExemptionTokenGroup, ExemptionTokenRequest, Expiration, GenbankId, Issued, KeyPair,
         KeyUnavailable, Organism, SequenceIdentifier, TokenBundle, TokenGroup,
     };
+    use crate::{Authenticator, YubikeyId};
 
     use super::*;
 
@@ -669,7 +785,7 @@ mod tests {
 
         let revocation_list = RevocationList::default().with_issuance_id(*issuance_id);
 
-        let validation_failure = token_bundle
+        let error = token_bundle
             .validate_path_to_issuers(
                 &[KeyPair::new_random().public_key()],
                 Some(&revocation_list),
@@ -677,10 +793,10 @@ mod tests {
             .expect_err("should not validate");
 
         assert_eq!(
-            validation_failure.causes,
-            vec![(
+            error.invalid_items,
+            vec![ChainItemValidationError::new(
                 token_bundle.token.into(),
-                ValidationFailure::new(vec![InvalidityCause::Revoked])
+                ValidationError::new(vec![InvalidityCause::Revoked])
             )]
         );
     }
@@ -696,7 +812,7 @@ mod tests {
 
         let revocation_list = RevocationList::default().with_request_id(*request_id);
 
-        let chain_validation_failure = token_bundle
+        let error = token_bundle
             .validate_path_to_issuers(
                 &[KeyPair::new_random().public_key()],
                 Some(&revocation_list),
@@ -704,10 +820,10 @@ mod tests {
             .expect_err("should not validate");
 
         assert_eq!(
-            chain_validation_failure.causes[0],
-            (
+            error.invalid_items[0],
+            ChainItemValidationError::new(
                 token_bundle.token.into(),
-                ValidationFailure::new(vec![InvalidityCause::Revoked])
+                ValidationError::new(vec![InvalidityCause::Revoked])
             )
         );
     }
@@ -724,7 +840,7 @@ mod tests {
 
         let revocation_list = RevocationList::default().with_public_key(*public_key);
 
-        let chain_validation_failure = token_bundle
+        let error = token_bundle
             .validate_path_to_issuers(
                 &[KeyPair::new_random().public_key()],
                 Some(&revocation_list),
@@ -732,18 +848,18 @@ mod tests {
             .expect_err("should not validate");
 
         assert_eq!(
-            chain_validation_failure.causes[0],
-            (
+            error.invalid_items[0],
+            ChainItemValidationError::new(
                 token_bundle.token.into(),
-                ValidationFailure::new(vec![InvalidityCause::Revoked])
+                ValidationError::new(vec![InvalidityCause::Revoked])
             )
         );
     }
 
     test_for_all_token_types!(
-        all_relevant_causes_for_token_invalidity_included_in_chain_validation_failure
+        all_relevant_causes_for_token_invalidity_included_in_chain_validation_error
     );
-    fn all_relevant_causes_for_token_invalidity_included_in_chain_validation_failure<F, T>(
+    fn all_relevant_causes_for_token_invalidity_included_in_chain_validation_error<F, T>(
         create_token_bundle_fn: F,
     ) where
         F: FnOnce() -> (TokenBundle<T>, PublicKey),
@@ -755,25 +871,21 @@ mod tests {
 
         let revocation_list = RevocationList::default().with_request_id(*request_id);
 
-        let chain_validation_failure = token_bundle
+        let error = token_bundle
             .validate_path_to_issuers(
                 &[KeyPair::new_random().public_key()],
                 Some(&revocation_list),
             )
             .expect_err("should not validate");
 
-        let (invalid_item, validation_failure) = chain_validation_failure
-            .causes
+        let ChainItemValidationError { item, error } = error
+            .invalid_items
             .first()
-            .expect("chain failures should not be empty");
+            .expect("chain error should have invalid items");
 
-        assert_eq!(*invalid_item, token_bundle.token.clone().into());
-        assert!(validation_failure
-            .causes
-            .contains(&InvalidityCause::Revoked));
-        assert!(validation_failure
-            .causes
-            .contains(&InvalidityCause::SignatureFailure));
+        assert_eq!(*item, token_bundle.token.clone().into());
+        assert!(error.causes.contains(&InvalidityCause::Revoked));
+        assert!(error.causes.contains(&InvalidityCause::SignatureFailure));
     }
 
     test_for_all_token_types!(can_identify_redundant_certificates);
@@ -826,14 +938,14 @@ mod tests {
         leaf_cert.break_signature();
         let leaf_bundle = CertificateBundle::new(leaf_cert.clone(), Some(chain));
 
-        let token_request = create_eltr(create_exemptions());
+        let token_request = create_etr(create_exemptions());
         let token = leaf_cert
             .load_key(leaf_kp)
             .unwrap()
-            .issue_elt(token_request, Expiration::default(), vec![])
+            .issue_exemption_token(token_request, Expiration::default(), vec![])
             .unwrap();
         let token_chain = leaf_bundle.issue_chain();
-        let token_bundle = TokenBundle::<ExemptionListTokenGroup>::new(token, token_chain);
+        let token_bundle = TokenBundle::<ExemptionTokenGroup>::new(token, token_chain);
 
         token_bundle
             .validate_path_to_issuers(&[root_pk], None)
@@ -876,14 +988,14 @@ mod tests {
 
         let leaf_bundle = CertificateBundle::new(leaf_cert.clone(), Some(chain));
 
-        let token_request = create_eltr(create_exemptions());
+        let token_request = create_etr(create_exemptions());
         let token = leaf_cert
             .load_key(leaf_kp)
             .unwrap()
-            .issue_elt(token_request, Expiration::default(), vec![])
+            .issue_exemption_token(token_request, Expiration::default(), vec![])
             .unwrap();
         let token_chain = leaf_bundle.issue_chain();
-        let token_bundle = TokenBundle::<ExemptionListTokenGroup>::new(token, token_chain);
+        let token_bundle = TokenBundle::<ExemptionTokenGroup>::new(token, token_chain);
 
         token_bundle
             .validate_path_to_issuers(&[root_pk], None)
@@ -891,7 +1003,7 @@ mod tests {
     }
 
     #[test]
-    fn can_identify_items_in_path_to_root_from_elt_bundle() {
+    fn can_identify_items_in_path_to_root_from_et_bundle() {
         let (int_bundle, int_kp, root_pk) = create_intermediate_bundle::<Exemption>();
 
         let leaf_kp = KeyPair::new_random();
@@ -909,22 +1021,22 @@ mod tests {
         let chain = int_bundle.issue_chain();
         let leaf_bundle = CertificateBundle::new(leaf_cert.clone(), Some(chain));
 
-        let eltr = create_eltr(create_exemptions());
+        let etr = create_etr(create_exemptions());
 
-        let elt = leaf_bundle
+        let et = leaf_bundle
             .get_lead_cert()
             .unwrap()
             .clone()
             .load_key(leaf_kp)
             .unwrap()
-            .issue_elt(eltr, Expiration::default(), vec![])
+            .issue_exemption_token(etr, Expiration::default(), vec![])
             .unwrap();
 
         let chain = leaf_bundle.issue_chain();
 
-        let elt_bundle = TokenBundle::<ExemptionListTokenGroup>::new(elt.clone(), chain);
+        let et_bundle = TokenBundle::<ExemptionTokenGroup>::new(et.clone(), chain);
 
-        let all_paths = elt_bundle.find_all_paths_to_issuers(&[root_pk], None);
+        let all_paths = et_bundle.find_all_paths_to_issuers(&[root_pk], None);
 
         // assert that only one path to issuer found
         assert_eq!(all_paths.len(), 1);
@@ -933,13 +1045,13 @@ mod tests {
         assert_eq!(all_paths[0].len(), 3);
 
         // assert that path to issuer contains token, leaf cert and int cert
-        assert!(all_paths[0].contains(&(elt.into())));
+        assert!(all_paths[0].contains(&(et.into())));
         assert!(all_paths[0].contains(&(leaf_cert.into())));
         assert!(all_paths[0].contains(&(int_cert.into())));
     }
 
     #[test]
-    fn can_identify_certificates_in_cross_signed_path_to_root_from_elt_bundle() {
+    fn can_identify_certificates_in_cross_signed_path_to_root_from_et_bundle() {
         let (int_bundle, int_kp, root_pk) = create_cross_signed_intermediate_bundle::<Exemption>();
 
         let leaf_kp = KeyPair::new_random();
@@ -957,33 +1069,33 @@ mod tests {
         let chain = int_bundle.issue_chain();
         let leaf_bundle = CertificateBundle::new(leaf_cert.clone(), Some(chain));
 
-        let eltr = create_eltr(create_exemptions());
+        let etr = create_etr(create_exemptions());
 
-        let elt = leaf_bundle
+        let et = leaf_bundle
             .get_lead_cert()
             .unwrap()
             .clone()
             .load_key(leaf_kp)
             .unwrap()
-            .issue_elt(eltr, Expiration::default(), vec![])
+            .issue_exemption_token(etr, Expiration::default(), vec![])
             .unwrap();
 
         let chain = leaf_bundle.issue_chain();
 
-        let elt_bundle = TokenBundle::<ExemptionListTokenGroup>::new(elt.clone(), chain);
+        let et_bundle = TokenBundle::<ExemptionTokenGroup>::new(et.clone(), chain);
 
-        let all_paths = elt_bundle.find_all_paths_to_issuers(&[root_pk], None);
+        let all_paths = et_bundle.find_all_paths_to_issuers(&[root_pk], None);
 
         // assert that two paths to issuer found
         assert_eq!(all_paths.len(), 2);
 
         let expected_path_1: Vec<ChainItem<Exemption>> = vec![
-            elt.clone().into(),
+            et.clone().into(),
             leaf_cert.clone().into(),
             int_bundle.certs[0].clone().into(),
         ];
         let expected_path_2: Vec<ChainItem<Exemption>> = vec![
-            elt.clone().into(),
+            et.clone().into(),
             leaf_cert.into(),
             int_bundle.certs[1].clone().into(),
         ];
@@ -994,44 +1106,45 @@ mod tests {
     }
 
     #[test]
-    fn can_traverse_from_child_elt_to_root() {
-        let (elt_bundle, elt_kp, root_pub) = create_issuing_exemption_list_token_bundle();
+    fn can_traverse_from_child_et_to_root() {
+        let (et_bundle, et_kp, root_pub) = create_issuing_exemption_token_bundle();
 
-        let child_eltr = create_eltr_with_options(None, vec![], vec![]);
-        let child_elt = elt_bundle
+        let child_etr = create_etr_with_options(None, vec![], vec![]);
+        let child_et = et_bundle
             .token
             .clone()
-            .load_key(elt_kp)
+            .load_key(et_kp)
             .unwrap()
-            .issue_elt(child_eltr, Expiration::default(), vec![])
+            .issue_exemption_token(child_etr, Expiration::default(), vec![])
             .unwrap();
-        let child_elt_bundle =
-            TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
-        child_elt_bundle
+        let child_et_bundle =
+            TokenBundle::<ExemptionTokenGroup>::new(child_et, et_bundle.issue_chain());
+        child_et_bundle
             .validate_path_to_issuers(&[root_pub], None)
             .expect("traversal should succeed");
     }
 
     #[test]
-    fn traversal_fails_where_child_elt_has_associated_keypair() {
-        let (elt_bundle, elt_kp, root_pub) = create_issuing_exemption_list_token_bundle();
+    fn traversal_fails_where_child_et_has_associated_keypair() {
+        let (et_bundle, et_kp, root_pub) = create_issuing_exemption_token_bundle();
 
         let child_kp = KeyPair::new_random();
-        let child_eltr = create_eltr_with_options(Some(child_kp.public_key()), vec![], vec![]);
-        let child_elt = issue_elt_without_compliance_check(child_eltr, &elt_kp, vec![]);
-        let child_elt_bundle =
-            TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
-        child_elt_bundle
+        let child_etr = create_etr_with_options(Some(child_kp.public_key()), vec![], vec![]);
+        let child_et =
+            issue_exemption_token_without_compliance_check(child_etr, &et_kp, vec![], vec![]);
+        let child_et_bundle =
+            TokenBundle::<ExemptionTokenGroup>::new(child_et, et_bundle.issue_chain());
+        child_et_bundle
             .validate_path_to_issuers(&[root_pub], None)
             .expect_err("traversal should fail");
     }
 
     #[test]
-    fn traversal_fails_where_child_elt_has_shipping_address_not_found_on_issuer() {
-        let (elt_bundle, elt_kp, root_pub) = create_issuing_exemption_list_token_bundle();
+    fn traversal_fails_where_child_et_has_shipping_address_not_found_on_issuer() {
+        let (et_bundle, et_kp, root_pub) = create_issuing_exemption_token_bundle();
 
         let shipping_address = vec!["22 New Street".to_string(), "Some Other City".to_string()];
-        let eltr = ExemptionListTokenRequest::v1_token_request(
+        let etr = ExemptionTokenRequest::v1_token_request(
             None,
             vec![],
             Description::default(),
@@ -1039,23 +1152,23 @@ mod tests {
             vec![shipping_address],
         );
 
-        let child_elt = issue_elt_without_compliance_check(eltr, &elt_kp, vec![]);
-        let child_elt_bundle =
-            TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
-        child_elt_bundle
+        let child_et = issue_exemption_token_without_compliance_check(etr, &et_kp, vec![], vec![]);
+        let child_et_bundle =
+            TokenBundle::<ExemptionTokenGroup>::new(child_et, et_bundle.issue_chain());
+        child_et_bundle
             .validate_path_to_issuers(&[root_pub], None)
             .expect_err("traversal should fail");
     }
 
     #[test]
-    fn traversal_fails_where_child_elt_has_exemptions_not_found_on_issuer() {
-        let (elt_bundle, elt_kp, root_pub) = create_issuing_exemption_list_token_bundle();
+    fn traversal_fails_where_child_et_has_exemptions_not_found_on_issuer() {
+        let (et_bundle, et_kp, root_pub) = create_issuing_exemption_token_bundle();
 
         let exemption = Organism::new(
             "test",
             vec![SequenceIdentifier::Id(GenbankId::try_new("555").unwrap())],
         );
-        let eltr = ExemptionListTokenRequest::v1_token_request(
+        let etr = ExemptionTokenRequest::v1_token_request(
             None,
             vec![exemption],
             Description::default(),
@@ -1063,21 +1176,21 @@ mod tests {
             vec![],
         );
 
-        let child_elt = issue_elt_without_compliance_check(eltr, &elt_kp, vec![]);
-        let child_elt_bundle =
-            TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
-        child_elt_bundle
+        let child_et = issue_exemption_token_without_compliance_check(etr, &et_kp, vec![], vec![]);
+        let child_et_bundle =
+            TokenBundle::<ExemptionTokenGroup>::new(child_et, et_bundle.issue_chain());
+        child_et_bundle
             .validate_path_to_issuers(&[root_pub], None)
             .expect_err("traversal should fail");
     }
 
     #[test]
-    fn traversal_fails_where_child_elt_is_missing_emails_to_notify_from_issuer() {
+    fn traversal_fails_where_child_et_is_missing_emails_to_notify_from_issuer() {
         let (leaf_bundle, leaf_kp, root_pub) = create_leaf_bundle::<Exemption>();
 
-        let elt_kp = KeyPair::new_random();
-        let issuing_eltr = ExemptionListTokenRequest::v1_token_request(
-            Some(elt_kp.public_key()),
+        let et_kp = KeyPair::new_random();
+        let issuing_etr = ExemptionTokenRequest::v1_token_request(
+            Some(et_kp.public_key()),
             vec![],
             Description::default(),
             vec![],
@@ -1085,13 +1198,17 @@ mod tests {
         );
 
         let emails_to_notify = vec!["must_notify@example.com".into()];
-        let issuing_elt =
-            issue_elt_without_compliance_check(issuing_eltr, &leaf_kp, emails_to_notify);
+        let issuing_et = issue_exemption_token_without_compliance_check(
+            issuing_etr,
+            &leaf_kp,
+            emails_to_notify,
+            vec![],
+        );
 
-        let elt_bundle =
-            TokenBundle::<ExemptionListTokenGroup>::new(issuing_elt, leaf_bundle.issue_chain());
+        let et_bundle =
+            TokenBundle::<ExemptionTokenGroup>::new(issuing_et, leaf_bundle.issue_chain());
 
-        let child_eltr = ExemptionListTokenRequest::v1_token_request(
+        let child_etr = ExemptionTokenRequest::v1_token_request(
             None,
             vec![],
             Description::default(),
@@ -1099,31 +1216,139 @@ mod tests {
             vec![],
         );
 
-        let child_elt = issue_elt_without_compliance_check(child_eltr, &elt_kp, vec![]);
-        let child_elt_bundle =
-            TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
-        child_elt_bundle
+        let child_et =
+            issue_exemption_token_without_compliance_check(child_etr, &et_kp, vec![], vec![]);
+        let child_et_bundle =
+            TokenBundle::<ExemptionTokenGroup>::new(child_et, et_bundle.issue_chain());
+        child_et_bundle
             .validate_path_to_issuers(&[root_pub], None)
             .expect_err("traversal should fail");
     }
 
     #[test]
-    fn traversal_for_child_elt_fails_where_issuing_elt_is_revoked() {
-        let (elt_bundle, elt_kp, root_pub) = create_issuing_exemption_list_token_bundle();
-        let elt_public_key = elt_kp.public_key();
-        let child_eltr = create_eltr_with_options(None, vec![], vec![]);
-        let child_elt = elt_bundle
+    fn traversal_fails_where_child_et_is_missing_issuer_auth_devices_from_issuer() {
+        let (leaf_bundle, leaf_kp, root_pub) = create_leaf_bundle::<Exemption>();
+
+        let et_kp = KeyPair::new_random();
+        let issuing_etr = ExemptionTokenRequest::v1_token_request(
+            Some(et_kp.public_key()),
+            vec![],
+            Description::default(),
+            vec![],
+            vec![],
+        );
+
+        let issuer_auth_devices = vec![Authenticator::Yubikey(
+            YubikeyId::try_new("cccccccccccc").unwrap(),
+        )];
+
+        let issuing_et = issue_exemption_token_without_compliance_check(
+            issuing_etr,
+            &leaf_kp,
+            vec![],
+            issuer_auth_devices,
+        );
+
+        let et_bundle =
+            TokenBundle::<ExemptionTokenGroup>::new(issuing_et, leaf_bundle.issue_chain());
+
+        let child_etr = ExemptionTokenRequest::v1_token_request(
+            None,
+            vec![],
+            Description::default(),
+            vec![],
+            vec![],
+        );
+
+        let child_et =
+            issue_exemption_token_without_compliance_check(child_etr, &et_kp, vec![], vec![]);
+        let child_et_bundle =
+            TokenBundle::<ExemptionTokenGroup>::new(child_et, et_bundle.issue_chain());
+        child_et_bundle
+            .validate_path_to_issuers(&[root_pub], None)
+            .expect_err("traversal should fail");
+    }
+
+    #[test]
+    fn traversal_for_child_et_fails_where_issuing_et_is_revoked() {
+        let (et_bundle, et_kp, root_pub) = create_issuing_exemption_token_bundle();
+        let et_public_key = et_kp.public_key();
+        let child_etr = create_etr_with_options(None, vec![], vec![]);
+        let child_et = et_bundle
             .token
             .clone()
-            .load_key(elt_kp)
+            .load_key(et_kp)
             .unwrap()
-            .issue_elt(child_eltr, Expiration::default(), vec![])
+            .issue_exemption_token(child_etr, Expiration::default(), vec![])
             .unwrap();
-        let child_elt_bundle =
-            TokenBundle::<ExemptionListTokenGroup>::new(child_elt, elt_bundle.issue_chain());
-        let revocation_list = RevocationList::default().with_public_key(elt_public_key);
-        child_elt_bundle
+        let child_et_bundle =
+            TokenBundle::<ExemptionTokenGroup>::new(child_et, et_bundle.issue_chain());
+        let revocation_list = RevocationList::default().with_public_key(et_public_key);
+        child_et_bundle
             .validate_path_to_issuers(&[root_pub], Some(&revocation_list))
             .expect_err("traversal should fail");
+    }
+
+    #[test]
+    fn can_check_for_impending_expiry() {
+        let (et_bundle, _) = create_exemption_token_bundle();
+
+        let within_default = et_bundle.expiry_within_days(Expiration::DEFAULT_DAYS);
+        assert_eq!(within_default.len(), 2);
+
+        let within_one_day = et_bundle.expiry_within_days(1);
+        assert_eq!(within_one_day.len(), 0);
+    }
+
+    #[test]
+    fn can_check_for_impending_expiry_with_exclusion() {
+        let (et_bundle, _) = create_exemption_token_bundle();
+
+        let within_default =
+            et_bundle.expiry_within_days_excluding_shorter_validity(Expiration::DEFAULT_DAYS);
+        assert_eq!(within_default.len(), 0);
+    }
+
+    #[test]
+    fn user_friendly_text_for_invalid_chain_is_correct() {
+        let (int_bundle, int_kp, root) = create_intermediate_bundle::<Exemption>();
+        let leaf_kp = KeyPair::new_random();
+        let leaf_public_key = leaf_kp.public_key();
+        let leaf_request = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_public_key)
+            .with_description(
+                Description::default()
+                    .with_name("Harry")
+                    .with_email("harry@example.com"),
+            )
+            .build();
+        let leaf_bundle = int_bundle
+            .issue_cert_bundle(leaf_request, IssuerAdditionalFields::default(), int_kp)
+            .unwrap();
+        let exemption_request = ExemptionTokenRequest::v1_token_request(
+            None,
+            vec![],
+            Description::default()
+                .with_name("Researcher A")
+                .with_email("r.a@example.com"),
+            vec![],
+            vec![],
+        );
+        let mut exemption_bundle = leaf_bundle
+            .issue_exemption_token_bundle(exemption_request, Expiration::default(), vec![], leaf_kp)
+            .unwrap();
+
+        exemption_bundle.token.break_signature();
+
+        let revocation_list = RevocationList::default().with_public_key(leaf_public_key);
+        let err = exemption_bundle
+            .validate_path_to_issuers(&[root], Some(&revocation_list))
+            .unwrap_err();
+
+        assert_eq!(
+            err.user_friendly_text(),
+            "the leaf certificate belonging to 'Harry, harry@example.com' is not valid due to revocation, \
+            the exemption token belonging to 'Researcher A, r.a@example.com' is not valid due to \
+            signature verification failure"
+        );
     }
 }

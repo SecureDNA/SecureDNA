@@ -12,10 +12,10 @@ use clap::{crate_version, Parser, Subcommand};
 use doprf::party::KeyserverId;
 
 use super::error::CertCliError;
-use crate::default_filename::set_appropriate_filepath_and_create_default_dir_if_required;
+use crate::default_filepath::set_appropriate_filepath_and_create_default_dir_if_required;
 use crate::{
-    common::{AssociatedKey, AssociatedKeyArgs, KeySource, NewKeyDetails},
-    default_filename::get_default_filename_for_token_request,
+    default_filepath::get_default_filename_for_token_request,
+    key::{AssociatedKey, AssociatedKeyArgs, KeySource, NewKeyDetails},
     passphrase_reader::{PassphraseReader, PassphraseSource, ENV_PASSPHRASE_WARNING},
 };
 use certificates::{
@@ -48,7 +48,7 @@ pub struct CreateTokenOpts {
 
 #[derive(Debug, Subcommand, PartialEq)]
 pub enum TokenArgs {
-    ExemptionList,
+    Exemption,
     Keyserver {
         #[clap(
             long,
@@ -120,9 +120,9 @@ fn run<P: PassphraseReader>(
     default_directory: &Path,
 ) -> Result<(PathBuf, KeySource), CertCliError> {
     let (req_path, key_info) = match &opts.token {
-        // Leaving as TODO for now due to complications of entering ELT fields via CLI
+        // Leaving as TODO for now due to complications of entering exemption token fields via CLI
         // See https://github.com/SecureDNA/SecureDNA/issues/1342
-        TokenArgs::ExemptionList {} => {
+        TokenArgs::Exemption {} => {
             todo!()
         }
         TokenArgs::Keyserver { keyserver_id } => {
@@ -872,9 +872,9 @@ mod tests {
     fn token_kind_and_token_args_have_consistent_parsing() {
         let test_cases = vec![
             (
-                vec!["exemption-list"],
-                TokenKind::ExemptionList,
-                TokenArgs::ExemptionList {},
+                vec!["exemption"],
+                TokenKind::Exemption,
+                TokenArgs::Exemption {},
             ),
             (
                 vec!["keyserver", "--keyserver-id", "5"],

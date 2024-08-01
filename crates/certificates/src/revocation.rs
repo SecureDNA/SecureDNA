@@ -1,13 +1,18 @@
 // Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use serde::Deserialize;
+
 use crate::key_traits::HasAssociatedKey;
 use crate::{Id, Issued, PublicKey};
 
-#[derive(Default)]
+#[derive(Default, Deserialize)]
 pub struct RevocationList {
+    #[serde(default)]
     public_keys: Vec<PublicKey>,
+    #[serde(default)]
     request_ids: Vec<Id>,
+    #[serde(default)]
     issuance_ids: Vec<Id>,
 }
 

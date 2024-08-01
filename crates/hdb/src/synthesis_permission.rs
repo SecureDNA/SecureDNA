@@ -10,7 +10,7 @@ pub struct PermissionResult {
     /// Whether permission was actually granted or denied.
     pub permission: SynthesisPermission,
     /// If true, this means the permission was granted, but would have been
-    /// denied were it not for the provided EL.
+    /// denied were it not for the provided exemption token.
     pub exempt: bool,
 }
 

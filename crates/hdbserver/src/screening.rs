@@ -9,8 +9,8 @@ use futures::{StreamExt, TryStreamExt};
 use http_body_util::BodyExt;
 use hyper::body::{Body, Incoming};
 use hyper::{Request, StatusCode};
-use scep::states::{EltState, ServerStateForClient};
-use scep::steps::{server_elt_client, server_elt_seq_hashes_client};
+use scep::states::{EtState, ServerStateForClient};
+use scep::steps::{server_et_client, server_et_seq_hashes_client};
 use tracing::{error, info, warn};
 
 use certificates::Issued;
@@ -20,7 +20,7 @@ use hdb::{Exemptions, HdbConfig, HdbParams};
 use minhttp::response::{self, GenericResponse};
 use once_cell::sync::Lazy;
 use scep::error::ScepError;
-use scep::types::{ScreenCommon, ScreenWithElParams};
+use scep::types::{ScreenCommon, ScreenWithExemptionParams};
 use shared_types::hdb::HdbScreeningResult;
 use shared_types::requests::RequestId;
 use shared_types::synthesis_permission::SynthesisPermission;
@@ -30,7 +30,7 @@ use streamed_ristretto::HasContentType;
 
 use crate::event_store;
 use crate::state::HdbServerState;
-use crate::validation::exemptions_from_otp;
+use crate::validation::exemptions_after_validation;
 
 static NO_EXEMPTIONS: Lazy<Arc<Exemptions>> = Lazy::new(Arc::default);
 
@@ -93,6 +93,7 @@ pub async fn scep_endpoint_screen(
             scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
         })?;
     let client_mid = client_state.open_request().client_mid();
+    let debug_info = client_state.open_request().debug_info;
 
     let hash_count_from_content_len =
         check_content_length(request.body().size_hint().exact(), TaggedHash::SIZE)
@@ -112,26 +113,26 @@ pub async fn scep_endpoint_screen(
         Err(err_response) => return Ok(err_response),
     };
 
-    let (elt, exemptions) = match client_state.elt_state {
-        EltState::NoElt => (None, NO_EXEMPTIONS.clone()),
-        EltState::AwaitingEltSize | EltState::PromisedElt { .. } => {
-            return Err(scep::error::Screen::ScreenBeforeElt.into())
+    let (ets, exemptions) = match client_state.et_state {
+        EtState::NoEt => (vec![], NO_EXEMPTIONS.clone()),
+        EtState::AwaitingEtSize | EtState::PromisedEt { .. } => {
+            return Err(scep::error::Screen::ScreenBeforeEt.into())
         }
-        EltState::EltNeedsHashes { .. } => {
-            return Err(scep::error::Screen::ScreenBeforeEltHashes.into())
+        EtState::EtNeedsHashes { .. } => {
+            return Err(scep::error::Screen::ScreenBeforeEtHashes.into())
         }
-        EltState::EltReady { elt, hashes, otp } => {
-            let exemptions = exemptions_from_otp(
-                vec![*elt.clone()],
+        EtState::EtReady { ets, hashes } => {
+            let exemptions = exemptions_after_validation(
+                ets.clone(),
                 hashes.into_iter().collect(),
                 &hdbs_state.validator,
-                &Some(otp.clone()),
-                &Some(otp),
+                &hdbs_state.exemptions_roots,
+                &hdbs_state.scep.revocation_list,
             )
             .await
-            .map_err(|e| scep::error::Screen::EltValidation(e.to_string()))?;
+            .map_err(|e| scep::error::Screen::EtValidation(e.to_string()))?;
 
-            (Some(*elt), Arc::new(exemptions))
+            (ets, Arc::new(exemptions))
         }
     };
 
@@ -163,7 +164,7 @@ pub async fn scep_endpoint_screen(
         client_mid,
         client_state.open_request.nucleotide_total_count,
         region,
-        elt.as_ref(),
+        &ets,
     )
     .await
     {
@@ -245,7 +246,7 @@ pub async fn scep_endpoint_screen(
     };
 
     let consolidation =
-        consolidate_windows(hdb_responses.into_iter(), &hdbs_state.hash_spec, false)
+        consolidate_windows(hdb_responses.into_iter(), &hdbs_state.hash_spec, debug_info)
             .context("in screen consolidation")
             .map_err(ScepError::InternalError)?;
 
@@ -285,7 +286,7 @@ pub async fn scep_endpoint_screen(
     Ok(response::json(StatusCode::OK, json))
 }
 
-pub async fn scep_endpoint_screen_with_el(
+pub async fn scep_endpoint_screen_with_exemption(
     _request_id: &RequestId,
     hdbs_state: Arc<HdbServerState>,
     request: Request<Incoming>,
@@ -309,13 +310,13 @@ pub async fn scep_endpoint_screen_with_el(
         .map_err(|e| scep::error::ScepError::InvalidMessage(e.into()))?
         .to_bytes();
 
-    let params: ScreenWithElParams = serde_json::from_slice(&bytes)
+    let params: ScreenWithExemptionParams = serde_json::from_slice(&bytes)
         .map_err(|e| scep::error::ScepError::InvalidMessage(e.into()))?;
 
-    if params.elt_size > hdbs_state.elt_size_limit {
-        return Err(scep::error::ScreenWithEL::EltSizeTooBig {
-            actual: params.elt_size,
-            maximum: hdbs_state.elt_size_limit,
+    if params.et_size > hdbs_state.et_size_limit {
+        return Err(scep::error::ScreenWithEL::EtSizeTooBig {
+            actual: params.et_size,
+            maximum: hdbs_state.et_size_limit,
         }
         .into());
     }
@@ -337,15 +338,15 @@ pub async fn scep_endpoint_screen_with_el(
             ))
         })?;
 
-    // Give them the OK to hit /ELT next.
+    // Give them the OK to hit /exemption next.
     Ok(response::json(StatusCode::OK, "{}"))
 }
 
-pub async fn scep_endpoint_elt(
+pub async fn scep_endpoint_exemption(
     _request_id: &RequestId,
     hdbs_state: Arc<HdbServerState>,
     request: Request<Incoming>,
-) -> Result<GenericResponse, scep::error::ScepError<scep::error::ELT>> {
+) -> Result<GenericResponse, scep::error::ScepError<scep::error::ET>> {
     let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
 
     let client_state = hdbs_state
@@ -358,14 +359,14 @@ pub async fn scep_endpoint_elt(
             scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
         })?;
 
-    let elt_body = request
+    let et_body = request
         .into_body()
         .collect()
         .await
         .map_err(|e| scep::error::ScepError::InvalidMessage(e.into()))?
         .to_bytes();
 
-    let (client, response) = server_elt_client(elt_body, client_state)?;
+    let (client, response) = server_et_client(et_body, client_state)?;
 
     hdbs_state
         .scep
@@ -379,7 +380,7 @@ pub async fn scep_endpoint_elt(
             ))
         })?;
 
-    // Give them the OK to hit /ELT-seq-hashes or /ELT-screen-hashes next.
+    // Give them the OK to hit /exemption-seq-hashes or /exemption-screen-hashes next.
     Ok(response::json(
         StatusCode::OK,
         serde_json::to_string(&response).map_err(|_| {
@@ -388,11 +389,11 @@ pub async fn scep_endpoint_elt(
     ))
 }
 
-pub async fn scep_endpoint_elt_seq_hashes(
+pub async fn scep_endpoint_exemption_seq_hashes(
     _request_id: &RequestId,
     hdbs_state: Arc<HdbServerState>,
     request: Request<Incoming>,
-) -> Result<GenericResponse, scep::error::ScepError<scep::error::EltSeqHashes>> {
+) -> Result<GenericResponse, scep::error::ScepError<scep::error::EtSeqHashes>> {
     let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
 
     let client_state = hdbs_state
@@ -406,14 +407,14 @@ pub async fn scep_endpoint_elt_seq_hashes(
         })?;
 
     let hashes: Vec<_> = from_request::<_, CompletedHashValue>(request)
-        .context("in ELT-seq-hashes")
+        .context("in exemption-seq-hashes")
         .map_err(ScepError::InvalidMessage)?
         .try_collect()
         .await
-        .context("in ELT-seq-hashes")
+        .context("in exemption-seq-hashes")
         .map_err(ScepError::InvalidMessage)?;
 
-    let client = server_elt_seq_hashes_client(hashes, client_state)?;
+    let client = server_et_seq_hashes_client(hashes, client_state)?;
 
     hdbs_state
         .scep
@@ -427,6 +428,6 @@ pub async fn scep_endpoint_elt_seq_hashes(
             ))
         })?;
 
-    // Give them the OK to hit /ELT-screen-hashes next.
+    // Give them the OK to hit /exemption-screen-hashes next.
     Ok(response::json(StatusCode::OK, "{}"))
 }

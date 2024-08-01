@@ -64,7 +64,7 @@ debian-base:
 # rust builder
 
 rust-base:
-    FROM rust:1.76.0-bookworm
+    FROM rust:1.79.0-bookworm
     ENV NODE_VERSION=18.17.1
     RUN apt install -y curl
     RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash

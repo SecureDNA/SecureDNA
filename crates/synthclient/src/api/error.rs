@@ -3,8 +3,9 @@
 
 use std::borrow::Cow;
 
-use certificates::TokenBundleError;
+use certificates::{Exemption, Role, TokenBundleError};
 use serde::{Deserialize, Serialize};
+use shared_types::error::InvalidClientTokenBundle;
 
 use crate::{ncbi::NcbiError, parsefasta::CheckFastaError, rate_limiter::RateLimitExceeded};
 use doprf_client::error::DoprfError;
@@ -82,9 +83,9 @@ impl Fields {
 }
 
 impl ApiWarning {
-    pub fn exemption_list_certificate_expiring_soon(expiring: impl std::fmt::Display) -> Self {
+    pub fn exemption_certificate_expiring_soon(expiring: impl std::fmt::Display) -> Self {
         Self::CertificateExpiringSoon(Fields::new(format!(
-            "The provided exemption list certificate is expiring soon, at {expiring}."
+            "The provided exemption certificate is expiring soon, at {expiring}."
         )))
     }
 
@@ -203,8 +204,14 @@ impl From<serde_json::Error> for ApiError {
     }
 }
 
-impl From<TokenBundleError> for ApiError {
-    fn from(error: TokenBundleError) -> Self {
+impl<R: Role> From<TokenBundleError<R>> for ApiError {
+    fn from(error: TokenBundleError<R>) -> Self {
         ApiError::InvalidInput(Fields::new(format!("Couldn't parse token: {error}")))
+    }
+}
+
+impl From<InvalidClientTokenBundle<Exemption>> for ApiError {
+    fn from(error: InvalidClientTokenBundle<Exemption>) -> Self {
+        ApiError::InvalidInput(Fields::new(error.to_string()))
     }
 }

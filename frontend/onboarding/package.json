@@ -12,27 +12,29 @@
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.0.6",
     "@fontsource/dm-sans": "^5.0.21",
+    "@fortawesome/free-solid-svg-icons": "^6.6.0",
+    "@fortawesome/react-fontawesome": "^0.2.0",
     "certificates_wasm": "file:../../crates/wasm_bindings/certificates/pkg",
-    "react": "^18.2.0",
-    "react-dom": "^18.3.1"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.51.4"
   },
   "devDependencies": {
-    "@types/react": "^18.2.79",
+    "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@typescript-eslint/eslint-plugin": "^7.2.0",
-    "@typescript-eslint/parser": "^7.2.0",
-    "@vitejs/plugin-legacy": "^5.3.0",
-    "@vitejs/plugin-react": "^4.2.1",
-    "autoprefixer": "^10.4.15",
-    "eslint": "^9.1.1",
-    "eslint-plugin-react-hooks": "^4.6.0",
-    "eslint-plugin-react-refresh": "^0.4.6",
-    "postcss": "^8.4.31",
-    "tailwindcss": "^3.4.0",
-    "typescript": "^5.2.2",
-    "vite": "^5.2.0",
-    "vite-plugin-top-level-await": "^1.4.0",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.17.0",
+    "@vitejs/plugin-legacy": "^5.4.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.19",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-react-refresh": "^0.4.7",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "typescript": "^5.5.2",
+    "vite": "^5.2.11",
+    "vite-plugin-top-level-await": "^1.4.2",
     "vite-plugin-wasm": "^3.3.0",
-    "vitest": "^1.5.0"
+    "vitest": "^2.0.2"
   }
 }

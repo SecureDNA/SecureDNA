@@ -21,7 +21,7 @@ use crate::{
     tokens::{
         exemption::{
             authenticator::Authenticator,
-            exemption_list::{ExemptionListTokenIssuer1, ExemptionListTokenRequest1},
+            et::{ExemptionTokenIssuer1, ExemptionTokenRequest1},
         },
         infrastructure::{
             database::{DatabaseTokenIssuer1, DatabaseTokenRequest1},
@@ -32,7 +32,7 @@ use crate::{
         TokenData,
     },
     utility::combine_and_dedup_items,
-    KeyPair, Manufacturer,
+    Description, KeyPair, Manufacturer,
 };
 
 use super::{
@@ -113,6 +113,10 @@ where
 
     pub(crate) fn issuer_description(&self) -> &str {
         self.0.data.common.issuer.issuer_description()
+    }
+
+    pub(crate) fn requestor_description(&self) -> &Description {
+        self.0.data.common.subject.requestor_description()
     }
 
     pub(crate) fn expiration(&self) -> &Expiration {
@@ -207,34 +211,29 @@ where
     S: Subject,
     I: Issuer,
 {
-    /// An ELT is created from a ELTR and
-    /// the additional fields added by the issuing certificate.
-    pub(crate) fn issue_elt(
+    /// An exemption token is created from a exemption token request and
+    /// the additional fields are added by the issuing certificate.
+    pub(crate) fn issue_exemption_token(
         &self,
-        request: ExemptionListTokenRequest1,
+        request: ExemptionTokenRequest1,
         expiration: Expiration,
         issuer_auth_devices: Vec<Authenticator>,
         kp: &KeyPair,
-    ) -> Result<Signed<TokenData<ExemptionListTokenRequest1, ExemptionListTokenIssuer1>>, EncodeError>
-    {
+    ) -> Result<Signed<TokenData<ExemptionTokenRequest1, ExemptionTokenIssuer1>>, EncodeError> {
         let issuer = self.0.data.common.subject.to_compatible_identity();
 
         let notify_emails = self.0.data.common.subject.emails_to_notify();
         let additional_notify_emails = self.0.data.common.issuer.additional_emails_to_notify();
         let emails_to_notify = combine_and_dedup_items(notify_emails, additional_notify_emails);
 
-        let issuer_fields = ExemptionListTokenIssuer1::new(
-            issuer,
-            expiration,
-            issuer_auth_devices,
-            emails_to_notify,
-        );
+        let issuer_fields =
+            ExemptionTokenIssuer1::new(issuer, expiration, issuer_auth_devices, emails_to_notify);
 
-        let elt = TokenData {
+        let et = TokenData {
             request,
             issuer_fields,
         };
-        kp.sign_asn_encodable_data(elt)
+        kp.sign_asn_encodable_data(et)
     }
 }
 

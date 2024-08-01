@@ -1,0 +1,11 @@
+[main]
+address = "0.0.0.0:5302"
+id = 2
+keyholders_required = 3
+keyshare = "9ba607c893c7ced76a51ba9abf7f5581f83070d53485fa751252d638d898fb0d"
+active_security_key = ["3ec06d4dd53cda99961a28931dbec75d5b771ee38d624b99fb23a3ccc6043751","ea6e23a493a1f176ee57c053f48aebc7f6da07a313caea69833adb318864092e","ce265534789cfc3df88c3031e19213ef96ebfe14990452e85414fb663b7d016c"]
+manufacturer_roots = "../certs/manufacturer-roots"
+token_file = "../certs/keyserver-token-02.kt"
+keypair_file = "../certs/keyserver-token-02.priv"
+keypair_passphrase_file = "../certs/keyserver-token-02.passphrase"
+allow_insecure_cookie = true

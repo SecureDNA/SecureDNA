@@ -42,11 +42,13 @@ test("generates the right types", () => {
           h: (bool, usize),
           i: ComponentVersionGuard<Blah>,
           j: Cow<'static, str>,
+          k: Result<Option<u32>, String>,
       }
     `)
   ).toEqual([
     "export interface Abc { a: number, b: number, c: boolean, d: string, " +
-    "e: boolean | null, f: string | null, g: Array<number>, h: [boolean, number], i: string, j: string }",
+    "e: boolean | null, f: string | null, g: Array<number>, h: [boolean, number], i: string, j: string, " +
+    "k: {Ok: number | null} | {Err: string} }",
   ]);
 });
 
@@ -152,4 +154,15 @@ test("handles tsgen =", () => {
       }
     `)
   ).toEqual(["export type Special = { x: number };"])
+});
+
+test("handles Box", () => {
+  expect(
+    tsgen(`
+      // tsgen
+      struct S {
+        y: Box<bool>,
+      }
+    `)
+  ).toEqual(["export interface S { y: boolean }"])
 });

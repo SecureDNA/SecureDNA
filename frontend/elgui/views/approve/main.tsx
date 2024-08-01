@@ -13,5 +13,5 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <Toaster position="top-left" />
     <ExemptionApprovalForm />
-  </React.StrictMode>
+  </React.StrictMode>,
 );

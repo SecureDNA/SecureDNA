@@ -3,13 +3,15 @@
 
 use clap::Parser;
 
+use minhttp::mpserver::common::run_server;
+
 use ::synthclient::shims::server;
 use ::synthclient::shims::types::Opts;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-
     let opts = Opts::parse();
-    server::run(opts, async {}).await
+    let load_cfg_fn = opts.config.into_load_cfg_fn();
+    run_server(load_cfg_fn, server::server_setup()).await
 }

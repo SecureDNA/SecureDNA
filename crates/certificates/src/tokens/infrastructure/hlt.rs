@@ -5,12 +5,9 @@
 //! A `Certificate` with the `Infrastructure` role is able to sign a `HltTokenRequest` to issue a `HltToken`.
 //! `HltToken`s will be used to identify instances of the hazard lookup table.
 
-use std::fmt::Display;
-
 use rasn::{types::*, Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::validation_failure::ValidationFailure;
 use crate::{
     asn::ToASN1DerBytes,
     error::EncodeError,
@@ -18,19 +15,18 @@ use crate::{
     impl_boilerplate_for_token_request_version, impl_boilerplate_for_token_version,
     impl_encoding_boilerplate, impl_key_boilerplate_for_token,
     impl_key_boilerplate_for_token_request, impl_key_boilerplate_for_token_request_version,
-    issued::Issued,
     key_traits::HasAssociatedKey,
     keypair::{PublicKey, Signature},
     pem::PemTaggable,
-    shared_components::{
-        common::{
-            CompatibleIdentity, ComponentVersionGuard, Expiration, Id, Signed, VersionedComponent,
-        },
-        digest::{INDENT, INDENT2},
+    shared_components::common::{
+        CompatibleIdentity, ComponentVersionGuard, Signed, VersionedComponent,
     },
     tokens::{TokenData, TokenGroup},
-    CertificateChain, Formattable, Infrastructure, KeyAvailable, KeyPair, KeyUnavailable,
+    CertificateChain, Digestible, Expiration, Id, Infrastructure, Issued, KeyAvailable, KeyPair,
+    KeyUnavailable, TokenKind,
 };
+
+use super::digest::{HltTokenDigest, HltTokenRequestDigest};
 
 #[derive(
     AsnType,
@@ -49,8 +45,8 @@ use crate::{
 #[rasn(automatic_tags)]
 pub(crate) struct HltTokenRequest1 {
     guard: ComponentVersionGuard<Self>,
-    request_id: Id,
-    public_key: PublicKey,
+    pub(crate) request_id: Id,
+    pub(crate) public_key: PublicKey,
 }
 
 impl HltTokenRequest1 {
@@ -97,6 +93,10 @@ impl HltTokenRequest {
     }
 }
 
+impl Digestible for HltTokenRequest {
+    type Digest = HltTokenRequestDigest;
+}
+
 impl PemTaggable for HltTokenRequest {
     fn tag() -> String {
         "SECUREDNA HLT TOKEN REQUEST".to_string()
@@ -133,9 +133,9 @@ impl Decode for HltTokenRequest {
 #[rasn(automatic_tags)]
 pub(crate) struct HltTokenIssuer1 {
     guard: ComponentVersionGuard<Self>,
-    issuance_id: Id,
-    identity: CompatibleIdentity,
-    expiration: Expiration,
+    pub(crate) issuance_id: Id,
+    pub(crate) identity: CompatibleIdentity,
+    pub(crate) expiration: Expiration,
 }
 
 impl HltTokenIssuer1 {
@@ -192,6 +192,10 @@ pub struct HltToken<K> {
     key_state: K,
 }
 
+impl<K> Digestible for HltToken<K> {
+    type Digest = HltTokenDigest;
+}
+
 impl<K> PemTaggable for HltToken<K> {
     fn tag() -> String {
         "SECUREDNA HLT TOKEN".to_string()
@@ -226,6 +230,10 @@ impl TokenGroup for HltTokenGroup {
     type TokenRequest = HltTokenRequest;
     type Token = HltToken<KeyUnavailable>;
     type ChainType = CertificateChain<Self::AssociatedRole>;
+
+    fn token_kind() -> TokenKind {
+        TokenKind::Hlt
+    }
 }
 
 impl_boilerplate_for_token_request_version! {HltTokenRequestVersion, V1}
@@ -240,123 +248,14 @@ impl_boilerplate_for_token! {HltToken<K>}
 impl_encoding_boilerplate! {HltToken<K>}
 impl_key_boilerplate_for_token! {HltToken}
 
-impl Formattable for HltTokenRequest {
-    type Digest = HltTokenRequestDigest;
-}
-
-#[derive(Serialize)]
-pub struct HltTokenRequestDigest {
-    version: String,
-    request_id: Id,
-    public_key: PublicKey,
-}
-
-impl From<HltTokenRequest> for HltTokenRequestDigest {
-    fn from(value: HltTokenRequest) -> Self {
-        match value.version {
-            HltTokenRequestVersion::V1(r) => {
-                let version = "V1".to_string();
-                let request_id = r.request_id;
-                let public_key = r.public_key;
-                HltTokenRequestDigest {
-                    version,
-                    request_id,
-                    public_key,
-                }
-            }
-        }
-    }
-}
-
-impl Display for HltTokenRequestDigest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} HLT Token Request", self.version)?;
-        writeln!(f, "{:INDENT$}Request ID:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.request_id)?;
-        writeln!(f, "{:INDENT$}Public Key:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.public_key)?;
-        Ok(())
-    }
-}
-
-impl<K> Formattable for HltToken<K> {
-    type Digest = HltTokenDigest;
-}
-
-#[derive(Serialize)]
-pub struct HltTokenDigest {
-    version: String,
-    request_id: Id,
-    issuance_id: Id,
-    public_key: PublicKey,
-    issued_by: CompatibleIdentity,
-    expiration: Expiration,
-    signature: Signature,
-    validation_failure: Option<ValidationFailure>,
-}
-
-impl<K> From<HltToken<K>> for HltTokenDigest {
-    fn from(value: HltToken<K>) -> Self {
-        let validation_failure = value.check_signature_and_expiry().err();
-        match value.version {
-            HltTokenVersion::V1(t) => {
-                let version = "V1".to_string();
-                let request_id = t.data.request.request_id;
-                let issuance_id = t.data.issuer_fields.issuance_id;
-                let public_key = t.data.request.public_key;
-                let expiration = t.data.issuer_fields.expiration;
-                let signature = t.signature;
-                let issued_by = t.data.issuer_fields.identity;
-
-                HltTokenDigest {
-                    version,
-                    request_id,
-                    issuance_id,
-                    public_key,
-                    expiration,
-                    signature,
-                    issued_by,
-                    validation_failure,
-                }
-            }
-        }
-    }
-}
-
-impl Display for HltTokenDigest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} HLT Token", self.version)?;
-        writeln!(f, "{:INDENT$}Issuance ID:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.issuance_id)?;
-        writeln!(f, "{:INDENT$}Request ID:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.request_id)?;
-        writeln!(f, "{:INDENT$}Public Key:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.public_key)?;
-        writeln!(f, "{:INDENT$}Issued by:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.issued_by)?;
-        write!(f, "{}", self.expiration)?;
-        writeln!(f, "{:INDENT$}Signature:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.signature)?;
-
-        if let Some(validation_failure) = &self.validation_failure {
-            writeln!(f)?;
-            write!(f, "{}", validation_failure)?;
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod test {
 
     use crate::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
-    use crate::test_helpers::BreakableSignature;
     use crate::{
         asn::{FromASN1DerBytes, ToASN1DerBytes},
-        concat_with_newline,
-        test_helpers::{create_leaf_cert, expected_hlt_token_plaintext_display},
-        DatabaseTokenRequest, Expiration, FormatMethod, Formattable, HltTokenRequest,
-        Infrastructure, Issued, KeyPair,
+        test_helpers::create_leaf_cert,
+        DatabaseTokenRequest, Expiration, HltTokenRequest, Infrastructure, KeyPair,
     };
 
     #[test]
@@ -366,43 +265,6 @@ mod test {
         let req = HltTokenRequest::v1_token_request(kp.public_key());
 
         cert.issue_hlt_token(req, Expiration::default()).unwrap();
-    }
-
-    #[test]
-    fn plaintext_display_for_hlt_token_matches_expected_display() {
-        let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
-        let req = HltTokenRequest::v1_token_request(kp.public_key());
-
-        let token = cert.issue_hlt_token(req, Expiration::default()).unwrap();
-        let expected_text = expected_hlt_token_plaintext_display(
-            &token,
-            &format!("(public key: {})", token.issuer_public_key()),
-            None,
-        );
-        let text = token.format(&FormatMethod::PlainDigest).unwrap();
-        assert_eq!(text, expected_text);
-    }
-
-    #[test]
-    fn plaintext_display_for_hlt_token_warns_if_signature_invalid() {
-        let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
-        let req = HltTokenRequest::v1_token_request(kp.public_key());
-
-        let mut token = cert.issue_hlt_token(req, Expiration::default()).unwrap();
-        token.break_signature();
-
-        let expected_text = expected_hlt_token_plaintext_display(
-            &token,
-            &format!("(public key: {})", token.issuer_public_key()),
-            Some(concat_with_newline!(
-                "",
-                "INVALID: The signature failed verification"
-            )),
-        );
-        let text = token.format(&FormatMethod::PlainDigest).unwrap();
-        assert_eq!(text, expected_text);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 {
   "name": "screening_wasm",
   "description": "WebAssembly bindings for screening",
-  "version": "1.0.6-dev",
+  "version": "1.0.7-dev",
   "license": "MIT OR Apache-2.0",
   "files": [
     "screening_wasm_bg.wasm",

@@ -3,10 +3,9 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { useEffect, useState } from "react";
-import { Spinner } from "./Spinner";
-import { Button } from "./Button";
+import { useCallback, useEffect, useState } from "react";
 import { PrimaryButton } from "./PrimaryButton";
+import { Spinner } from "./Spinner";
 
 interface AddTotpProps {
   addToken: (name: string) => void;
@@ -44,11 +43,8 @@ export const AddTotp = (props: AddTotpProps) => {
         setBusy(false);
         setErrorMessage("Couldn't connect to token server. Try again later.");
       });
-  }, []);
-  useEffect(() => {
-    if (otp.length === 6) checkOtp();
-  }, [otp, checkOtp]);
-  function checkOtp() {
+  }, [started]);
+  const checkOtp = useCallback(() => {
     if (!/^\d{6}$/.test(otp)) {
       setErrorMessage("Code must be 6 digits");
       return;
@@ -74,16 +70,20 @@ export const AddTotp = (props: AddTotpProps) => {
       if (tokenName && body.result.value) {
         props.addToken(tokenName);
       } else {
-        setErrorMessage("Error: " + (body?.detail?.message ?? "unknown error"));
+        setErrorMessage(`Error: ${body?.detail?.message ?? "unknown error"}`);
       }
     });
-  }
+  }, [otp, tokenName, props.addToken]);
+  useEffect(() => {
+    if (otp.length === 6) checkOtp();
+  }, [otp, checkOtp]);
+
   return (
     <div className="max-w-lg">
       <p>Scan the QR code below to add it your authenticator app:</p>
       <div className="flex justify-center my-4">
         {imageUrl ? (
-          <img style={{ height: "225px" }} src={imageUrl} />
+          <img style={{ height: "225px" }} src={imageUrl} alt="QR code" />
         ) : (
           <div
             className="text-center flex items-center justify-center select-none bg-black/5"

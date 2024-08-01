@@ -6,7 +6,6 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::certificate::{CertificateVersion, RequestVersion};
-use crate::validation_failure::ValidationFailure;
 use crate::{
     certificate::inner::{CertificateInner, HierarchyLevel, Issuer, RequestInner, Subject},
     keypair::Signature,
@@ -16,13 +15,14 @@ use crate::{
         role::Role,
     },
     utility::combine_and_dedup_items,
-    CertificateRequest, Issued,
+    CertificateRequest,
 };
 
 use super::Certificate;
 
 /// Contains fields useful for inspecting the certificate
 #[derive(Serialize)]
+// tsgen
 pub struct CertificateDigest {
     pub version: String,
     pub issued_to: CompatibleIdentity,
@@ -31,7 +31,6 @@ pub struct CertificateDigest {
     pub issuance_id: Id,
     pub expiration: Expiration,
     pub signature: Signature,
-    pub validation_failure: Option<ValidationFailure>,
     pub emails_to_notify: Vec<String>,
 }
 
@@ -40,9 +39,8 @@ where
     R: Role,
 {
     fn from(value: Certificate<R, K>) -> Self {
-        let validation_failure = value.check_signature_and_expiry().err();
         let role = capitalize_first(R::DESCRIPTION);
-        value.version.into_digest(&role, validation_failure)
+        value.version.into_digest(&role)
     }
 }
 
@@ -57,30 +55,26 @@ impl fmt::Display for CertificateDigest {
         writeln!(f, "{:INDENT2$}{}", "", self.issued_to)?;
         writeln!(f, "{:INDENT$}Issued by:", "")?;
         writeln!(f, "{:INDENT2$}{}", "", self.issued_by)?;
-        write!(f, "{}", self.expiration)?;
+        writeln!(f, "{}", self.expiration)?;
         writeln!(f, "{:INDENT$}Signature:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.signature)?;
+        write!(f, "{:INDENT2$}{}", "", self.signature)?;
 
         if !self.emails_to_notify.is_empty() {
-            writeln!(f, "{:INDENT$}Emails to notify:", "")?;
-            for email in &self.emails_to_notify {
-                writeln!(f, "{:INDENT2$}{}", "", email)?;
+            writeln!(f, "\n{:INDENT$}Emails to notify:", "")?;
+            let mut email_iter = self.emails_to_notify.iter().peekable();
+            while let Some(email) = email_iter.next() {
+                write!(f, "{:INDENT2$}{}", "", email)?;
+                if email_iter.peek().is_some() {
+                    writeln!(f)?;
+                }
             }
-        }
-        if let Some(validation_failure) = &self.validation_failure {
-            writeln!(f)?;
-            write!(f, "{}", validation_failure)?;
         }
         Ok(())
     }
 }
 
 impl CertificateDigest {
-    pub fn new<T, R, S, I>(
-        version: String,
-        inner: CertificateInner<T, R, S, I>,
-        validation_failure: Option<ValidationFailure>,
-    ) -> Self
+    pub fn new<T, R, S, I>(version: String, inner: CertificateInner<T, R, S, I>) -> Self
     where
         R: Role,
         S: Subject,
@@ -106,7 +100,6 @@ impl CertificateDigest {
             request_id,
             issuance_id,
             emails_to_notify,
-            validation_failure,
         }
     }
 }
@@ -153,11 +146,15 @@ impl fmt::Display for RequestDigest {
         writeln!(f, "{:INDENT$}Request ID:", "")?;
         writeln!(f, "{:INDENT2$}{}", "", self.request_id)?;
         writeln!(f, "{:INDENT$}Subject:", "")?;
-        writeln!(f, "{:INDENT2$}{}", "", self.subject)?;
+        write!(f, "{:INDENT2$}{}", "", self.subject)?;
         if !self.emails_to_notify.is_empty() {
-            writeln!(f, "{:INDENT$}Emails to notify:", "")?;
-            for email in &self.emails_to_notify {
-                writeln!(f, "{:INDENT2$}{}", "", email)?;
+            writeln!(f, "\n{:INDENT$}Emails to notify:", "")?;
+            let mut email_iter = self.emails_to_notify.iter().peekable();
+            while let Some(email) = email_iter.next() {
+                write!(f, "{:INDENT2$}{}", "", email)?;
+                if email_iter.peek().is_some() {
+                    writeln!(f)?;
+                }
             }
         }
         Ok(())
@@ -175,16 +172,13 @@ fn capitalize_first(input: &str) -> String {
 mod test {
     use crate::{
         concat_with_newline,
-        test_helpers::{
-            self, expected_cert_plaintext_display, expected_cert_request_plaintext_display,
-            BreakableSignature,
-        },
-        Builder, Description, Exemption, FormatMethod, Formattable, Infrastructure, Issued,
+        test_helpers::{self, expected_cert_display, expected_cert_request_display},
+        Builder, Description, Digestible, Exemption, Infrastructure, Issued,
         IssuerAdditionalFields, KeyPair, Manufacturer, RequestBuilder,
     };
 
     #[test]
-    fn plaintext_display_for_root_exemption_certificate_matches_expected_display() {
+    fn display_for_root_exemption_certificate_matches_expected_display() {
         let kp = KeyPair::new_random();
         let cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
@@ -195,21 +189,20 @@ mod test {
 
         let public_key = cert.public_key();
 
-        let expected_text = expected_cert_plaintext_display(
+        let expected_text = expected_cert_display(
             &cert,
             "Root",
             "Exemption",
             &format!("(public key: {public_key})"),
             &format!("(public key: {public_key})"),
             None,
-            None,
         );
-        let text = cert.format(&FormatMethod::PlainDigest).unwrap();
+        let text = cert.into_digest().to_string();
         assert_eq!(text, expected_text)
     }
 
     #[test]
-    fn plaintext_display_for_intermediate_infrastructure_certificate_matches_expected_display() {
+    fn display_for_intermediate_infrastructure_certificate_matches_expected_display() {
         let kp = KeyPair::new_random();
         let root_cert = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key())
             .build()
@@ -226,40 +219,38 @@ mod test {
             .issue_cert(req, IssuerAdditionalFields::default())
             .unwrap();
 
-        let expected_text = expected_cert_plaintext_display(
+        let expected_text = expected_cert_display(
             &int_cert,
             "Intermediate",
             "Infrastructure",
             &format!("(public key: {})", int_cert.public_key()),
             &format!("(public key: {})", root_cert.public_key()),
             None,
-            None,
         );
-        let text = int_cert.format(&FormatMethod::PlainDigest).unwrap();
+        let text = int_cert.into_digest().to_string();
         assert_eq!(text, expected_text)
     }
 
     #[test]
-    fn plaintext_display_for_leaf_manufacturer_certificate_matches_expected_display() {
+    fn display_for_leaf_manufacturer_certificate_matches_expected_display() {
         let leaf_cert = test_helpers::create_leaf_cert::<Manufacturer>();
         let leaf_public_key = leaf_cert.public_key();
         let issuer_public_key = leaf_cert.issuer_public_key();
 
-        let expected_text = expected_cert_plaintext_display(
+        let expected_text = expected_cert_display(
             &leaf_cert,
             "Leaf",
             "Manufacturer",
             &format!("(public key: {leaf_public_key})"),
             &format!("(public key: {issuer_public_key})"),
             None,
-            None,
         );
-        let text = leaf_cert.format(&FormatMethod::PlainDigest).unwrap();
+        let text = leaf_cert.into_digest().to_string();
         assert_eq!(text, expected_text)
     }
 
     #[test]
-    fn plaintext_display_for_intermediate_certificate_with_description_matches_expected_display() {
+    fn display_for_intermediate_certificate_with_description_matches_expected_display() {
         let kp = KeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .with_description(
@@ -284,7 +275,7 @@ mod test {
 
         let int_public_key = intermediate_cert.public_key();
 
-        let expected_text = expected_cert_plaintext_display(
+        let expected_text = expected_cert_display(
             &intermediate_cert,
             "Intermediate",
             "Exemption",
@@ -294,16 +285,13 @@ mod test {
                 root_cert.public_key()
             ),
             None,
-            None,
         );
-        let text = intermediate_cert
-            .format(&FormatMethod::PlainDigest)
-            .unwrap();
+        let text = intermediate_cert.into_digest().to_string();
         assert_eq!(text, expected_text)
     }
 
     #[test]
-    fn plaintext_display_for_certificate_with_emails_to_notify_matches_expected_display() {
+    fn display_for_certificate_with_emails_to_notify_matches_expected_display() {
         let kp = KeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
@@ -336,7 +324,7 @@ mod test {
 
         let leaf_public_key = leaf_cert.public_key();
 
-        let expected_text = expected_cert_plaintext_display(
+        let expected_text = expected_cert_display(
             &leaf_cert,
             "Leaf",
             "Exemption",
@@ -348,14 +336,13 @@ mod test {
                 "    b@example.com",
                 "    c@example.com",
             )),
-            None,
         );
-        let text = leaf_cert.format(&FormatMethod::PlainDigest).unwrap();
+        let text = leaf_cert.into_digest().to_string();
         assert_eq!(text, expected_text)
     }
 
     #[test]
-    fn plaintext_display_for_certificate_with_orchid_id_matches_expected_display() {
+    fn display_for_certificate_with_orchid_id_matches_expected_display() {
         let kp = KeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .with_description(Description::default().with_orcid("0000-0002-1825-0097"))
@@ -367,106 +354,74 @@ mod test {
 
         let public_key = root_cert.public_key();
 
-        let expected_text = expected_cert_plaintext_display(
+        let expected_text = expected_cert_display(
             &root_cert,
             "Root",
             "Exemption",
             &format!("0000-0002-1825-0097 (public key: {public_key})"),
             &format!("0000-0002-1825-0097 (public key: {public_key})"),
             None,
-            None,
         );
-        let text = root_cert.format(&FormatMethod::PlainDigest).unwrap();
+        let text = root_cert.into_digest().to_string();
         assert_eq!(text, expected_text)
     }
 
     #[test]
-    fn plaintext_display_for_root_manufacturer_certificate_with_invalid_signature_matches_expected_display(
-    ) {
-        let kp = KeyPair::new_random();
-        let mut cert = RequestBuilder::<Manufacturer>::root_v1_builder(kp.public_key())
-            .build()
-            .load_key(kp)
-            .unwrap()
-            .self_sign(IssuerAdditionalFields::default())
-            .unwrap()
-            .into_key_unavailable();
-
-        cert.break_signature();
-        let public_key = cert.public_key();
-
-        let expected_text = expected_cert_plaintext_display(
-            &cert,
-            "Root",
-            "Manufacturer",
-            &format!("(public key: {public_key})"),
-            &format!("(public key: {public_key})"),
-            None,
-            Some(concat_with_newline!(
-                "",
-                "INVALID: The signature failed verification"
-            )),
-        );
-        let text = cert.format(&FormatMethod::PlainDigest).unwrap();
-        assert_eq!(text, expected_text)
-    }
-
-    #[test]
-    fn plaintext_display_for_root_infrastructure_certificate_request_matches_expected_display() {
+    fn display_for_root_infrastructure_certificate_request_matches_expected_display() {
         let kp = KeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         let public_key = req.public_key();
 
-        let expected_text = expected_cert_request_plaintext_display(
+        let expected_text = expected_cert_request_display(
             &req,
             "Root",
             "Infrastructure",
             &format!("(public key: {public_key})"),
             None,
         );
-        let text = req.format(&FormatMethod::PlainDigest).unwrap();
+        let text = req.into_digest().to_string();
         assert_eq!(text, expected_text)
     }
 
     #[test]
-    fn plaintext_display_for_intermediate_exemption_certificate_request_matches_expected_display() {
+    fn display_for_intermediate_exemption_certificate_request_matches_expected_display() {
         let kp = KeyPair::new_random();
         let req = RequestBuilder::<Exemption>::intermediate_v1_builder(kp.public_key()).build();
 
         let public_key = req.public_key();
 
-        let expected_text = expected_cert_request_plaintext_display(
+        let expected_text = expected_cert_request_display(
             &req,
             "Intermediate",
             "Exemption",
             &format!("(public key: {public_key})"),
             None,
         );
-        let text = req.format(&FormatMethod::PlainDigest).unwrap();
+        let text = req.into_digest().to_string();
         assert_eq!(text, expected_text)
     }
 
     #[test]
-    fn plaintext_display_for_leaf_manufacturer_certificate_request_matches_expected_display() {
+    fn display_for_leaf_manufacturer_certificate_request_matches_expected_display() {
         let kp = KeyPair::new_random();
         let req = RequestBuilder::<Manufacturer>::leaf_v1_builder(kp.public_key()).build();
 
         let public_key = req.public_key();
 
-        let expected_text = expected_cert_request_plaintext_display(
+        let expected_text = expected_cert_request_display(
             &req,
             "Leaf",
             "Manufacturer",
             &format!("(public key: {public_key})"),
             None,
         );
-        let text = req.format(&FormatMethod::PlainDigest).unwrap();
+        let text = req.into_digest().to_string();
         assert_eq!(text, expected_text)
     }
 
     #[test]
-    fn plaintext_display_for_certificate_request_with_description_matches_expected_display() {
+    fn display_for_certificate_request_with_description_matches_expected_display() {
         let kp = KeyPair::new_random();
         let req = RequestBuilder::<Manufacturer>::leaf_v1_builder(kp.public_key())
             .with_description(
@@ -479,14 +434,14 @@ mod test {
 
         let public_key = req.public_key();
 
-        let expected_text = expected_cert_request_plaintext_display(
+        let expected_text = expected_cert_request_display(
             &req,
             "Leaf",
             "Manufacturer",
             &format!("A Person, a.p@gmail.com, 0000-0002-1825-0097 (public key: {public_key})"),
             None,
         );
-        let text = req.format(&FormatMethod::PlainDigest).unwrap();
+        let text = req.into_digest().to_string();
         assert_eq!(text, expected_text)
     }
 }

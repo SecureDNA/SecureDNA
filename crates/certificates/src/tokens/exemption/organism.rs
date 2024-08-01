@@ -216,6 +216,12 @@ impl Organism {
     }
 }
 
+impl Display for Organism {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rasn::der;

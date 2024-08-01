@@ -125,7 +125,9 @@ pub fn tag_by_region_flag_table(tag: Tag, region: Region) -> SynthesisPermission
         | Tag::HumanToHuman
         | Tag::RegulatedButPass
         | Tag::SdnaLowRiskDNA
+        | Tag::SdnaLowRiskPeptide
         | Tag::SdnaForceVirusReverseScreening
+        | Tag::SdnaNoFuncPred
         | Tag::ArthropodToHuman => SynthesisPermission::Granted,
     }
 }

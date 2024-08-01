@@ -28,6 +28,7 @@ pub async fn wrong_keyserver_id() {
     let server = TestServer::spawn(
         Opts {
             issuer_pks: issuer_pks.clone(),
+            revocation_list: Default::default(),
             server_cert_chain: certs.keyserver_tokenbundle,
             server_keypair: certs.keyserver_keypair,
             keyserve_fn: Arc::new(|_| unreachable!()),
@@ -62,6 +63,7 @@ pub async fn wrong_keyserver_id() {
             ]
             .into(),
             client_expected_id,
+            false,
         )
         .await
         .unwrap_err();

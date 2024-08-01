@@ -10,19 +10,19 @@ publish.workspace = true
 [dependencies]
 anyhow = "1.0.81"
 clap = { version = "4.5.3", features = ["derive"] }
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { version = "1.39.2", features = ["full"] }
 tracing.workspace = true
 tracing-subscriber = "0.3.18"
 hex = "0.4.3"
 serde.workspace = true
 serde_json = "1.0.114"
 
-http_client = { version = "1.0.6-dev", path = "../http_client" }
-shared_types = { version = "1.0.6-dev", path = "../shared_types" }
-scep_client_helpers = { version = "1.0.6-dev", path = "../scep_client_helpers" }
-securedna_versioning = { version = "1.0.6-dev", path = "../securedna_versioning" }
-certificates = { version = "1.0.6-dev", path = "../certificates" }
-doprf = { version = "1.0.6-dev", path = "../doprf" }
-scep = { version = "1.0.6-dev", path = "../scep" }
-packed_ristretto = { version = "1.0.6-dev", path = "../packed_ristretto" }
-doprf_client = { version = "1.0.6-dev", path = "../doprf_client" }
+http_client = { version = "1.0.8-dev", path = "../http_client" }
+shared_types = { version = "1.0.8-dev", path = "../shared_types" }
+scep_client_helpers = { version = "1.0.8-dev", path = "../scep_client_helpers" }
+securedna_versioning = { version = "1.0.8-dev", path = "../securedna_versioning" }
+certificates = { version = "1.0.8-dev", path = "../certificates" }
+doprf = { version = "1.0.8-dev", path = "../doprf" }
+scep = { version = "1.0.8-dev", path = "../scep" }
+packed_ristretto = { version = "1.0.8-dev", path = "../packed_ristretto" }
+doprf_client = { version = "1.0.8-dev", path = "../doprf_client" }

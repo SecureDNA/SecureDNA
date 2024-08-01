@@ -5,8 +5,8 @@
 
 import { faCancel, faCheck } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Result } from "@securedna/frontend_common";
-import { ReactNode, useRef } from "react";
+import type { Result } from "@securedna/frontend_common";
+import { type ReactNode, useRef } from "react";
 import { PrimaryButton } from "./PrimaryButton";
 
 export type AuthFileResult = Result<
@@ -21,7 +21,7 @@ export type AuthFileResult = Result<
 function loadFromFile(
   header: string,
   setter: (result: AuthFileResult) => void,
-  e: React.ChangeEvent<HTMLInputElement>
+  e: React.ChangeEvent<HTMLInputElement>,
 ): void {
   const files = e.currentTarget.files;
   if (!files || files.length === 0) {
@@ -75,9 +75,7 @@ export const AuthCard = (props: AuthCardProps) => {
   const pem = props.pem;
   return (
     <div
-      className={
-        "flex flex-col items-center bg-gray-200 px-6 py-5 " + props.className
-      }
+      className={`flex flex-col items-center bg-gray-200 px-6 py-5 ${props.className}`}
     >
       <div className="flex justify-center">
         {props.number !== undefined && (

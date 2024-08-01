@@ -14,7 +14,7 @@ use certificates::{
 use clap::{crate_version, Parser};
 
 use super::error::CertCliError;
-use crate::default_filename::{
+use crate::default_filepath::{
     get_default_filename_for_cert_bundle,
     set_appropriate_filepath_and_create_default_dir_if_required,
 };
@@ -162,30 +162,34 @@ mod tests {
         let root_kp = KeyPair::new_random();
         let root_cert = RequestBuilder::<Manufacturer>::root_v1_builder(root_kp.public_key())
             .build()
-            .load_key(root_kp)
+            .load_key(root_kp.clone())
             .unwrap()
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
+        let root_bundle = CertificateBundle::new(root_cert, None);
 
         let int_kp = KeyPair::new_random();
         let int_req_a =
             RequestBuilder::<Manufacturer>::intermediate_v1_builder(int_kp.public_key()).build();
         let int_req_b = int_req_a.clone();
 
-        let int_cert_a = root_cert
-            .issue_cert(int_req_a, IssuerAdditionalFields::default())
-            .expect("Couldn't issue cert");
+        let int_bundle_a = root_bundle
+            .issue_cert_bundle(
+                int_req_a,
+                IssuerAdditionalFields::default(),
+                root_kp.clone(),
+            )
+            .expect("Couldn't issue cert bundle");
 
-        let int_a_bundle = CertificateBundle::new(int_cert_a.clone(), None);
+        let int_bundle_b = root_bundle
+            .issue_cert_bundle(int_req_b, IssuerAdditionalFields::default(), root_kp)
+            .expect("Couldn't issue cert bundle");
 
-        let int_cert_b = root_cert
-            .issue_cert(int_req_b, IssuerAdditionalFields::default())
-            .expect("Couldn't issue cert");
+        let int_cert_a = int_bundle_a.certs[0].clone();
+        let int_cert_b = int_bundle_b.certs[0].clone();
 
-        let int_b_bundle = CertificateBundle::new(int_cert_b.clone(), None);
-
-        save_certificate_bundle_to_file(int_a_bundle, &int_a_path).unwrap();
-        save_certificate_bundle_to_file(int_b_bundle, &int_b_path).unwrap();
+        save_certificate_bundle_to_file(int_bundle_a, &int_a_path).unwrap();
+        save_certificate_bundle_to_file(int_bundle_b, &int_b_path).unwrap();
 
         let opts = MergeCertOpts {
             role: RoleKind::Manufacturer,
@@ -293,24 +297,24 @@ mod tests {
     }
 
     fn create_mergable_certificate_bundles(int_a_path: &Path, int_b_path: &Path) {
-        let (cert_bundle_a, _, _) = create_intermediate_bundle::<Infrastructure>();
-        let cert_req = cert_bundle_a.certs[0].request();
+        let (int_bundle_a, _, _) = create_intermediate_bundle::<Infrastructure>();
+        let int_req = int_bundle_a.certs[0].request();
 
         let kp = KeyPair::new_random();
         let root_b = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key())
             .build()
-            .load_key(kp)
+            .load_key(kp.clone())
             .unwrap()
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
-        let cert_b = root_b
-            .issue_cert(cert_req, IssuerAdditionalFields::default())
+        let root_bundle_b = CertificateBundle::new(root_b, None);
+
+        let int_bundle_b = root_bundle_b
+            .issue_cert_bundle(int_req, IssuerAdditionalFields::default(), kp)
             .unwrap();
 
-        let cert_bundle_b = CertificateBundle::new(cert_b, None);
-
-        save_certificate_bundle_to_file(cert_bundle_a, int_a_path).unwrap();
-        save_certificate_bundle_to_file(cert_bundle_b, int_b_path).unwrap();
+        save_certificate_bundle_to_file(int_bundle_a, int_a_path).unwrap();
+        save_certificate_bundle_to_file(int_bundle_b, int_b_path).unwrap();
     }
 
     #[test]

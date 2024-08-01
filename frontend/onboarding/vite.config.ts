@@ -6,13 +6,13 @@
 /// <reference types="vitest" />
 /// <reference types="vite/client" />
 
-import { AliasOptions, PluginOption, defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import wasm from "vite-plugin-wasm";
-import topLevelAwait from "vite-plugin-top-level-await";
+import { execSync } from "node:child_process";
+import { resolve } from "node:path";
 import legacy from "@vitejs/plugin-legacy";
-import { resolve } from "path";
-import { execSync } from "child_process";
+import react from "@vitejs/plugin-react";
+import { type AliasOptions, type PluginOption, defineConfig } from "vite";
+import topLevelAwait from "vite-plugin-top-level-await";
+import wasm from "vite-plugin-wasm";
 
 const forwardToTrailingSlash: PluginOption = {
   name: "forward-to-trailing-slash",
@@ -54,11 +54,11 @@ export default () => {
   if (process.env.VITEST) {
     alias.certificates_wasm = resolve(
       __dirname,
-      "../../crates/wasm_bindings/certificates/pkg/certificates_wasm.js"
+      "../../crates/wasm_bindings/certificates/pkg/certificates_wasm.js",
     );
     alias.quickdna_wasm = resolve(
       __dirname,
-      "../../crates/wasm_bindings/quickdna/pkg/quickdna_wasm.js"
+      "../../crates/wasm_bindings/quickdna/pkg/quickdna_wasm.js",
     );
   }
 
@@ -86,6 +86,12 @@ export default () => {
     base: "/onboarding/",
     build: {
       outDir: resolve(__dirname, "dist"),
+      rollupOptions: {
+        input: {
+          certr: resolve(__dirname, "src/certr/index.html"),
+          st: resolve(__dirname, "src/st/index.html"),
+        },
+      },
     },
     optimizeDeps: {
       // exclude: ["screening_wasm"],

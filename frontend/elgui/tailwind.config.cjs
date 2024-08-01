@@ -14,27 +14,8 @@ module.exports = {
     "../common/src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    colors: {
-      transparent: "transparent",
-      current: "currentColor",
-      inherit: "inherit",
-      black: "#000",
-      white: "#fff",
-      blue: colors.blue,
-      green: colors.green,
-      gray: colors.gray,
-      red: colors.red,
-      primary: {
-        light: "#00ADBF",
-        DEFAULT: "#107681",
-        dark: "#084B52",
-      },
-      secondary: {
-        DEFAULT: "#001C2C",
-      },
-    },
     fontFamily: {
-      primary: ["Inter Variable", "Inter", "sans-serif"],
+      primary: ["DM Sans Variable", "DM Sans", "sans-serif"],
       mono: [
         "ui-monospace",
         "Cascadia Code",
@@ -55,6 +36,19 @@ module.exports = {
       },
     },
     extend: {
+      colors: {
+        transparent: "transparent",
+        current: "currentColor",
+        inherit: "inherit",
+        black: "#000",
+        white: "#fff",
+        primary: {
+          light: "#E9F9FF",
+          DEFAULT: "#A5CFDF",
+        },
+        secondary: "#070720",
+        warn: "#ff7000",
+      },
       animation: {
         "fade-in": "fadeIn 0.2s ease-in-out",
         "fade-out": "fadeOut 0.2s ease-in-out",

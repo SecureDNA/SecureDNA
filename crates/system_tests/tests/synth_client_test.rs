@@ -2,14 +2,28 @@
 // Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::path::PathBuf;
 use std::time::Instant;
+use std::{assert_eq, matches};
 use std::{sync::Once, time::Duration};
 
-use certificates::test_helpers::{create_elt_bundle_with_exemptions, create_exemptions};
-use certificates::{GenbankId, Organism, Sequence, SequenceIdentifier};
+use certificates::file::{load_certificate_bundle_from_file, load_keypair_from_file};
+use certificates::test_helpers::{
+    create_et_bundle_from_leaf_bundle, create_et_bundle_with_exemptions, create_exemptions,
+    BreakableSignature,
+};
+use once_cell::sync::Lazy;
+
+use certificates::{
+    CertificateBundle, Exemption, ExemptionTokenGroup, GenbankId, KeyPair, Organism, Sequence,
+    SequenceIdentifier, TokenBundle,
+};
 use pipeline_bridge::Tag;
+use reqwest::StatusCode;
+use shared_types::et::WithOtps;
 use synthclient::api::{
-    ApiError, ApiResponse, ApiWarning, CheckFastaRequest, RequestCommon, SynthesisPermission,
+    ApiError, ApiResponse, ApiWarning, CheckFastaRequest, DebugInfo, RequestCommon,
+    SynthesisPermission,
 };
 
 const ENDPOINT: &str = "http://localhost:80";
@@ -30,6 +44,18 @@ pub fn initialize() {
         .unwrap();
     });
 }
+
+static TEST_LEAF_BUNDLE: Lazy<(CertificateBundle<Exemption>, KeyPair)> = Lazy::new(|| {
+    let certs_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test/certs");
+    let leaf_bundle_path = certs_dir.join("exemption-leaf.cert");
+    let leaf_key_path = certs_dir.join("exemption-leaf.priv");
+    let passphrase_path = certs_dir.join("exemption-leaf.passphrase");
+
+    let leaf_bundle = load_certificate_bundle_from_file(&leaf_bundle_path).unwrap();
+    let passphrase = std::fs::read_to_string(passphrase_path).unwrap();
+    let leaf_key = load_keypair_from_file(&leaf_key_path, passphrase.trim()).unwrap();
+    (leaf_bundle, leaf_key)
+});
 
 macro_rules! assert_error {
     ($response:expr, $pat:pat, $addl_str:expr) => {
@@ -70,8 +96,7 @@ fn construct_request(fasta: &str) -> CheckFastaRequest {
         common: RequestCommon {
             region: synthclient::api::Region::All,
             provider_reference: None,
-            elt_pem: None,
-            otp: None,
+            ets: vec![],
         },
     }
 }
@@ -196,7 +221,7 @@ fn test_screen_fasta_denied() {
         "permission should have been denied: {:?}",
         answer
     );
-    assert_eq!(answer.warnings, vec![]);
+    assert!(answer.warnings.is_empty());
     assert_all_records_are_matched(&answer, true);
 
     // check tags
@@ -210,111 +235,149 @@ fn test_screen_fasta_denied() {
     }
 }
 
-fn test_elt(exemptions: Vec<Organism>, expected_permission: SynthesisPermission) {
-    initialize();
-    let client = reqwest::blocking::Client::new();
-    let (elt, _) = create_elt_bundle_with_exemptions(exemptions);
-
-    let resp = client
-        .post(format!("{}/v1/screen", ENDPOINT))
-        .json::<CheckFastaRequest>(&CheckFastaRequest {
-            fasta: String::from(HAZARD_SEQ),
-            common: RequestCommon {
-                region: synthclient::api::Region::All,
-                provider_reference: None,
-                elt_pem: Some(elt.to_file_contents().unwrap()),
-                // The exact value doesn't matter, as the integration tests
-                // launch hdbserver with --yubico-api-client-id allow_all
-                otp: Some("cccjgjgkhcbbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcb".to_owned()),
-            },
-        })
-        .send()
-        .unwrap();
-
-    let status = resp.status();
-    let answer = resp.json::<ApiResponse>().unwrap();
-    assert_eq!(status, 200, "bad status code: {answer:?}");
-    assert_eq!(
-        answer.synthesis_permission, expected_permission,
-        "permission should have been {expected_permission:?}: {:?}",
-        answer
-    );
-    assert_eq!(answer.warnings, vec![]);
-    assert_all_records_are_matched(&answer, true);
+fn exemption_bundle_from_test_root(exemptions: Vec<Organism>) -> TokenBundle<ExemptionTokenGroup> {
+    let (leaf_bundle, leaf_key) = &*TEST_LEAF_BUNDLE;
+    create_et_bundle_from_leaf_bundle(exemptions, leaf_bundle, leaf_key.clone())
 }
 
 #[test]
-fn test_elt_missing_otp() {
-    initialize();
-    let client = reqwest::blocking::Client::new();
-    let (elt, _) = create_elt_bundle_with_exemptions(vec![]);
+fn test_screen_with_exemption_missing_otp() {
+    let et = exemption_bundle_from_test_root(vec![]);
+    let et_with_otp = WithOtps {
+        et: et.to_file_contents().unwrap(),
+        requestor_otp: "".to_owned(),
+        issuer_otp: None,
+    };
 
-    let resp = client
-        .post(format!("{}/v1/screen", ENDPOINT))
-        .json::<CheckFastaRequest>(&CheckFastaRequest {
-            fasta: String::from(HAZARD_SEQ),
-            common: RequestCommon {
-                region: synthclient::api::Region::All,
-                provider_reference: None,
-                elt_pem: Some(elt.to_file_contents().unwrap()),
-                otp: None,
-            },
-        })
-        .send()
-        .unwrap();
-
-    let status = resp.status();
-    let answer = resp.json::<ApiResponse>().unwrap();
-    assert_eq!(status, 500, "bad status code: {answer:?}");
-    assert_eq!(
-        answer.synthesis_permission,
+    test_screen_with_exemptions(
+        et_with_otp,
         SynthesisPermission::Denied,
-        "permission should have been Denied: {:?}",
-        answer
+        StatusCode::INTERNAL_SERVER_ERROR,
+        None,
     );
-    assert_eq!(answer.warnings, vec![]);
-    assert_all_records_are_matched(&answer, true);
 }
 
 #[test]
-fn test_screen_fasta_irrelevant_elt_denied() {
-    test_elt(create_exemptions(), SynthesisPermission::Denied);
+fn test_wrong_exemption_token_root() {
+    // Token not derived from test root
+    let (et, _) = create_et_bundle_with_exemptions(vec![]);
+    let et_with_otp = WithOtps {
+        et: et.to_file_contents().unwrap(),
+        requestor_otp: "cccjgjgkhcbbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcb".to_owned(),
+        issuer_otp: None,
+    };
+
+    test_screen_with_exemptions(
+        et_with_otp,
+        SynthesisPermission::Denied,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Some(
+            "the exemption token provided does not originate from the expected root certificate"
+                .to_owned(),
+        ),
+    );
+}
+
+#[test]
+fn test_invalid_exemption_token_chain() {
+    let mut et = exemption_bundle_from_test_root(vec![]);
+    et.token.break_signature();
+
+    let et_with_otp = WithOtps {
+        et: et.to_file_contents().unwrap(),
+        requestor_otp: "cccjgjgkhcbbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcb".to_owned(),
+        issuer_otp: None,
+    };
+
+    test_screen_with_exemptions(
+        et_with_otp,
+        SynthesisPermission::Denied,
+        StatusCode::BAD_REQUEST,
+        Some("the following items in the exemption token file are invalid: the exemption token belonging \
+        to 'some researcher, email@example.com' is not valid due to signature verification failure".to_owned()),
+    );
+}
+
+#[test]
+fn test_screen_fasta_irrelevant_et_denied() {
+    let et = exemption_bundle_from_test_root(create_exemptions());
+    let et_with_otp = WithOtps {
+        et: et.to_file_contents().unwrap(),
+        requestor_otp: "cccjgjgkhcbbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcb".to_owned(),
+        issuer_otp: None,
+    };
+    test_screen_with_exemptions(
+        et_with_otp,
+        SynthesisPermission::Denied,
+        StatusCode::OK,
+        None,
+    );
 }
 
 #[test]
 fn test_screen_fasta_an_exemption() {
-    test_elt(
-        vec![Organism::new(
-            "Some organism",
-            vec![SequenceIdentifier::Id(
-                GenbankId::try_new(HAZARD_AN).unwrap(),
-            )],
+    let et = exemption_bundle_from_test_root(vec![Organism::new(
+        "Some organism",
+        vec![SequenceIdentifier::Id(
+            GenbankId::try_new(HAZARD_AN).unwrap(),
         )],
+    )]);
+
+    let et_with_otp = WithOtps {
+        et: et.to_file_contents().unwrap(),
+        requestor_otp: "cccjgjgkhcbbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcb".to_owned(),
+        issuer_otp: None,
+    };
+
+    test_screen_with_exemptions(
+        et_with_otp,
         SynthesisPermission::Granted,
+        StatusCode::OK,
+        None,
     );
 }
 
 #[test]
 fn test_screen_fasta_name_exemption() {
-    test_elt(
-        vec![Organism::new(
-            HAZARD_NAME,
-            vec![SequenceIdentifier::Id(GenbankId::try_new("12345").unwrap())],
-        )],
+    let et = exemption_bundle_from_test_root(vec![Organism::new(
+        HAZARD_NAME,
+        vec![SequenceIdentifier::Id(GenbankId::try_new("12345").unwrap())],
+    )]);
+
+    let et_with_otp = WithOtps {
+        et: et.to_file_contents().unwrap(),
+        requestor_otp: "cccjgjgkhcbbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcb".to_owned(),
+        issuer_otp: None,
+    };
+
+    test_screen_with_exemptions(
+        et_with_otp,
         SynthesisPermission::Granted,
+        StatusCode::OK,
+        None,
     );
 }
 
 #[test]
 fn test_screen_fasta_hash_exemption() {
-    test_elt(
-        vec![Organism::new(
-            "Some organism",
-            vec![SequenceIdentifier::Dna(
-                Sequence::try_new(HAZARD_SEQ).unwrap(),
-            )],
+    let et = exemption_bundle_from_test_root(vec![Organism::new(
+        "Some organism",
+        vec![SequenceIdentifier::Dna(
+            Sequence::try_new(HAZARD_SEQ).unwrap(),
         )],
+    )]);
+
+    let et_with_otp = WithOtps {
+        et: et.to_file_contents().unwrap(),
+        requestor_otp: "cccjgjgkhcbbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcb".to_owned(),
+        issuer_otp: None,
+    };
+
+    test_screen_with_exemptions(
+        et_with_otp,
         SynthesisPermission::Granted,
+        StatusCode::OK,
+        None,
     );
 }
 
@@ -343,7 +406,7 @@ fn test_screen_ambiguous_permuted_fasta_denied() {
         "permission should have been denied: {:?}",
         answer
     );
-    assert_eq!(answer.warnings, vec![]);
+    assert!(answer.warnings.is_empty());
     assert_all_records_are_matched(&answer, true);
 
     // check tags
@@ -376,7 +439,7 @@ fn test_screen_fasta_granted() {
         "permission should have been granted: {:?}",
         answer
     );
-    assert_eq!(answer.warnings, vec![]);
+    assert!(answer.warnings.is_empty());
 
     assert_all_records_are_matched(&answer, false);
 }
@@ -401,7 +464,7 @@ fn test_screen_ambiguous_fasta_granted() {
         "permission should have been granted: {:?}",
         answer
     );
-    assert_eq!(answer.warnings, vec![]);
+    assert!(answer.warnings.is_empty());
 
     assert_all_records_are_matched(&answer, false);
 }
@@ -431,4 +494,96 @@ fn test_screen_too_ambiguous() {
     assert_eq!(answer.warnings, vec![ApiWarning::too_ambiguous()]);
 
     assert_all_records_are_matched(&answer, false);
+}
+
+#[test]
+fn test_screen_debug() {
+    // this test uses a generated known sequence
+    initialize();
+    let client = reqwest::blocking::Client::new();
+
+    // test without debug info
+    let resp = client
+        .post(format!("{}/v1/screen", ENDPOINT))
+        .json::<CheckFastaRequest>(&construct_request(HAZARD_SEQ))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200, "bad status code: {resp:?}");
+    let answer = resp.json::<ApiResponse>().unwrap();
+    assert_eq!(
+        answer.synthesis_permission,
+        SynthesisPermission::Denied,
+        "permission should have been denied: {:?}",
+        answer
+    );
+    assert!(
+        answer.debug_info.is_none(),
+        "non-empty debug_info: {answer:?}"
+    );
+
+    // test with debug info
+    let resp = client
+        .post(format!("{}/v1/screen?debug_info", ENDPOINT))
+        .json::<CheckFastaRequest>(&construct_request(HAZARD_SEQ))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200, "bad status code: {resp:?}");
+    let answer = resp.json::<ApiResponse>().unwrap();
+    assert_eq!(
+        answer.synthesis_permission,
+        SynthesisPermission::Denied,
+        "permission should have been denied: {:?}",
+        answer
+    );
+    assert!(
+        matches!(
+            &answer.debug_info,
+            Some(DebugInfo { grouped_hits }) if !grouped_hits.is_empty(),
+        ),
+        "empty debug_info: {answer:?}"
+    );
+}
+
+fn test_screen_with_exemptions(
+    et_with_otp: WithOtps<String>,
+    expected_permission: SynthesisPermission,
+    expected_status: StatusCode,
+    additional_info: Option<String>,
+) {
+    initialize();
+    let client = reqwest::blocking::Client::new();
+
+    let resp = client
+        .post(format!("{}/v1/screen", ENDPOINT))
+        .json::<CheckFastaRequest>(&CheckFastaRequest {
+            fasta: String::from(HAZARD_SEQ),
+            common: RequestCommon {
+                region: synthclient::api::Region::All,
+                provider_reference: None,
+                ets: vec![et_with_otp],
+            },
+        })
+        .send()
+        .unwrap();
+
+    let status = resp.status();
+    let answer = resp.json::<ApiResponse>().unwrap();
+
+    assert_eq!(status, expected_status, "bad status code: {answer:?}");
+    assert_eq!(
+        answer.synthesis_permission, expected_permission,
+        "permission should have been {expected_permission:?}: {:?}",
+        answer
+    );
+    assert!(answer.warnings.is_empty());
+    if let Some(additional_info) = additional_info {
+        assert!(
+            answer.errors[0]
+                .additional_info()
+                .contains(&additional_info),
+            "unexpected error: {:?}",
+            answer.errors[0]
+        );
+    }
+    assert_all_records_are_matched(&answer, true);
 }

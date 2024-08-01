@@ -6,7 +6,7 @@
 use std::path::Path;
 use std::{io::Write, path::PathBuf};
 
-use crate::default_filename::set_appropriate_filepath_and_create_default_dir_if_required;
+use crate::default_filepath::set_appropriate_filepath_and_create_default_dir_if_required;
 use crate::passphrase_reader::{PassphraseReader, PassphraseSource, ENV_PASSPHRASE_WARNING};
 use certificates::file::CERT_REQUEST_EXT;
 use certificates::{
@@ -47,7 +47,7 @@ pub struct SignCertOpts {
     #[clap(
         global = true,
         long,
-        help = "Email(s) to be notified when an ELT issued by this cert is used (optional, only for exemption leaf certs)"
+        help = "Email(s) to be notified when an exemption token issued by this cert is used (optional, only for exemption leaf certs)"
     )]
     pub notify: Vec<String>,
     #[clap(
@@ -147,19 +147,13 @@ fn sign_cert<R: Role, P: PassphraseReader>(
                 Some(_) => cert.to_owned(),
                 None => cert.with_extension(CERT_EXT),
             };
-            let issuing_cb = load_certificate_bundle_from_file::<R>(&cert)?;
+            let issuing_bundle = load_certificate_bundle_from_file::<R>(&cert)?;
 
             let (passphrase, source) = passphrase_reader
                 .read_passphrase()
                 .map_err(CertCliError::from)?;
 
             let keypair = load_keypair_from_file(&key_path, passphrase)?;
-
-            let issuing_cert = issuing_cb
-                .get_lead_cert()
-                .map_err(|_| CertCliError::NoSuitableCertificate)?
-                .to_owned()
-                .load_key(keypair)?;
 
             let request_file = match request.extension() {
                 Some(_) => request.to_owned(),
@@ -174,14 +168,9 @@ fn sign_cert<R: Role, P: PassphraseReader>(
                 return Err(CertCliError::EmailsToNotifyNotAllowed);
             }
 
-            let new_cert = issuing_cert.issue_cert(request, issuer_fields)?;
+            let new_bundle = issuing_bundle.issue_cert_bundle(request, issuer_fields, keypair)?;
 
-            // Root certs don't need to provide a certificate chain for the certificates they issue, because the root public keys will be known.
-            let chain = match issuing_cert.hierarchy_level() {
-                HierarchyKind::Root => None,
-                _ => Some(issuing_cb.issue_chain()),
-            };
-            Ok::<_, CertCliError>((CertificateBundle::new(new_cert, chain), source))
+            Ok::<_, CertCliError>((new_bundle, source))
         }
         SignType::SelfSign { request } => {
             let request_file = match request.extension() {
@@ -787,10 +776,12 @@ mod tests {
         let root_public_key = root_kp.public_key();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(root_public_key)
             .build()
-            .load_key(root_kp)
+            .load_key(root_kp.clone())
             .unwrap()
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
+
+        let root_bundle = CertificateBundle::new(root_cert, None);
 
         let int_kp = KeyPair::new_random();
 
@@ -798,10 +789,10 @@ mod tests {
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
         save_keypair_to_file(int_kp, &passphrase_reader.passphrase, &int_key_path).unwrap();
 
-        let int_cert = root_cert
-            .issue_cert(int_req, IssuerAdditionalFields::default())
+        let int_bundle = root_bundle
+            .issue_cert_bundle(int_req, IssuerAdditionalFields::default(), root_kp)
             .unwrap();
-        let int_bundle = CertificateBundle::new(int_cert, None);
+
         save_certificate_bundle_to_file(int_bundle, &int_cert_path).unwrap();
         let leaf_req =
             RequestBuilder::<Exemption>::leaf_v1_builder(KeyPair::new_random().public_key())
@@ -845,10 +836,12 @@ mod tests {
         let root_kp = KeyPair::new_random();
         let root_cert = RequestBuilder::<Infrastructure>::root_v1_builder(root_kp.public_key())
             .build()
-            .load_key(root_kp)
+            .load_key(root_kp.clone())
             .unwrap()
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
+
+        let root_bundle = CertificateBundle::new(root_cert, None);
 
         let int_kp = KeyPair::new_random();
 
@@ -856,10 +849,9 @@ mod tests {
             RequestBuilder::<Infrastructure>::intermediate_v1_builder(int_kp.public_key()).build();
         save_keypair_to_file(int_kp, &passphrase_reader.passphrase, &int_key_path).unwrap();
 
-        let int_cert = root_cert
-            .issue_cert(int_req, IssuerAdditionalFields::default())
+        let int_bundle = root_bundle
+            .issue_cert_bundle(int_req, IssuerAdditionalFields::default(), root_kp)
             .unwrap();
-        let int_bundle = CertificateBundle::new(int_cert, None);
         save_certificate_bundle_to_file(int_bundle, &int_cert_path).unwrap();
         let int2_req = RequestBuilder::<Infrastructure>::intermediate_v1_builder(
             KeyPair::new_random().public_key(),

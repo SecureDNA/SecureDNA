@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { Sequence, copyToClipboard } from "@securedna/frontend_common";
+import { type Sequence, copyToClipboard } from "@securedna/frontend_common";
 import { unparse } from "src/util/sequence";
 
 /**

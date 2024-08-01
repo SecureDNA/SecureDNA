@@ -31,12 +31,12 @@ const ProgressStep = (props: ProgressStepProps) => {
 };
 
 export const Progress = (props: ProgressProps) => {
-  let children = [];
+  const children = [];
   for (let i = 0; i < props.labels.length; i++) {
     if (i > 0) {
       let stickClasses = "flex-1 h-1 mt-[0.875rem]";
       stickClasses += i > props.currentIndex ? " bg-black/10" : " bg-primary";
-      children.push(<div key={i - 0.5} className={stickClasses}></div>);
+      children.push(<div key={i - 0.5} className={stickClasses} />);
     }
     children.push(
       <ProgressStep
@@ -50,7 +50,7 @@ export const Progress = (props: ProgressProps) => {
               : "done"
         }
         label={props.labels[i]}
-      />
+      />,
     );
   }
   return <div className="flex items-top select-none">{children}</div>;

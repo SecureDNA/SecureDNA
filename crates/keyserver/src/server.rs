@@ -82,12 +82,24 @@ async fn reconfigure(
             .map(|c| *c.public_key())
             .collect::<Vec<_>>();
 
+    let revocation_list = if let Some(path) = app_cfg.revocation_list {
+        let contents = tokio::fs::read(&path).await;
+        (|| -> anyhow::Result<_> {
+            let contents = String::from_utf8(contents?)?;
+            Ok(toml::from_str(&contents)?)
+        })()
+        .with_context(|| format!("Unable to read revocation list: {path:?}"))?
+    } else {
+        Default::default()
+    };
+
     let token_bundle =
         scep_server_helpers::certs::read_tokenbundle::<KeyserverTokenGroup>(app_cfg.token_file)
             .context("reading keyserver token bundle")?;
 
-    let passphrase = fs::read_to_string(&app_cfg.keypair_passphrase_file)
-        .context("reading keyserver keypair passphrase file")?;
+    let path = &app_cfg.keypair_passphrase_file;
+    let passphrase = fs::read_to_string(path)
+        .with_context(|| format!("reading keyserver keypair passphrase file: {path:?}"))?;
 
     let keypair = scep_server_helpers::certs::read_keypair(app_cfg.keypair_file, passphrase.trim())
         .context("reading keyserver keypair")?;
@@ -99,7 +111,7 @@ async fn reconfigure(
     // (at least, I don't yet know enough about our metrics code to be sure that's sensible)
     let metrics = if let Some(prev_metrics) = prev_state.as_ref().map(|s| &s.metrics) {
         prev_metrics.clone()
-    } else if server_cfg.monitoring.is_some() {
+    } else if server_cfg.monitoring.is_enabled() {
         let m = KeyserverMetrics::default();
         m.max_clients.set(server_cfg.main.max_connections as i64);
         Some(Arc::new(m))
@@ -147,6 +159,7 @@ async fn reconfigure(
             clients: Default::default(),
             json_size_limit: app_cfg.scep_json_size_limit,
             manufacturer_roots,
+            revocation_list,
             token_bundle,
             keypair,
             allow_insecure_cookie: app_cfg.allow_insecure_cookie,
@@ -355,8 +368,7 @@ async fn scep_endpoint_authenticate(
             .await
             {
                 error!(
-                    "failed to record ratelimit exceedance of {} for {}: {e}",
-                    attempted_bp, client_mid,
+                    "failed to record ratelimit exceedance of {attempted_bp} for {client_mid}: {e}",
                 );
             }
         },

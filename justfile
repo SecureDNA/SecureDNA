@@ -42,8 +42,8 @@ gh-runs date *args='':
     gh run list --created "{{date}}" --json conclusion,name,headBranch,event,createdAt,url {{args}}
 
 # Testing here can check if tsgen properly generated type information from rust types
-test-demo-gui:
-    cd demo_gui && npm ci && npm exec tsc && npm test -- --passWithNoTests
+test-web-interface:
+    cd web-interface && npm ci && npm exec tsc && npm test -- --passWithNoTests
 
 # Note: tsgen is run here.
 build-wasm-bindings:
@@ -64,3 +64,44 @@ clean-ghcr image cutoff-date:
 clean-ghcr-dry-run image cutoff-date:
     source bin/clean-ghcr.sh &&
     delete-package-versions-dry-run {{image}} {{cutoff-date}}
+
+build-arm version:
+    #! /usr/bin/env bash
+    # Set up vm (using gcloud here, but could be anywhere):
+    # (If we want to increase core count beyond 4, we need to increase quota for us-central1 region, my last try was
+    # rejected even though global quota increase was allowed)
+    gcloud compute instances create arm-builder --zone=us-central1-a --image-project=debian-cloud --image-family=debian-12-arm64 --machine-type=t2a-standard-4
+
+    # Setup build deps, build binaries. The `-A` flag forwards authentication agent for the `git clone`
+    gcloud compute ssh --ssh-flag="-A" --zone=us-central1-a arm-builder -- 'bash -s {{version}}' < bin/setup-build-synthclient-tools.sh
+
+    # package deb
+    gcloud compute ssh --zone=us-central1-a arm-builder -- 'bash -s {{version}} securedna-dev/target/release arm64' < bin/package-deb.sh
+
+    # Copy .deb off the vm:
+    gcloud compute scp --zone=us-central1-a arm-builder:~/synthclient_{{version}}_arm64.deb .
+
+    # Don't forget to delete the vm instance!
+    gcloud compute instances delete --quiet --zone=us-central1-a arm-builder
+
+# Copy to public repo
+# excludes crates/doprf/bench, which includes a binary blog for queryset.
+# requires, realpath, which is linux only (`brew install coreutils` on osx)
+public version dirpath:
+    #! /usr/bin/env bash
+    set -euo pipefail
+
+    dir=$(realpath {{dirpath}})
+    echo "copying to public repo at $dir"
+    temp=$(mktemp -d)
+    wd="$temp/securedna-dev"
+    git clone git@github.com:securedna/securedna-dev "$wd"
+    cd "$wd"
+    git checkout {{version}}
+    rsync -av --progress --exclude .git --exclude .github --exclude ./crates/doprf/bench --exclude CHANGELOG.md . "$dir"
+    cd ..
+    rm -rf "$temp"
+
+# Requires SECUREDNA_AHA_SECRET_KEY to be set
+aha hdb hazard_path:
+    cargo run --release -p awesome_hazard_analyzer -- --hdb-dir {{hdb}} --hazard-path {{hazard_path}} --debug --summary

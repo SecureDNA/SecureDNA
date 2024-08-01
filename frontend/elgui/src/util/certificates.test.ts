@@ -3,16 +3,23 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { describe, test, expect } from "vitest";
+import { describe, expect, test } from "vitest";
 
-import { ExemptionList, OrganismWithSource } from "src/types";
-import { TextDecoder } from "util";
+import { TextDecoder } from "node:util";
+import type {
+  ExemptionToken,
+  ExemptionTokenRequest,
+  Expiration,
+  Id,
+  Signature,
+} from "@securedna/frontend_common";
+import type { Exemption, OrganismWithSource } from "src/types";
 import {
-  eltBundlePemToJsObject,
-  eltrPemToJsObject,
-  makeEltrPem,
-  signEltr,
-} from "./sign_eltr";
+  etBundlePemToJsObject,
+  etrPemToJsObject,
+  makeEtrPem,
+  signEtr,
+} from "./sign_etr";
 
 const cert1234Pem: string = `-----BEGIN SECUREDNA EXEMPTION CERTIFICATE-----
 MIIBZqKCAWIwggFeoIIBGKAHgAVMRUFGMYEJRVhFTVBUSU9OooIBAKCBj4ARRVhF
@@ -58,10 +65,12 @@ const organism: OrganismWithSource = {
   ],
 };
 
-const testEl: ExemptionList = {
+const testEl: Exemption = {
+  publicKey: undefined,
   organisms: [organism],
   shippingAddresses: [
     {
+      id: "a1b2c3d4",
       country: "US",
       city: "Test City",
       postalCode: "12345",
@@ -76,175 +85,158 @@ const testEl: ExemptionList = {
     phone_number: "+12223334444",
     orcid: "0000-0002-1825-0097",
   },
-  authenticators: [
-    { Yubikey: ["C", "C", "C", "J", "G", "J", "G", "K", "H", "C", "B", "B"] },
-  ],
+  authenticators: [{ Yubikey: "cccjgjgkhcbb" }],
 };
 
 describe("certificates bindings", () => {
-  test("creates an ELTR PEM that roundtrips", () => {
-    const pem = makeEltrPem(testEl);
+  test("creates an exemption token request PEM that roundtrips", () => {
+    const pem = makeEtrPem(testEl);
     const pemText = new TextDecoder().decode(pem);
-    expect(pemText).toMatch("-BEGIN SECUREDNA EXEMPTION LIST TOKEN REQUEST-");
+    expect(pemText).toMatch("-BEGIN SECUREDNA EXEMPTION TOKEN REQUEST-");
 
-    const json: any = eltrPemToJsObject(pem);
-    delete json.V1.request_id;
+    const json: ExemptionTokenRequest = etrPemToJsObject(pem);
+    json.V1.request_id = [];
     expect(json).toMatchInlineSnapshot(`
-      {
-        "V1": {
-          "exemptions": [
-            {
-              "name": "Test organism",
-              "sequences": [
-                {
-                  "Dna": {
-                    "records": [
-                      {
-                        "contents": "ACGTACGTACGTACGT",
-                        "header": "",
-                        "line_range": [
-                          1,
-                          2,
-                        ],
-                      },
-                    ],
-                  },
-                },
-              ],
-            },
-          ],
-          "guard": "ELTR1",
-          "public_key": undefined,
-          "requestor": {
-            "email": "j@example.com",
-            "name": "John Doe",
-            "orcid": "0000-0002-1825-0097",
-            "phone_number": "+12223334444",
-          },
-          "requestor_auth_devices": [
-            {
-              "Yubikey": [
-                "C",
-                "C",
-                "C",
-                "J",
-                "G",
-                "J",
-                "G",
-                "K",
-                "H",
-                "C",
-                "B",
-                "B",
-              ],
-            },
-          ],
-          "shipping_addresses": [
-            [
-              "111 Test Drive",
-              "Test City, NY 12345",
-              "United States of America",
-            ],
-          ],
-        },
-      }
-    `);
+			{
+			  "V1": {
+			    "exemptions": [
+			      {
+			        "name": "Test organism",
+			        "sequences": [
+			          {
+			            "Dna": {
+			              "records": [
+			                {
+			                  "contents": "ACGTACGTACGTACGT",
+			                  "header": "",
+			                  "line_range": [
+			                    1,
+			                    2,
+			                  ],
+			                },
+			              ],
+			            },
+			          },
+			        ],
+			      },
+			    ],
+			    "guard": "ETR1",
+			    "public_key": undefined,
+			    "request_id": [],
+			    "requestor": {
+			      "email": "j@example.com",
+			      "name": "John Doe",
+			      "orcid": "0000-0002-1825-0097",
+			      "phone_number": "+12223334444",
+			    },
+			    "requestor_auth_devices": [
+			      {
+			        "Yubikey": "cccjgjgkhcbb",
+			      },
+			    ],
+			    "shipping_addresses": [
+			      [
+			        "111 Test Drive",
+			        "Test City, NY 12345",
+			        "United States of America",
+			      ],
+			    ],
+			  },
+			}
+		`);
   });
 
-  test("creates an ELT", () => {
-    const eltrPem = makeEltrPem(testEl);
+  test("creates an exemption token", () => {
+    const etrPem = makeEtrPem(testEl);
     const certPem = new TextEncoder().encode(cert1234Pem);
     const privateKeyPem = new TextEncoder().encode(priv1234Pem);
-    const elt = signEltr({
-      eltrPem,
+    const et = signEtr({
+      etrPem,
       certPem,
       privateKeyPem,
       validityDays: 5,
       passphrase: "1234",
       screenedExemptions: [],
     });
-    const eltPem = new TextDecoder().decode(elt);
-    expect(eltPem).toMatch("-BEGIN SECUREDNA EXEMPTION LIST TOKEN-");
-    let json: any = eltBundlePemToJsObject(elt);
-    delete json.V1.data.issuer_fields.expiration;
-    delete json.V1.data.issuer_fields.issuance_id;
-    delete json.V1.data.request.request_id;
-    delete json.V1.signature;
+    const etPem = new TextDecoder().decode(et);
+    expect(etPem).toMatch("-BEGIN SECUREDNA EXEMPTION TOKEN-");
+    const json: ExemptionToken = etBundlePemToJsObject(et);
+    json.V1.data.issuer_fields.expiration = {
+      not_valid_before: 0,
+      not_valid_after: 0,
+    };
+    json.V1.data.issuer_fields.issuance_id = [];
+    json.V1.data.request.request_id = [];
+    json.V1.signature = [];
     expect(json).toMatchInlineSnapshot(`
-      {
-        "V1": {
-          "data": {
-            "issuer_fields": {
-              "emails_to_notify": [
-                "bill@securedna.org",
-                "bob@securedna.org",
-              ],
-              "guard": "ELTI1",
-              "identity": {
-                "desc": "Jack, jack@securedna.org",
-                "pk": "a4090ae5994607dbeef9cff6ea496147b081ad484e6cc7c744a3c11974d51d1a",
-              },
-              "issuer_auth_devices": [],
-            },
-            "request": {
-              "exemptions": [
-                {
-                  "name": "Test organism",
-                  "sequences": [
-                    {
-                      "Dna": {
-                        "records": [
-                          {
-                            "contents": "ACGTACGTACGTACGT",
-                            "header": "",
-                            "line_range": [
-                              1,
-                              2,
-                            ],
-                          },
-                        ],
-                      },
-                    },
-                  ],
-                },
-              ],
-              "guard": "ELTR1",
-              "public_key": undefined,
-              "requestor": {
-                "email": "j@example.com",
-                "name": "John Doe",
-                "orcid": "0000-0002-1825-0097",
-                "phone_number": "+12223334444",
-              },
-              "requestor_auth_devices": [
-                {
-                  "Yubikey": [
-                    "C",
-                    "C",
-                    "C",
-                    "J",
-                    "G",
-                    "J",
-                    "G",
-                    "K",
-                    "H",
-                    "C",
-                    "B",
-                    "B",
-                  ],
-                },
-              ],
-              "shipping_addresses": [
-                [
-                  "111 Test Drive",
-                  "Test City, NY 12345",
-                  "United States of America",
-                ],
-              ],
-            },
-          },
-        },
-      }
-    `);
+			{
+			  "V1": {
+			    "data": {
+			      "issuer_fields": {
+			        "emails_to_notify": [
+			          "bill@securedna.org",
+			          "bob@securedna.org",
+			        ],
+			        "expiration": {
+			          "not_valid_after": 0,
+			          "not_valid_before": 0,
+			        },
+			        "guard": "ELTI1",
+			        "identity": {
+			          "desc": "Jack, jack@securedna.org",
+			          "pk": "a4090ae5994607dbeef9cff6ea496147b081ad484e6cc7c744a3c11974d51d1a",
+			        },
+			        "issuance_id": [],
+			        "issuer_auth_devices": [],
+			      },
+			      "request": {
+			        "exemptions": [
+			          {
+			            "name": "Test organism",
+			            "sequences": [
+			              {
+			                "Dna": {
+			                  "records": [
+			                    {
+			                      "contents": "ACGTACGTACGTACGT",
+			                      "header": "",
+			                      "line_range": [
+			                        1,
+			                        2,
+			                      ],
+			                    },
+			                  ],
+			                },
+			              },
+			            ],
+			          },
+			        ],
+			        "guard": "ETR1",
+			        "public_key": undefined,
+			        "request_id": [],
+			        "requestor": {
+			          "email": "j@example.com",
+			          "name": "John Doe",
+			          "orcid": "0000-0002-1825-0097",
+			          "phone_number": "+12223334444",
+			        },
+			        "requestor_auth_devices": [
+			          {
+			            "Yubikey": "cccjgjgkhcbb",
+			          },
+			        ],
+			        "shipping_addresses": [
+			          [
+			            "111 Test Drive",
+			            "Test City, NY 12345",
+			            "United States of America",
+			          ],
+			        ],
+			      },
+			    },
+			    "signature": [],
+			  },
+			}
+		`);
   });
 });

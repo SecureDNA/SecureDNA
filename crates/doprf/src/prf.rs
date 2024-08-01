@@ -268,7 +268,7 @@ impl QueryStateSet {
         if !self.all_have_hash() {
             return Err(QueryError::MissingKeyserverResponse);
         }
-        let (mut hashes, verifiers): (Vec<TaggedHash>, Vec<RistrettoPoint>) = self
+        let (mut hashes, verifier) = self
             .querystates
             .iter()
             .map(|(tag, qs)| {
@@ -278,9 +278,15 @@ impl QueryStateSet {
                 let tag = (*tag).unwrap_or_default();
                 (TaggedHash { tag, hash }, verification)
             })
-            .unzip();
+            .fold(
+                (Vec::new(), RistrettoPoint::identity()),
+                |(mut acc_hashes, acc_verifier), (hash, verifier)| {
+                    acc_hashes.push(hash);
+                    (acc_hashes, acc_verifier + verifier)
+                },
+            );
 
-        if self.randomized_target.validate_responses(&verifiers) {
+        if self.randomized_target.validate_responses(&verifier) {
             hashes.pop();
             Ok(hashes)
         } else {

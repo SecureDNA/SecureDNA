@@ -1,6 +1,6 @@
 # ELGUI web frontend
 
-ELGUI is a web app that lets researchers request exemptions for known hazardous organisms and lets biosafety officers approve those requests. This produces a cryptographic "exemption list token" (ELT) that can be supplied alongside a synthesis order.
+ELGUI is a web app that lets researchers request exemptions for known hazardous organisms and lets biosafety officers approve those requests. This produces a cryptographic "exemption token" that can be supplied alongside a synthesis order.
 
 ELGUI is a static site. The cert-signing and screening happen in the browser, powered by WebAssembly. See `crates/wasm_bindings`.
 

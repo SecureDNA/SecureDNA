@@ -3,24 +3,40 @@
 
 use std::sync::Arc;
 
+use clap::{crate_version, Args, Parser};
 use hyper::StatusCode;
 use serde::Deserialize;
 use tracing::info;
 
+use minhttp::mpserver::cli::ServerConfigSource;
 use minhttp::mpserver::common::run_server;
 use minhttp::mpserver::traits::RelativeConfig;
 use minhttp::mpserver::MultiplaneServer;
 use minhttp::response::text;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Parser)]
+#[clap(
+    name = "mpserver",
+    about = "Example Multiplane Server",
+    version = crate_version!(),
+)]
+struct Opts {
+    #[command(flatten)]
+    config: ServerConfigSource<Config>,
+}
+
+#[derive(Clone, Debug, Args, Deserialize)]
 #[allow(dead_code)]
 struct Config {
+    #[arg(long, default_value_t)]
     #[serde(default)]
     delay: u8,
 
+    #[arg(long, default_value_t = default_times())]
     #[serde(default = "default_times")]
     times: u8,
 
+    #[arg(long)]
     message: String,
 }
 
@@ -34,7 +50,7 @@ fn default_times() -> u8 {
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let config_path = "example-config.toml";
+    let load_cfg = Opts::parse().config.into_load_cfg_fn();
     let builder = MultiplaneServer::builder()
         .with_reconfigure(|server_cfg, _prev_conf| async move {
             let app_cfg: Config = server_cfg.main.custom;
@@ -47,5 +63,5 @@ async fn main() {
             text(StatusCode::OK, message)
         });
 
-    run_server(config_path, builder).await.unwrap();
+    run_server(load_cfg, builder).await.unwrap();
 }

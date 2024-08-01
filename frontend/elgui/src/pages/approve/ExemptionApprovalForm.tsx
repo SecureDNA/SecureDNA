@@ -4,7 +4,7 @@
  */
 
 import { AnimatePresence, motion } from "framer-motion";
-import { EltrSummary, Page } from "src/components";
+import { EtrSummary, Page } from "src/components";
 import OverviewPage from "./OverviewPage";
 import ScreeningPage from "./ScreeningPage";
 import SigningPage from "./SigningPage";
@@ -12,7 +12,7 @@ import UploadPage from "./UploadPage";
 import { PageNumber, useApprovalStore } from "./store";
 
 const ExemptionApprovalForm = () => {
-  const eltr = useApprovalStore((state) => state.eltr);
+  const etr = useApprovalStore((state) => state.etr);
   const pageIndex = useApprovalStore((state) => state.pageIndex);
   const direction = useApprovalStore((state) => state.direction);
 
@@ -30,17 +30,17 @@ const ExemptionApprovalForm = () => {
   };
 
   return (
-    <Page title="Exemption List Approval Tool">
-      <div className="max-w-prose w-full my-8">
+    <Page title="Exemption Approval Tool">
+      <div className="w-full max-w-3xl my-4">
         {/* <div className="px-16 pb-8">
           <Progress
             labels={["Choose file", "Overview", "Screening", "Sign"]}
             currentIndex={pageIndex}
           />
         </div> */}
-        {eltr && pageIndex < 3 && (
+        {etr && pageIndex < 3 && (
           <div className="text-center">
-            <EltrSummary eltr={eltr} />
+            <EtrSummary etr={etr} />
           </div>
         )}
         <AnimatePresence initial={false} mode="wait" custom={direction}>

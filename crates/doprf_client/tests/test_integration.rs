@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::Write;
 use std::net::TcpListener;
 use std::num::NonZeroU32;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{cell::RefCell, collections::HashMap};
@@ -22,7 +23,7 @@ use doprf_client::server_selection::{
 use doprf_client::{server_version_handler::LastServerVersionHandler, DoprfConfig};
 use hdb::shims::genhdb;
 use http_client::{BaseApiClient, HttpsToHttpRewriter};
-use minhttp::mpserver::common::{default_listen_fn, stub_cfg};
+use minhttp::mpserver::common::{default_listen_fn, read_no_disk, stub_cfg};
 use minhttp::mpserver::{traits::ValidServerSetup, ExternalWorld, PlaneConfig, ServerConfig};
 use pipeline_bridge::OrganismType;
 use quickdna::{DnaSequence, Nucleotide};
@@ -40,7 +41,6 @@ async fn test_hdb() {
         .init();
 
     // 1. Generate a key
-
     let key: KeyShare = {
         let mut stdout: Vec<u8> = vec![];
         genkey::main(&genkey::Opts {}, &mut stdout, &mut vec![]).expect("Generating key failed");
@@ -107,7 +107,7 @@ async fn test_hdb() {
         dna_seq.canonical().to_string()
     }
 
-    let hazards = vec![
+    let hazards = [
         (
             Some(pipeline_bridge::Provenance::WildType),
             &protein_fraglist,
@@ -222,26 +222,30 @@ async fn test_hdb() {
         yubico_api_client_id: None,
         yubico_api_secret_key: None,
         scep_json_size_limit: 100_000,
-        elt_size_limit: 1_000_000,
-        manufacturer_roots: format!("{certs_dir}/manufacturer_roots").into(),
+        et_size_limit: 1_000_000,
+        exemption_roots: format!("{certs_dir}/exemption-roots").into(),
+        manufacturer_roots: format!("{certs_dir}/manufacturer-roots").into(),
+        revocation_list: None,
         token_file: format!("{certs_dir}/database-token.dt").into(),
         keypair_file: format!("{certs_dir}/database-token.priv").into(),
-        keypair_passphrase_file: format!("{certs_dir}/database-passphrase.txt").into(),
+        keypair_passphrase_file: format!("{certs_dir}/database-token.passphrase").into(),
         allow_insecure_cookie: true,
         event_store_path: ":memory:".into(),
     };
     let server_config = Arc::new(ServerConfig {
         main: PlaneConfig {
-            address,
+            address: Some(address),
+            tls_config: None,
             max_connections: PlaneConfig::DEFAULT_MAX_CONNECTIONS,
             custom: app_cfg,
         },
-        monitoring: None,
-        control: None,
+        monitoring: PlaneConfig::default(),
+        control: PlaneConfig::default(),
     });
     let external_world = ExternalWorld {
         listen: default_listen_fn,
         load_cfg: stub_cfg(move || (*server_config).clone()),
+        read_file: read_no_disk,
     };
     let server = hdbserver::server_setup()
         .to_server_setup()
@@ -251,6 +255,8 @@ async fn test_hdb() {
     for k in 0..NUM_KEYHOLDERS.get() {
         let listener = find_unused_port();
         let address = listener.local_addr().unwrap();
+        let keyserver_file_base =
+            PathBuf::from(format!("{certs_dir}/keyserver-token-{:02}", k + 1));
         let app_cfg = keyserver::Config {
             id: KeyserverId::try_from(k + 1).unwrap(),
             keyholders_required: KEYHOLDERS_REQUIRED.get(),
@@ -260,25 +266,28 @@ async fn test_hdb() {
             crypto_parallelism_per_request: None,
             active_security_key: active_security_key.clone(),
             scep_json_size_limit: 100_000,
-            manufacturer_roots: format!("{certs_dir}/manufacturer_roots").into(),
-            token_file: format!("{certs_dir}/keyserver-token-{}.kt", k + 1).into(),
-            keypair_file: format!("{certs_dir}/keyserver-token-{}.priv", k + 1).into(),
-            keypair_passphrase_file: format!("{certs_dir}/keyserver-passphrase.txt").into(),
+            manufacturer_roots: format!("{certs_dir}/manufacturer-roots").into(),
+            revocation_list: None,
+            token_file: keyserver_file_base.with_extension("kt"),
+            keypair_file: keyserver_file_base.with_extension("priv"),
+            keypair_passphrase_file: keyserver_file_base.with_extension("passphrase"),
             allow_insecure_cookie: true,
             event_store_path: ":memory:".into(),
         };
         let server_config = Arc::new(ServerConfig {
             main: PlaneConfig {
-                address,
+                address: Some(address),
+                tls_config: None,
                 max_connections: PlaneConfig::DEFAULT_MAX_CONNECTIONS,
                 custom: app_cfg,
             },
-            monitoring: None,
-            control: None,
+            monitoring: PlaneConfig::default(),
+            control: PlaneConfig::default(),
         });
         let external_world = ExternalWorld {
             listen: default_listen_fn,
             load_cfg: stub_cfg(move || (*server_config).clone()),
+            read_file: read_no_disk,
         };
         let server = keyserver::server_setup()
             .to_server_setup()
@@ -356,12 +365,11 @@ async fn test_hdb() {
                     request_ctx,
                     certs,
                     region,
-                    debug: false,
+                    debug_info: false,
                     sequences: &sequences[..],
                     max_windows: u64::MAX,
                     version_hint: "integration_test".to_owned(),
-                    elt: None,
-                    otp: None,
+                    ets: vec![],
                     server_version_handler: &LastServerVersionHandler::new(
                         {
                             let server_versions = server_versions.clone();

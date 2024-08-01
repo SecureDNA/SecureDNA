@@ -9,9 +9,9 @@ const TARGET_DIR: &str = "target_wasm";
 
 #[cfg(feature = "wasm")]
 fn main() {
-    println!("cargo:rerun-if-changed=certificates/src/");
-    println!("cargo:rerun-if-changed=quickdna/src/");
-    println!("cargo:rerun-if-changed=screening/src/");
+    // TODO: Move the WASM artifact dir out into the workspace target/ so this no longer breaks
+    // incremental compilation.
+    println!("cargo:rerun-if-changed=..");
 
     // Don't run wasm-pack if rust-analyzer is running this build script
     // Note: both these are a bit hackish, and one needs extra configuration

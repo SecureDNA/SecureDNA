@@ -1,6 +1,6 @@
 packages:
   - common
-  - demo_gui
   - elgui
   - onboarding
   - tsgen
+  - web-interface

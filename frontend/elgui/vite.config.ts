@@ -6,15 +6,15 @@
 /// <reference types="vitest" />
 /// <reference types="vite/client" />
 
-import { AliasOptions, ConfigEnv, defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import wasm from "vite-plugin-wasm";
-import topLevelAwait from "vite-plugin-top-level-await";
+import { execSync } from "node:child_process";
+import { resolve } from "node:path";
 import legacy from "@vitejs/plugin-legacy";
-import { viteStaticCopy } from "vite-plugin-static-copy";
+import react from "@vitejs/plugin-react";
+import { type AliasOptions, defineConfig } from "vite";
 import crossOriginIsolation from "vite-plugin-cross-origin-isolation";
-import { resolve } from "path";
-import { execSync } from "child_process";
+import { viteStaticCopy } from "vite-plugin-static-copy";
+import topLevelAwait from "vite-plugin-top-level-await";
+import wasm from "vite-plugin-wasm";
 
 const forwardToTrailingSlash = {
   name: "forward-to-trailing-slash",
@@ -46,7 +46,7 @@ export default () => {
   const branch = execSync("git rev-parse --abbrev-ref HEAD");
   const hash = execSync("git rev-parse HEAD");
 
-  let alias: AliasOptions = {
+  const alias: AliasOptions = {
     src: resolve("./src"),
     "@securedna/frontend_common": resolve(__dirname, "../common/src/index.ts"),
   };
@@ -56,11 +56,11 @@ export default () => {
   if (process.env.VITEST) {
     alias.certificates_wasm = resolve(
       __dirname,
-      "../../crates/wasm_bindings/certificates/pkg/certificates_wasm.js"
+      "../../crates/wasm_bindings/certificates/pkg/certificates_wasm.js",
     );
     alias.quickdna_wasm = resolve(
       __dirname,
-      "../../crates/wasm_bindings/quickdna/pkg/quickdna_wasm.js"
+      "../../crates/wasm_bindings/quickdna/pkg/quickdna_wasm.js",
     );
   }
 
@@ -109,7 +109,7 @@ export default () => {
       rollupOptions: {
         input: {
           approve: resolve(__dirname, "views/approve/index.html"),
-          "inspect-elt": resolve(__dirname, "views/inspect-elt/index.html"),
+          "inspect-et": resolve(__dirname, "views/inspect-et/index.html"),
           request: resolve(__dirname, "views/request/index.html"),
         },
       },

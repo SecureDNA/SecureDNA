@@ -1,7 +1,7 @@
 {
   "name": "quickdna_wasm",
   "description": "WebAssembly bindings for quickdna",
-  "version": "1.0.6-dev",
+  "version": "1.0.7-dev",
   "license": "MIT OR Apache-2.0",
   "files": [
     "quickdna_wasm_bg.wasm",

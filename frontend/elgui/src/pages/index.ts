@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-export { default as InspectElt } from "./InspectElt";
+export { default as InspectEt } from "./InspectEt";
 export { default as ScreeningPerf } from "./ScreeningPerf";
 export { default as ExemptionApprovalForm } from "./approve/ExemptionApprovalForm";
 export { default as ExemptionRequestForm } from "./request/ExemptionRequestForm";
+export { default as SubsetForm } from "./subset/SubsetForm";

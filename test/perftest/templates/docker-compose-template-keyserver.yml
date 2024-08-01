@@ -1,0 +1,15 @@
+  keyserver%KEY%:
+    image: ghcr.io/securedna/${TEST_KS_IMAGE}:${SECUREDNA_TAG}
+    ports:
+      - "53%KEY%:53%KEY%"
+    volumes:
+      - "${TEST_CERTS_PATH:-./test/certs}:/certs/"
+      - "${TEST_CFG_PATH:-./test/cfg}:/cfg/"
+    environment:
+      <<: *keyserver-common-env
+      "SECUREDNA_KEYSERVER_CFG_PATH": "/cfg/%SET%.keyserver-%KEY%.toml"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G

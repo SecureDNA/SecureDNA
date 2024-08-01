@@ -5,10 +5,10 @@
 //! TODO: should maybe be in `certificates`?
 
 use certificates::{
-    Builder, Certificate, CertificateBundle, CertificateChain, DatabaseTokenGroup,
-    DatabaseTokenRequest, Expiration, Infrastructure, IssuerAdditionalFields, KeyAvailable,
-    KeyPair, KeyserverTokenGroup, KeyserverTokenRequest, Manufacturer, RequestBuilder,
-    SynthesizerTokenGroup, SynthesizerTokenRequest, TokenBundle,
+    Builder, Certificate, CertificateBundle, DatabaseTokenGroup, DatabaseTokenRequest, Expiration,
+    Infrastructure, IssuerAdditionalFields, KeyAvailable, KeyPair, KeyserverTokenGroup,
+    KeyserverTokenRequest, Manufacturer, RequestBuilder, SynthesizerTokenGroup,
+    SynthesizerTokenRequest, TokenBundle,
 };
 use doprf::party::KeyserverId;
 
@@ -62,16 +62,14 @@ pub fn make_certs(options: MakeCertsOptions) -> CreatedCerts {
         keyserver_inter_keypair.public_key(),
     )
     .build();
-    let keyserver_inter_cert = infra_root_cert
-        .clone()
-        .load_key(infra_root_keypair.clone())
-        .unwrap()
-        .issue_cert(
+    let keyserver_inter_cert_bundle = infra_root_certbundle
+        .issue_cert_bundle(
             keyserver_inter_cert_req,
             IssuerAdditionalFields {
                 expiration: Expiration::expiring_in_days(60).unwrap(),
                 emails_to_notify: vec![],
             },
+            infra_root_keypair.clone(),
         )
         .unwrap();
 
@@ -79,53 +77,39 @@ pub fn make_certs(options: MakeCertsOptions) -> CreatedCerts {
     let infra_leaf_keypair = KeyPair::new_random();
     let infra_leaf_cert_req =
         RequestBuilder::<Infrastructure>::leaf_v1_builder(infra_leaf_keypair.public_key()).build();
-    let infra_leaf_cert = keyserver_inter_cert
-        .clone()
-        .load_key(keyserver_inter_keypair.clone())
-        .unwrap()
-        .issue_cert(
+    let infra_leaf_cert_bundle = keyserver_inter_cert_bundle
+        .issue_cert_bundle(
             infra_leaf_cert_req,
             IssuerAdditionalFields {
                 expiration: Expiration::expiring_in_days(60).unwrap(),
                 emails_to_notify: vec![],
             },
+            keyserver_inter_keypair,
         )
         .unwrap();
-    let infra_leaf_certbundle = CertificateBundle::<Infrastructure>::new(
-        infra_leaf_cert.clone(),
-        Some(CertificateChain::from_items([
-            infra_root_cert.clone(),
-            keyserver_inter_cert.clone(),
-            infra_leaf_cert.clone(),
-        ])),
-    );
 
     // make keyserver token
     let keyserver_keypair = KeyPair::new_random();
     let keyserver_req =
         KeyserverTokenRequest::v1_token_request(keyserver_keypair.public_key(), keyserver_id);
-    let keyserver_token = infra_leaf_cert
-        .clone()
-        .load_key(infra_leaf_keypair.clone())
-        .unwrap()
-        .issue_keyserver_token(keyserver_req, Expiration::expiring_in_days(60).unwrap())
+    let keyserver_tokenbundle = infra_leaf_cert_bundle
+        .issue_keyserver_token_bundle(
+            keyserver_req,
+            Expiration::expiring_in_days(60).unwrap(),
+            infra_leaf_keypair.clone(),
+        )
         .unwrap();
-    let keyserver_tokenbundle = TokenBundle::<KeyserverTokenGroup>::new(
-        keyserver_token,
-        infra_leaf_certbundle.issue_chain(),
-    );
 
     // make database token
     let database_keypair = KeyPair::new_random();
     let database_req = DatabaseTokenRequest::v1_token_request(database_keypair.public_key());
-    let database_token = infra_leaf_cert
-        .clone()
-        .load_key(infra_leaf_keypair.clone())
-        .unwrap()
-        .issue_database_token(database_req, Expiration::expiring_in_days(60).unwrap())
+    let database_tokenbundle = infra_leaf_cert_bundle
+        .issue_database_token_bundle(
+            database_req,
+            Expiration::expiring_in_days(60).unwrap(),
+            infra_leaf_keypair.clone(),
+        )
         .unwrap();
-    let database_tokenbundle =
-        TokenBundle::<DatabaseTokenGroup>::new(database_token, infra_leaf_certbundle.issue_chain());
 
     // make manufacturer root
     let manu_root_keypair = KeyPair::new_random();
@@ -144,16 +128,14 @@ pub fn make_certs(options: MakeCertsOptions) -> CreatedCerts {
     let manu_inter_cert_req =
         RequestBuilder::<Manufacturer>::intermediate_v1_builder(manu_inter_keypair.public_key())
             .build();
-    let manu_inter_cert = manu_root_cert
-        .clone()
-        .load_key(manu_root_keypair.clone())
-        .unwrap()
-        .issue_cert(
+    let manu_inter_cert_bundle = manu_root_certbundle
+        .issue_cert_bundle(
             manu_inter_cert_req,
             IssuerAdditionalFields {
                 expiration: Expiration::expiring_in_days(60).unwrap(),
                 emails_to_notify: vec![],
             },
+            manu_root_keypair.clone(),
         )
         .unwrap();
 
@@ -161,26 +143,16 @@ pub fn make_certs(options: MakeCertsOptions) -> CreatedCerts {
     let manu_leaf_keypair = KeyPair::new_random();
     let manu_leaf_cert_req =
         RequestBuilder::<Manufacturer>::leaf_v1_builder(manu_leaf_keypair.public_key()).build();
-    let manu_leaf_cert = manu_inter_cert
-        .clone()
-        .load_key(manu_inter_keypair.clone())
-        .unwrap()
-        .issue_cert(
+    let manu_leaf_cert_bundle = manu_inter_cert_bundle
+        .issue_cert_bundle(
             manu_leaf_cert_req,
             IssuerAdditionalFields {
                 expiration: Expiration::expiring_in_days(60).unwrap(),
                 emails_to_notify: vec![],
             },
+            manu_inter_keypair,
         )
         .unwrap();
-    let manu_leaf_certbundle = CertificateBundle::<Manufacturer>::new(
-        manu_leaf_cert.clone(),
-        Some(CertificateChain::from_items([
-            manu_root_cert.clone(),
-            manu_inter_cert.clone(),
-            manu_leaf_cert.clone(),
-        ])),
-    );
 
     // make synthesizer token
     let synth_keypair = KeyPair::new_random();
@@ -192,14 +164,13 @@ pub fn make_certs(options: MakeCertsOptions) -> CreatedCerts {
         1_000,
         None,
     );
-    let synth_token = manu_leaf_cert
-        .clone()
-        .load_key(manu_leaf_keypair.clone())
-        .unwrap()
-        .issue_synthesizer_token(synth_req, Expiration::expiring_in_days(60).unwrap())
+    let synth_tokenbundle = manu_leaf_cert_bundle
+        .issue_synthesizer_token_bundle(
+            synth_req,
+            Expiration::expiring_in_days(60).unwrap(),
+            manu_leaf_keypair.clone(),
+        )
         .unwrap();
-    let synth_tokenbundle =
-        TokenBundle::<SynthesizerTokenGroup>::new(synth_token, manu_leaf_certbundle.issue_chain());
 
     CreatedCerts {
         infra_root_keypair: infra_root_keypair.clone(),

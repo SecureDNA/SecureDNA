@@ -30,8 +30,6 @@ const MAX_REQUEST_BP: usize = 1_000_000;
 // #[cfg(target_arch = "wasm32")]
 // pub use wasm_bindgen_rayon::init_thread_pool;
 
-extern crate console_error_panic_hook;
-
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -90,10 +88,14 @@ extern "C" {
     pub type IScreenConfig;
 }
 
+#[wasm_bindgen(start)]
+pub fn start() {
+    console_error_panic_hook::set_once();
+    tracing_wasm::set_as_global_default();
+}
+
 #[wasm_bindgen]
 pub async fn screen(sequence: JsValue, config: IScreenConfig) -> Result<IApiResponse, String> {
-    console_error_panic_hook::set_once();
-
     let ScreenConfig {
         region,
         enumeration_settings,
@@ -195,8 +197,7 @@ pub async fn screen(sequence: JsValue, config: IScreenConfig) -> Result<IApiResp
         certs: Arc::new(certs),
         provider_reference: Some(format!("wasm_bindings {request_id}")),
         synthclient_version_hint: &format!("wasm_bindings {version}"),
-        elt: None, // TODO: support using ELT for wasm screening?
-        otp: None,
+        ets: vec![], // TODO: support using ET for wasm screening?
         server_version_handler: Default::default(), // don't check server versions in wasm
     };
 

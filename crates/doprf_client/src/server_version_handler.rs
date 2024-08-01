@@ -4,8 +4,9 @@
 use std::future::Future;
 use std::pin::Pin;
 
+use tracing::info;
+
 use crate::error::DoprfError;
-use shared_types::info_with_timestamp;
 
 type DynFuture<T> = Pin<Box<dyn Future<Output = T> + Send + Sync>>;
 type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
@@ -42,12 +43,7 @@ impl LastServerVersionHandler {
 
     pub async fn set_server_version(&self, domain: String, server_version: u64) {
         if let Err(err) = (self.set_version)(domain.clone(), server_version).await {
-            info_with_timestamp!(
-                "error: setting server version {} for {}: {}",
-                server_version,
-                domain,
-                err
-            );
+            info!("error: setting server version {server_version} for {domain}: {err}",);
         }
     }
 }

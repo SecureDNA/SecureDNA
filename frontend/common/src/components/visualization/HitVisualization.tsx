@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import React from "react";
-import { FastaRecordHits, HazardHits, HitRegion } from "../..";
+import type { FastaRecordHits, HazardHits, HitRegion } from "../..";
 import { HitRectangle } from "./HitRectangle";
 
 export interface HitVisualizationProps {
@@ -38,8 +37,8 @@ export const HitVisualization = (props: HitVisualizationProps) => {
     hit.most_likely_organism.ans.includes(hovered) ||
     hit.most_likely_organism.name === hovered;
   const index = allLikelyOrganisms.indexOf(hit.most_likely_organism.name);
-  const top = (index / allLikelyOrganisms.length) * 100 + "%";
-  const bottom = 100 - ((index + 1) / allLikelyOrganisms.length) * 100 + "%";
+  const top = `${(index / allLikelyOrganisms.length) * 100}%`;
+  const bottom = `${100 - ((index + 1) / allLikelyOrganisms.length) * 100}%`;
   const hue = organismHue(index);
   const muted = !selected && hovered !== "";
   return (

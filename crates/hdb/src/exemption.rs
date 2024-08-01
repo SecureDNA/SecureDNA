@@ -5,19 +5,19 @@ use std::collections::HashSet;
 
 use crate::{database::EntryHash, HdbOrganism};
 use certificates::{
-    test_helpers::create_elt_bundle_with_exemptions, ExemptionListTokenGroup, SequenceIdentifier,
+    test_helpers::create_et_bundle_with_exemptions, ExemptionTokenGroup, SequenceIdentifier,
     TokenBundle,
 };
 
 #[derive(Default, Debug)]
 pub struct Exemptions {
-    token_bundles: Vec<TokenBundle<ExemptionListTokenGroup>>,
+    token_bundles: Vec<TokenBundle<ExemptionTokenGroup>>,
     hashes: HashSet<EntryHash>,
 }
 
 impl Exemptions {
     pub fn new_unchecked(
-        token_bundles: Vec<TokenBundle<ExemptionListTokenGroup>>,
+        token_bundles: Vec<TokenBundle<ExemptionTokenGroup>>,
         hashes: HashSet<EntryHash>,
     ) -> Self {
         Exemptions {
@@ -49,15 +49,13 @@ impl Exemptions {
     }
 }
 
-pub fn make_test_elt(
-    organisms: Vec<certificates::Organism>,
-) -> TokenBundle<ExemptionListTokenGroup> {
-    create_elt_bundle_with_exemptions(organisms).0
+pub fn make_test_et(organisms: Vec<certificates::Organism>) -> TokenBundle<ExemptionTokenGroup> {
+    create_et_bundle_with_exemptions(organisms).0
 }
 
 pub fn make_test_exemptions(organisms: Vec<certificates::Organism>) -> Exemptions {
     Exemptions {
-        token_bundles: vec![make_test_elt(organisms)],
+        token_bundles: vec![make_test_et(organisms)],
         hashes: HashSet::new(),
     }
 }
@@ -114,7 +112,7 @@ mod test {
         // This one contains superfluous ANs, but covers the organism:
         assert!(make_test_exemptions(vec![superfluous]).is_organism_exempt(&test_organism));
 
-        // It suffices for any entry of the EL to cover the organism:
+        // It suffices for any entry of the exemption token to cover the organism:
         assert!(make_test_exemptions(vec![exact, irrelevant]).is_organism_exempt(&test_organism));
 
         // Here the ANs don't quite match, but the organism name matches exactly:

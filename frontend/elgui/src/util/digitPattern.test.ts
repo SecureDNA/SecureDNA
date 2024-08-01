@@ -9,23 +9,23 @@ import { fitToDigitPattern } from "./digitPattern";
 describe("fitToDigitPattern", () => {
   test("fits digit strings to patterns", () => {
     expect(fitToDigitPattern("1234567", { pattern: "00-00-000" })).toEqual(
-      "12-34-567"
+      "12-34-567",
     );
     expect(fitToDigitPattern("123456789", { pattern: "00-00-000" })).toEqual(
-      "12-34-567"
+      "12-34-567",
     );
     expect(fitToDigitPattern("1234", { pattern: "00-00-000" })).toEqual(
-      "12-34"
+      "12-34",
     );
     expect(fitToDigitPattern("2023 0830", { pattern: "0000/00/00" })).toEqual(
-      "2023/08/30"
+      "2023/08/30",
     );
 
     expect(fitToDigitPattern(" .12/34'[5", { pattern: "00(0)00" })).toEqual(
-      "12(3)45"
+      "12(3)45",
     );
     expect(fitToDigitPattern("digit is 8 here", { pattern: "pat 0" })).toEqual(
-      "pat 8"
+      "pat 8",
     );
   });
 
@@ -35,14 +35,14 @@ describe("fitToDigitPattern", () => {
         pattern: "00-00-00",
         digitRegex: /[0-9A-F]/gi,
         transform: "uppercase",
-      })
+      }),
     ).toEqual("12-3A-BC");
     expect(
       fitToDigitPattern("123xyaBc", {
         pattern: "00-00-00",
         digitRegex: /[0-9A-F]/gi,
         transform: "lowercase",
-      })
+      }),
     ).toEqual("12-3a-bc");
   });
 

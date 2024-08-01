@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { ApiResponse } from "@securedna/frontend_common";
-import { FastaFile } from "src/types";
+import type { ApiResponse } from "@securedna/frontend_common";
+import type { FastaFile } from "src/types";
 import screeningWorkerUrl from "./worker?url";
 
 export type ScreeningProgress =
@@ -17,11 +17,10 @@ let num = 0;
 export async function performScreening(
   args: {
     sequence: string | FastaFile;
-    apiKey: string;
   },
-  callback: (progress: ScreeningProgress) => void
+  callback: (progress: ScreeningProgress) => void,
 ): Promise<void> {
-  const { sequence, apiKey } = args;
+  const { sequence } = args;
   const url = new URL(screeningWorkerUrl, import.meta.url);
   const screenWorker = new Worker(url, { type: "module" });
 
@@ -34,6 +33,6 @@ export async function performScreening(
   const channel = new MessageChannel();
   channel.port2.onmessage = (e) => callback(e.data);
 
-  const message = { command: "screen", requestId, apiKey, sequence };
+  const message = { command: "screen", requestId, sequence };
   screenWorker.postMessage(message, [channel.port1]);
 }

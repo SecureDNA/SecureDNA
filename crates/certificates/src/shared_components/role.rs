@@ -19,7 +19,7 @@ use crate::certificate::{
 /// This trait represents the role or 'family type' of a certificate.
 /// Certificates are only able to issue other certificates that have an identical role.
 /// The type of token that can  be issued by a certificate is also constrained by its role.
-/// For example, only certificates with the `Exemption` role can issue `Exemption List Tokens`.
+/// For example, only certificates with the `Exemption` role can issue `Exemption Tokens`.
 pub trait Role:
     Debug + Clone + PartialEq + Eq + Hash + PartialOrd + Ord + AsnCompatible + Serialize + Default
 {
@@ -98,7 +98,7 @@ impl<R: Role> Decode for RoleGuard<R> {
     }
 }
 
-/// The role held by the chain of certificates responsible for issuing exemption list tokens.
+/// The role held by the chain of certificates responsible for issuing exemption tokens.
 #[derive(
     AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Default,
 )]

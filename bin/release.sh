@@ -52,8 +52,12 @@ then
     exit 1
 fi
 
-echo "=== Pulling newest HEAD === "
-git pull origin "$GIT_BRANCH"
+echo "=== You are on commit ==="
+git log -1
+if ! ask "Do you wish to continue? "
+then
+    exit 1
+fi
 
 GIT_SHA=$(git rev-parse --short HEAD)
 

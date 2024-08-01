@@ -1,0 +1,11 @@
+[main]
+address = "0.0.0.0:5301"
+id = 1
+keyholders_required = 1
+keyshare = "31c863fab331e00437f7282c5cf19bd2138edac3ecce19ff39ad1f516e91f403"
+active_security_key = ["3ec06d4dd53cda99961a28931dbec75d5b771ee38d624b99fb23a3ccc6043751"]
+manufacturer_roots = "../certs/manufacturer-roots"
+token_file = "../certs/keyserver-token-01.kt"
+keypair_file = "../certs/keyserver-token-01.priv"
+keypair_passphrase_file = "../certs/keyserver-token-01.passphrase"
+allow_insecure_cookie = true

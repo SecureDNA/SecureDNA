@@ -239,9 +239,8 @@ impl RandomizedTarget {
         RISTRETTO_BASEPOINT_POINT * self.random_modifier - point_sum
     }
 
-    pub fn validate_responses(&self, hashes: &[RistrettoPoint]) -> bool {
-        let sum = hashes.iter().sum();
-        self.target.0 == sum
+    pub fn validate_responses(&self, verifier: &RistrettoPoint) -> bool {
+        self.target.0 == *verifier
     }
 
     pub fn is_keyserver_response_valid(

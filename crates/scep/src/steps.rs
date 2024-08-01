@@ -6,7 +6,11 @@ use std::{cmp::Ordering, collections::HashSet, future::Future};
 use anyhow::Context;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use shared_types::hash::HashSpec;
+use shared_types::{
+    error::{InvalidClientTokenBundle, InvalidInfrastructureTokenBundle},
+    et::WithOtps,
+    hash::HashSpec,
+};
 use tracing::{info, trace};
 
 use super::mutual_authentication;
@@ -14,21 +18,22 @@ use crate::{
     error::{self, ScepError},
     nonce::{ClientNonce, ServerNonce},
     states::{
-        EltState, InitializedClientState, OpenedClientState, ServerStateForAuthenticatedClient,
+        EtState, InitializedClientState, OpenedClientState, ServerStateForAuthenticatedClient,
         ServerStateForClient, ServerStateForOpenedClient,
     },
     types::{
         AuthenticateRequest, ClientRequestType, OpenRequest, OpenResponse, ScreenCommon,
-        ScreenWithElParams,
+        ScreenWithExemptionParams,
     },
 };
+use certificates::revocation::RevocationList;
 use certificates::{
     key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded},
-    ExemptionListTokenGroup,
+    Infrastructure,
 };
 use certificates::{
-    ChainTraversal, DatabaseTokenGroup, Issued, KeyPair, KeyserverTokenGroup, PublicKey,
-    SynthesizerTokenGroup, TokenBundle, TokenGroup,
+    ChainTraversal, DatabaseTokenGroup, ExemptionTokenGroup, Issued, KeyPair, KeyserverTokenGroup,
+    PublicKey, SynthesizerTokenGroup, TokenBundle, TokenGroup,
 };
 use doprf::{
     party::{KeyserverId, KeyserverIdSet},
@@ -42,6 +47,7 @@ pub fn client_initialize(
     nucleotide_total_count: u64,
     last_server_version: Option<u64>,
     keyserver_id_set: KeyserverIdSet,
+    debug_info: bool,
 ) -> (OpenRequest, InitializedClientState) {
     let client_nonce: ClientNonce = rand::thread_rng().gen();
 
@@ -53,6 +59,7 @@ pub fn client_initialize(
         cert_chain: cert_chain.clone(),
         nucleotide_total_count,
         keyserver_id_set,
+        debug_info,
     };
 
     let client_state = InitializedClientState {
@@ -111,13 +118,15 @@ where
 
     // check cert has a valid root path
     // DO NOT check if cert is revoked yet!
-    if request
+    request
         .cert_chain
         .validate_path_to_issuers(issuer_pks, None)
-        .is_err()
-    {
-        return Err(error::ServerPrevalidation::InvalidCert.into());
-    }
+        .map_err(|error| {
+            error::ServerPrevalidation::InvalidCert(InvalidClientTokenBundle {
+                error,
+                token_kind: certificates::TokenKind::Synthesizer,
+            })
+        })?;
 
     // TODO: check NTC (what does that entail?)
 
@@ -177,9 +186,8 @@ fn client_prevalidate_and_mutual_auth<ServerTokenKind>(
     ) -> Result<(), ScepError<error::ClientPrevalidation>>,
 ) -> Result<OpenedClientState, ScepError<error::ClientPrevalidation>>
 where
-    ServerTokenKind: TokenGroup + std::fmt::Debug,
+    ServerTokenKind: TokenGroup<AssociatedRole = Infrastructure> + std::fmt::Debug,
     ServerTokenKind::Token: CanLoadKey + std::fmt::Debug,
-    ServerTokenKind::AssociatedRole: std::fmt::Debug,
     ServerTokenKind::ChainType: std::fmt::Debug,
 {
     // check version *before* we try to parse as something specific
@@ -205,15 +213,19 @@ where
         .context("while parsing the server response")
         .map_err(ScepError::InvalidMessage)?;
 
-    // check cert has a valid root path
-    // DO NOT check if cert is revoked yet!
-    if open_response
+    // We verify the cert has a valid path to root but intentionally delay checking
+    // for revocations until we know the client possesses the appropriate private key,
+    // in order to avoid leaking revocations to random unauthenticated strangers.
+    open_response
         .cert_chain
         .validate_path_to_issuers(issuer_pks, None)
-        .is_err()
-    {
-        return Err(error::ClientPrevalidation::InvalidCert.into());
-    }
+        .map_err(|error| {
+            error::ClientPrevalidation::InvalidCert(InvalidInfrastructureTokenBundle {
+                error,
+                token_kind: ServerTokenKind::token_kind(),
+                roots: issuer_pks.to_vec(),
+            })
+        })?;
 
     // check that server mutual auth is valid
     let server_mutual_auth = mutual_authentication::generate_server_mutual_auth(
@@ -325,6 +337,8 @@ pub async fn server_authenticate_client<
     authenticate_request: serde_json::Value,
     client_state: ServerStateForClient,
     server_version: u64,
+    issuer_pks: &[PublicKey],
+    revocation_list: &RevocationList,
     get_client_screened_last_day: GetScreenedLastDay,
     record_rate_limit_exceedance: RecordExceedance,
 ) -> Result<ServerStateForClient, ScepError<error::ServerAuthentication>>
@@ -368,6 +382,19 @@ where
         .token
         .verify(client_mutual_auth.as_ref(), &authenticate_request.sig)?;
 
+    // Check cert has a valid root path while taking revoked certs into account; note that it's
+    // important to only do this AFTER authentication, to avoid acting as a revocation oracle.
+    client_state
+        .open_request
+        .cert_chain
+        .validate_path_to_issuers(issuer_pks, Some(revocation_list))
+        .map_err(|error| {
+            error::ServerAuthentication::RevokedCert(InvalidClientTokenBundle {
+                error,
+                token_kind: certificates::TokenKind::Synthesizer,
+            })
+        })?;
+
     if client_htc_unreasonable(
         authenticate_request.hash_total_count,
         client_state.open_request.nucleotide_total_count,
@@ -407,9 +434,9 @@ where
         record_rate_limit_exceedance(client_mid, attempted_bp).await;
         Err(ScepError::RateLimitExceeded { limit_bp })
     } else {
-        let elt_state = match &client_state.open_request.request_type {
-            ClientRequestType::ScreenWithEl(_) => EltState::AwaitingEltSize,
-            _ => EltState::NoElt,
+        let et_state = match &client_state.open_request.request_type {
+            ClientRequestType::ScreenWithExemption(_) => EtState::AwaitingEtSize,
+            _ => EtState::NoEt,
         };
         Ok(ServerStateForClient::Authenticated(
             ServerStateForAuthenticatedClient {
@@ -417,7 +444,7 @@ where
                 open_request: client_state.open_request,
                 server_nonce: client_state.server_nonce,
                 hash_total_count: authenticate_request.hash_total_count,
-                elt_state,
+                et_state,
             },
         ))
     }
@@ -463,7 +490,7 @@ pub fn server_keyserve_client(
     Ok(client_state.open_request.keyserver_id_set)
 }
 
-/// Code for the `screen` and `ELT-screen-hashes` endpoints.
+/// Code for the `screen` and `exemption-screen-hashes` endpoints.
 pub fn server_screen_client(
     hash_count_from_content_len: u64,
     client_state: ServerStateForClient,
@@ -477,15 +504,15 @@ pub fn server_screen_client(
 
     let params = match (
         &client_state.open_request.request_type,
-        &client_state.elt_state,
+        &client_state.et_state,
     ) {
-        (ClientRequestType::Screen(params), EltState::NoElt) => params.clone(),
-        (ClientRequestType::ScreenWithEl(params), EltState::EltReady { .. }) => params.clone(),
-        (ClientRequestType::ScreenWithEl(_), EltState::EltNeedsHashes { .. }) => {
-            return Err(error::Screen::ScreenBeforeEltHashes.into())
+        (ClientRequestType::Screen(params), EtState::NoEt) => params.clone(),
+        (ClientRequestType::ScreenWithExemption(params), EtState::EtReady { .. }) => params.clone(),
+        (ClientRequestType::ScreenWithExemption(_), EtState::EtNeedsHashes { .. }) => {
+            return Err(error::Screen::ScreenBeforeEtHashes.into())
         }
-        (ClientRequestType::ScreenWithEl(_), _) => {
-            return Err(error::Screen::ScreenBeforeElt.into())
+        (ClientRequestType::ScreenWithExemption(_), _) => {
+            return Err(error::Screen::ScreenBeforeEt.into())
         }
         (request_type, _) => {
             return Err(error::Screen::WrongRequestType(request_type.clone()).into())
@@ -503,9 +530,9 @@ pub fn server_screen_client(
     Ok((params, client_state))
 }
 
-/// Code for the `screen-with-EL` endpoint.
+/// Code for the `screen-with-exemption` endpoint.
 pub fn server_screen_with_el_client(
-    params: ScreenWithElParams,
+    params: ScreenWithExemptionParams,
     client_state: ServerStateForClient,
 ) -> Result<ServerStateForAuthenticatedClient, ScepError<error::ScreenWithEL>> {
     let ServerStateForClient::Authenticated(mut client_state) = client_state else {
@@ -514,88 +541,90 @@ pub fn server_screen_with_el_client(
 
     if !matches!(
         &client_state.open_request.request_type,
-        ClientRequestType::ScreenWithEl { .. }
+        ClientRequestType::ScreenWithExemption { .. }
     ) {
         return Err(
             error::ScreenWithEL::WrongRequestType(client_state.open_request.request_type).into(),
         );
     }
 
-    match &client_state.elt_state {
-        EltState::AwaitingEltSize => {
-            client_state.elt_state = EltState::PromisedElt {
-                elt_size: params.elt_size,
-                otp: params.otp,
+    match &client_state.et_state {
+        EtState::AwaitingEtSize => {
+            client_state.et_state = EtState::PromisedEt {
+                et_size: params.et_size,
             };
         }
-        EltState::NoElt
-        | EltState::PromisedElt { .. }
-        | EltState::EltNeedsHashes { .. }
-        | EltState::EltReady { .. } => return Err(error::ScreenWithEL::WrongEltState.into()),
+        EtState::NoEt
+        | EtState::PromisedEt { .. }
+        | EtState::EtNeedsHashes { .. }
+        | EtState::EtReady { .. } => return Err(error::ScreenWithEL::WrongEtState.into()),
     };
 
     Ok(client_state)
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct EltEndpointResponse {
+pub struct EtEndpointResponse {
     pub needs_hashes: bool,
 }
 
-/// Code for the `ELT` endpoint.
-pub fn server_elt_client(
-    elt_body: bytes::Bytes,
+/// Code for the `exemption` endpoint.
+pub fn server_et_client(
+    et_body: bytes::Bytes,
     client_state: ServerStateForClient,
-) -> Result<(ServerStateForAuthenticatedClient, EltEndpointResponse), ScepError<error::ELT>> {
+) -> Result<(ServerStateForAuthenticatedClient, EtEndpointResponse), ScepError<error::ET>> {
     let ServerStateForClient::Authenticated(mut client) = client_state else {
-        return Err(error::ELT::ClientNotAuthenticated.into());
+        return Err(error::ET::ClientNotAuthenticated.into());
     };
 
-    let EltState::PromisedElt { elt_size, otp } = client.elt_state else {
-        return Err(error::ELT::WrongEltState.into());
+    let EtState::PromisedEt { et_size } = client.et_state else {
+        return Err(error::ET::WrongEtState.into());
     };
 
-    if Ok(elt_size) != elt_body.len().try_into() {
-        return Err(error::ELT::SizeMismatch.into());
+    if Ok(et_size) != et_body.len().try_into() {
+        return Err(error::ET::SizeMismatch.into());
     }
 
-    let elt = TokenBundle::<ExemptionListTokenGroup>::from_wire_format(elt_body)
-        .map_err(error::ELT::DecodeError)?;
+    let ets: Vec<WithOtps<String>> =
+        serde_json::from_slice(&et_body).map_err(error::ET::JsonDecodeError)?;
 
-    let needs_hashes = elt.token.has_dna_sequences();
-    client.elt_state = if needs_hashes {
-        EltState::EltNeedsHashes {
-            elt: elt.into(),
-            otp,
-        }
+    type Et = WithOtps<TokenBundle<ExemptionTokenGroup>>;
+    let ets: Result<Vec<Et>, _> = ets
+        .iter()
+        .map(|et| et.clone().try_map(TokenBundle::from_file_contents))
+        .collect();
+    let ets = ets.map_err(error::ET::PemDecodeError)?;
+
+    let needs_hashes = ets.iter().any(|et| et.et.token.has_dna_sequences());
+    client.et_state = if needs_hashes {
+        EtState::EtNeedsHashes { ets }
     } else {
-        EltState::EltReady {
-            elt: elt.into(),
-            otp,
+        EtState::EtReady {
+            ets,
             hashes: Default::default(),
         }
     };
 
-    let response = EltEndpointResponse { needs_hashes };
+    let response = EtEndpointResponse { needs_hashes };
     Ok((client, response))
 }
 
-/// Code for the `ELT-seq-hashes` endpoint.
-pub fn server_elt_seq_hashes_client(
+/// Code for the `exemption-seq-hashes` endpoint.
+pub fn server_et_seq_hashes_client(
     hashes: impl IntoIterator<Item = CompletedHashValue>,
     client_state: ServerStateForClient,
-) -> Result<ServerStateForAuthenticatedClient, ScepError<error::EltSeqHashes>> {
+) -> Result<ServerStateForAuthenticatedClient, ScepError<error::EtSeqHashes>> {
     let ServerStateForClient::Authenticated(mut client) = client_state else {
-        return Err(error::EltSeqHashes::ClientNotAuthenticated.into());
+        return Err(error::EtSeqHashes::ClientNotAuthenticated.into());
     };
 
-    let EltState::EltNeedsHashes { elt, otp } = client.elt_state else {
-        return Err(error::EltSeqHashes::WrongEltState.into());
+    let EtState::EtNeedsHashes { ets } = client.et_state else {
+        return Err(error::EtSeqHashes::WrongEtState.into());
     };
 
     let hashes: HashSet<[u8; 32]> = hashes.into_iter().map(Into::into).collect();
 
-    client.elt_state = EltState::EltReady { elt, otp, hashes };
+    client.et_state = EtState::EtReady { ets, hashes };
 
     Ok(client)
 }

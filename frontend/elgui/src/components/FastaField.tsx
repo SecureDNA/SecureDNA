@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { Field, FieldProps, useFormikContext } from "formik";
+import { Field, type FieldProps, useFormikContext } from "formik";
 import * as wasm from "quickdna_wasm";
 import { useRef, useState } from "react";
 import { toast } from "react-hot-toast";
-import { FastaFile } from "src/types";
+import type { FastaFile } from "src/types";
 
 import { Button } from "./Button";
 import { FormTextArea } from "./FormInput";
@@ -51,7 +51,7 @@ const FastaModal = (props: FastaModalProps) => {
             />
             <PrimaryButton
               type="button"
-              onClick={function (): void | Promise<any> {
+              onClick={(): undefined | Promise<any> => {
                 const result = wasm.parse_fasta(field.value);
                 if (typeof result === "string") {
                   form.setErrors({ fastaEditor: result });
@@ -85,7 +85,7 @@ export function describeRecords(records: FastaFile["records"]): JSX.Element {
   const bp = records.reduce((a, r) => a + r.contents.length, 0);
   let firstHeader = records[0]?.header?.trim() || "";
   if (firstHeader.length > 30) {
-    firstHeader = firstHeader.slice(0, 30) + "…";
+    firstHeader = `${firstHeader.slice(0, 30)}…`;
   }
   const n = records.length;
   let summary: JSX.Element;
@@ -175,7 +175,7 @@ export const FastaField = (props: FastaFieldProps) => {
         </div>
       ) : (
         <div className="flex flex-row">
-          <div className="flex-1 text-center bg-black/5 px-2 py-2 rounded">
+          <div className="flex-1 text-center bg-primary/10 border-primary border px-2 py-2 rounded">
             {description}
           </div>
           <div className="flex ml-2">

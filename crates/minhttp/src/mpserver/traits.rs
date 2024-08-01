@@ -9,10 +9,10 @@
 
 use std::future::Future;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 
-use futures::Stream;
+use futures::{future::Either, Stream};
 use hyper::{body::Incoming, Request};
 use sha2::Sha256;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -119,6 +119,16 @@ where
     type Future = Fut;
 }
 
+/// Make [`ResponseFn`] from [`Either`] of two [`ResponseFn`]s.
+pub fn either_response_fn<AS>(
+    respond: Either<impl ResponseFn<AS>, impl ResponseFn<AS>>,
+) -> impl ResponseFn<AS> {
+    |app_state, peer_addr, request| match respond {
+        Either::Left(respond) => Either::Left(respond(app_state, peer_addr, request)),
+        Either::Right(respond) => Either::Right(respond(app_state, peer_addr, request)),
+    }
+}
+
 /// Application config containing inert info to be interepreted as [`AppState`].
 ///
 /// This is produced by [`LoadConfigFn`] (usually from reading and parsing a file),
@@ -193,13 +203,17 @@ impl<T> ConnectionState for T where T: Send + 'static {}
 
 /// Short-hand for checking that an [`ExternalWorld`]'s callbacks are valid and fit together.
 pub trait ValidExternalWorld<AC> {
-    fn to_external_world(self) -> ExternalWorld<impl ListenFn, impl LoadConfigFn<AC>>;
+    fn to_external_world(
+        self,
+    ) -> ExternalWorld<impl ListenFn, impl LoadConfigFn<AC>, impl ReadFileFn>;
 }
 
-impl<AC, Listen: ListenFn, LoadConfig: LoadConfigFn<AC>> ValidExternalWorld<AC>
-    for ExternalWorld<Listen, LoadConfig>
+impl<AC, Listen: ListenFn, LoadConfig: LoadConfigFn<AC>, ReadFile: ReadFileFn>
+    ValidExternalWorld<AC> for ExternalWorld<Listen, LoadConfig, ReadFile>
 {
-    fn to_external_world(self) -> ExternalWorld<impl ListenFn, impl LoadConfigFn<AC>> {
+    fn to_external_world(
+        self,
+    ) -> ExternalWorld<impl ListenFn, impl LoadConfigFn<AC>, impl ReadFileFn> {
         self
     }
 }
@@ -299,6 +313,28 @@ where
     type Error = E;
 }
 
+/// Similar to `async fn(PathBuf) -> std::io::Result<Vec<u8>>`
+///
+/// [`ReadFileFn`] is used by [`ExternalWorld`] to control how the server reads small files.
+/// It is not yet used.
+///
+/// Most applications will want to supply [`tokio::fs::read`] as the [`ReadFileFn`] implementation.
+///
+/// NOTE: While it'd be better to accept a [`&Path`](std::path::Path) instead of a [`PathBuf`],
+/// doing so requires some some surprisingly tricky lifetime wrangling involving GATs, so I've
+/// skipped that for now.
+pub trait ReadFileFn: 'static + Clone + Send + FnOnce(PathBuf) -> Self::Future {
+    type Future: Send + Future<Output = std::io::Result<Vec<u8>>>;
+}
+
+impl<F, Fut> ReadFileFn for F
+where
+    F: 'static + Clone + Send + FnOnce(PathBuf) -> Fut,
+    Fut: Send + Future<Output = std::io::Result<Vec<u8>>>,
+{
+    type Future = Fut;
+}
+
 /// Allows a config to have its paths updated to be relative to a given directory.
 pub trait RelativeConfig: Sized {
     /// Consume self, returning version of config with its paths updated to be relative to `base`
@@ -306,3 +342,5 @@ pub trait RelativeConfig: Sized {
         self
     }
 }
+
+impl RelativeConfig for () {}
