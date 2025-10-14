@@ -1,9 +1,7 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::marker::PhantomData;
-
-use doprf::prf::{Query, QueryStateSet};
 
 use crate::{error::DeserializeError, packable::PackableRistretto};
 
@@ -160,6 +158,12 @@ impl<T: PackableRistretto> PackedRistrettos<T> {
     }
 }
 
+impl<T: PackableRistretto> Default for PackedRistrettos<T> {
+    fn default() -> Self {
+        Self::from(vec![])
+    }
+}
+
 impl<T: PackableRistretto> serde::Serialize for PackedRistrettos<T> {
     fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
     where
@@ -188,13 +192,13 @@ impl<T: PackableRistretto> From<Vec<T::Array>> for PackedRistrettos<T> {
 
 impl<T: PackableRistretto, A: Into<T::Array>> FromIterator<A> for PackedRistrettos<T> {
     fn from_iter<I: IntoIterator<Item = A>>(iter: I) -> Self {
-        Self::new(iter.into_iter().map(|a| a.into()).collect())
+        Self::new(iter.into_iter().map(Into::into).collect())
     }
 }
 
-impl From<&QueryStateSet> for PackedRistrettos<Query> {
-    fn from(value: &QueryStateSet) -> Self {
-        value.queries().collect()
+impl<T: PackableRistretto, A: Into<T::Array>> Extend<A> for PackedRistrettos<T> {
+    fn extend<I: IntoIterator<Item = A>>(&mut self, iter: I) {
+        self.items.extend(iter.into_iter().map(Into::into));
     }
 }
 

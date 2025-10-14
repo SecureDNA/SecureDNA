@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -12,53 +12,36 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import App from "./App";
 import { etBundlePemToJsObject } from "./util/sign_etr";
 
+import fs from "node:fs";
+import path from "node:path";
+
 // Patch in crypto.subtle for the Node test environment.
 const crypto = require("node:crypto");
 Object.defineProperty(globalThis.crypto, "subtle", {
   value: crypto.webcrypto.subtle,
 });
 
-const cert1234Pem: string = `-----BEGIN SECUREDNA EXEMPTION CERTIFICATE-----
-MIIBZqKCAWIwggFeoIIBGKAHgAVMRUFGMYEJRVhFTVBUSU9OooIBAKCBj4ARRVhF
-TVBUSU9OU1VCSkVDVDGBEH2isSL3AlXUZZg6D+t5sQCCIKQJCuWZRgfb7vnP9upJ
-YUewga1ITmzHx0SjwRl01R0aoxqABEphY2uBEmphY2tAc2VjdXJlZG5hLm9yZ6Qn
-DBJiaWxsQHNlY3VyZWRuYS5vcmcMEWJvYkBzZWN1cmVkbmEub3JnhQEAoWyAB0lT
-U1VFUjGBEBbfpiDooxMyAm+aPVLChhSiPoAgRZ3zAm9LbmDH/mNHCvxfSUg1epzm
-ywZ05H/hnlbVn7aBGkphbWVzLCBqYW1lc0BzZWN1cmVkbmEub3Jnow2ABGX+Z8GB
-BQEh9oXBpACBQFSQYFzeC/t3YzPBOxk7vYLAdloT5nkajifzPjPOhT1ztlnL85Kq
-BjAPwe3KrL+sLqKENxEENOxEM7Y5jMyRQwg=
------END SECUREDNA EXEMPTION CERTIFICATE-----
+const exemptionLeafCert = fs.readFileSync(
+  path.resolve(__dirname, "../../../test/certs/exemption-leaf.cert"),
+  { encoding: "utf-8" },
+);
 
------BEGIN SECUREDNA EXEMPTION CERTIFICATE CHAIN-----
-MIIBPjCCATqhggE2MIIBMqCB7aAGgARJTlQxgQlFWEVNUFRJT06igdegaoARRVhF
-TVBUSU9OU1VCSkVDVDGBECDtc3kftVqNb1PX1OOYkGuCIEWd8wJvS25gx/5jRwr8
-X0lINXqc5ssGdOR/4Z5W1Z+2oxyABUphbWVzgRNqYW1lc0BzZWN1cmVkbmEub3Jn
-pACFAQChaYAHSVNTVUVSMYEQRJKrOx5j6IRTjanEd4pBPaI8gCCJmOdLRO1IN5iL
-j7+6zkLYr4TNeWdvhvlLZOQgP8SaXoEYRnJhbiwgZnJhbkBzZWN1cmVkbmEub3Jn
-owyABGX+Z7SBBGYjUbSkAIFAB1/9QSK1jo1rJZVqzyk2VxLxUquhSj5jdmWJqCPp
-OvgMHHvi8lyXBhJfFkgBzjJAhmzdhZD28nWM/IMRLEb3DA==
------END SECUREDNA EXEMPTION CERTIFICATE CHAIN-----`;
+const exemptionLeafPriv = fs.readFileSync(
+  path.resolve(__dirname, "../../../test/certs/exemption-leaf.priv"),
+  { encoding: "utf-8" },
+);
 
-const priv1234Pem: string = `-----BEGIN SECUREDNA ENCRYPTED PRIVATE KEY-----
-MIHEMGAGCSqGSIb3DQEFDTBTMDIGCSqGSIb3DQEFDDAlBBB/EEX9YGLjm3Du5m2U
-rqVPAgMBhqAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEAxEM8fbSGJHgcAJ
-3huClX4EYBZo0rFJyrE+2+uAkaMaFIM/TSxsCrIFVWNzRMaGN90uYzfi/xNoJZ3E
-g/GzY8X1FE+QZmfY1xXOzVFqaC89FYJ41qqXAAXWfZ8kCF98zATSZLJ2WHihDNI2
-D1ibYopH3g==
------END SECUREDNA ENCRYPTED PRIVATE KEY-----`;
+const testSt = fs.readFileSync(
+  path.resolve(__dirname, "../../../test/certs/synthesizer-token.st"),
+  { encoding: "utf-8" },
+);
 
-const researcherPriv: string = `-----BEGIN SECUREDNA ENCRYPTED PRIVATE KEY-----
-MIHEMGAGCSqGSIb3DQEFDTBTMDIGCSqGSIb3DQEFDDAlBBBX++QDKnIgAS2KkzMw
-/207AgMBhqAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEED6BoIB5WUZW0t0z
-ZwxffP8EYErknFmAb8+Eh5Cb76lnPWIo3nn0DBiKWoBsAe+Q/Gl4IJG5BbEbP4a3
-ekklxSoYQFKfUsuhtT57YdIrmNlGvMIE70Zfji7opVbXtAQ7jzEzJqDQfWThDG98
-5ktB6KthcQ==
------END SECUREDNA ENCRYPTED PRIVATE KEY-----`;
+const testStPriv = fs.readFileSync(
+  path.resolve(__dirname, "../../../test/certs/synthesizer-token.priv"),
+  { encoding: "utf-8" },
+);
 
-const researcherPub: string = `2c1aee0592406e75266ab8a44fcfea8d2f2f51cfb229512ace7be0ed617c2ac7
------BEGIN SECUREDNA PUBLIC KEY-----
-BCAsGu4FkkBudSZquKRPz+qNLy9Rz7IpUSrOe+DtYXwqxw==
------END SECUREDNA PUBLIC KEY-----`;
+const testStPassphrase = "test";
 
 describe("ELGUI", () => {
   let downloadedFile:
@@ -97,7 +80,7 @@ describe("ELGUI", () => {
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
   });
 
-  test("end-to-end test", { timeout: 40000 }, async () => {
+  test("end-to-end test", { timeout: 40_000 }, async () => {
     const user = userEvent.setup();
     render(<App />);
 
@@ -150,14 +133,17 @@ describe("ELGUI", () => {
     {
       // Some organisms:
       const organismName = screen.getByLabelText("Name");
-      await user.type(organismName, "SARS-CoV-2");
+      await user.type(organismName, "Chapare");
       await user.keyboard("{Enter}");
+
+      expect(screen.getByText(/GCA_000879235\.1/)).toBeInTheDocument();
+      expect(screen.getByText(/NC_010563\.1/)).toBeInTheDocument();
 
       // This should be harmless -- and *not* submit the whole form.
       await user.keyboard("{Enter}");
 
-      expect(screen.getByText(/GCA_009858895\.3/)).toBeInTheDocument();
-      expect(screen.getByText(/NC_045512\.2/)).toBeInTheDocument();
+      expect(screen.getByText(/GCA_000879235\.1/)).toBeInTheDocument();
+      expect(screen.getByText(/NC_010563\.1/)).toBeInTheDocument();
     }
 
     {
@@ -212,9 +198,9 @@ describe("ELGUI", () => {
     await screen.findByText(/test@example\.org/);
     screen.getByText(/Spain/);
     screen.getByText(/\bcccccccccccc\b/);
-    screen.getByText(/SARS-CoV-2/);
-    screen.getByText(/GCA_009858895\.3/);
-    screen.getByText(/NC_045512\.2/);
+    screen.getByText(/Chapare/);
+    screen.getByText(/GCA_000879235\.1/);
+    screen.getByText(/NC_010563\.1/);
     screen.getByText(/T44444/);
     screen.getByText(/CP005080\.1/);
     const copyFasta = screen.getByRole("button", { name: "Copy FASTA" });
@@ -224,12 +210,17 @@ describe("ELGUI", () => {
     expect(fasta).toEqual(">\nAAAAA");
 
     await user.upload(
-      document.body.querySelector('input[type=file][accept=".cert"]')!,
-      new File([cert1234Pem], "my.cert"),
+      document.body.querySelector('input[type=file][accept=".st"]')!,
+      new File([testSt], "test.st"),
     );
+    await user.upload(
+      document.body.querySelector('input[type=file][accept=".priv"]')!,
+      new File([testStPriv], "test.priv"),
+    );
+    user.type(screen.getByLabelText(/passphrase/i), `${testStPassphrase}[Tab]`);
 
     const nextButton = screen.getByRole("button", { name: /Next/ });
-    expect(nextButton).toBeEnabled();
+    await waitFor(() => expect(nextButton).toBeEnabled());
     await user.click(nextButton);
 
     const signToken = await screen.findByRole("button", {
@@ -240,11 +231,16 @@ describe("ELGUI", () => {
     await screen.findByText(/Final summary/);
     await user.upload(
       document.body.querySelector('input[type=file][accept=".priv"]')!,
-      new File([priv1234Pem], "my.priv"),
+      new File([exemptionLeafPriv], "my.priv"),
     );
-    await user.type(screen.getByPlaceholderText(/Passphrase/), "1234");
-    const signButton = screen.getByRole("button", { name: /Sign and/ });
-    expect(signButton).toBeEnabled();
+    await user.upload(
+      document.body.querySelector('input[type=file][accept=".cert"]')!,
+      new File([exemptionLeafCert], "my.manufacturer.cert"),
+    );
+    await user.type(screen.getByLabelText(/passphrase/i), "test[Tab]");
+    const signButton = screen.getByRole("button", { name: /sign and/i });
+    const feedback = screen.findByTestId("auth-feedback");
+    await waitFor(() => expect(signButton).toBeEnabled());
 
     downloadedFile = undefined as any;
     await user.click(signButton);
@@ -255,7 +251,9 @@ describe("ELGUI", () => {
     expect(new TextDecoder().decode(etPem)).toMatch(
       /-----BEGIN SECUREDNA EXEMPTION TOKEN-----/,
     );
-    const et = etBundlePemToJsObject(etPem).V1.data;
+    const etResult = etBundlePemToJsObject(etPem);
+    if (!etResult.ok) throw new Error("Failed to decode ET PEM");
+    const et = etResult.value.V1.data;
     expect(et.request.requestor_auth_devices).toEqual([
       {
         Yubikey: "cccccccccccc",
@@ -273,10 +271,10 @@ describe("ELGUI", () => {
       document.body.querySelector('input[accept=".priv"]')!,
       new File([etrPrivateKey], "my.priv"),
     );
-    await user.type(screen.getByPlaceholderText(/Passphrase/), "abcdefghij");
+    await user.type(screen.getByLabelText(/passphrase/i), "abcdefghij[Tab]");
 
-    // Remove SARS-CoV-2 but keep the Aflatoxins.
-    const cov = screen.getByRole("checkbox", { name: /SARS-CoV/ });
+    // Remove Chapare but keep the Aflatoxins.
+    const cov = screen.getByRole("checkbox", { name: /Chapare/ });
     expect(cov).toBeChecked();
     await user.click(cov);
     const afla = screen.getByRole("checkbox", { name: /Aflatoxins/ });
@@ -298,7 +296,9 @@ describe("ELGUI", () => {
     expect(downloadedFile?.filename).toMatch(/Anonymous-....-..-..-sub\.et$/);
     expect(downloadedFile?.mimeType).toMatch("application/x-pem-file");
     const subEtPem = downloadedFile?.content as Uint8Array;
-    const subEt = etBundlePemToJsObject(subEtPem).V1.data;
+    const subEtResult = etBundlePemToJsObject(subEtPem);
+    if (!subEtResult.ok) throw new Error("Failed to decode sub-ET PEM");
+    const subEt = subEtResult.value.V1.data;
     expect(subEt.request.exemptions.map((x) => x.name)).toEqual(["Aflatoxins"]);
     expect(subEt.request.requestor_auth_devices).toEqual([
       {

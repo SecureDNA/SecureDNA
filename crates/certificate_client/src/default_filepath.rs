@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::{Path, PathBuf};
@@ -11,9 +11,11 @@ use certificates::file::KEY_PRIV_EXT;
 use certificates::now_utc;
 use certificates::CertificateBundle;
 use certificates::CertificateRequest;
+use certificates::EciesPublicKey;
 use certificates::PublicKey;
 use certificates::Request;
 use certificates::Role;
+use certificates::SystemClock;
 use certificates::TokenGroup;
 
 const DEFAULT_FOLDER: &str = "SecureDNA";
@@ -52,8 +54,13 @@ pub(crate) fn get_default_filename_for_key(public_key: &PublicKey) -> PathBuf {
     PathBuf::from(filename).with_extension(KEY_PRIV_EXT)
 }
 
+pub(crate) fn get_default_filename_for_audit_key(public_key: &EciesPublicKey) -> PathBuf {
+    let filename: String = public_key.to_string().chars().take(16).collect();
+    PathBuf::from(format!("{}-audit", filename)).with_extension(KEY_PRIV_EXT)
+}
+
 pub(crate) fn get_default_filename_for_cert_bundle<R: Role>(cb: &CertificateBundle<R>) -> PathBuf {
-    let filename = match cb.get_lead_cert() {
+    let filename = match cb.get_lead_cert(&SystemClock) {
         Ok(cert) => format!(
             "{}-{}-{}",
             cert.request_id(),

@@ -1,8 +1,8 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Tests of expected behaviour when CLI args are incorrect/missing, faketime tests.
-#[cfg(all(test, unix))]
+#[cfg(all(test, unix, feature = "cert_tests"))]
 mod tests {
 
     use std::process::Command;
@@ -16,7 +16,7 @@ mod tests {
     use certificates::{
         concat_with_newline, Builder, CertificateBundle, DatabaseTokenGroup, Digestible, Exemption,
         ExpirationError, HierarchyKindParseError, Infrastructure, Issued, IssuerAdditionalFields,
-        KeyPair, Manufacturer, RequestBuilder, RoleKindParseError,
+        Manufacturer, RequestBuilder, RoleKindParseError, SigningKeyPair, SystemClock,
     };
 
     use certificate_client::inspect::NO_PATH_FOUND_TEXT;
@@ -28,6 +28,12 @@ mod tests {
         load_token_request_from_file, save_cert_request_to_file, save_certificate_bundle_to_file,
         save_keypair_to_file, save_public_key_to_file,
     };
+
+    macro_rules! target_path {
+        ($bin:literal) => {
+            env!(concat!("CARGO_BIN_EXE_", $bin)).to_owned()
+        };
+    }
 
     #[test]
     fn error_on_creating_request_if_cert_type_not_provided() {
@@ -66,7 +72,7 @@ mod tests {
         let request_path = temp_dir.path().join("1234.certr");
         let pub_key_path = temp_dir.path().join("1234.pub");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         save_public_key_to_file(kp.public_key(), &pub_key_path).unwrap();
 
         let mut command = Command::cargo_bin("sdna-create-cert").unwrap();
@@ -87,7 +93,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let request_path = temp_dir.path().join("1234.certr");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let hex = kp.public_key().to_string();
 
         let mut command = Command::cargo_bin("sdna-create-cert").unwrap();
@@ -109,7 +115,7 @@ mod tests {
         let request_path = temp_dir.path().join("1234.dtr");
         let pub_key_path = temp_dir.path().join("1234.pub");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         save_public_key_to_file(kp.public_key(), &pub_key_path).unwrap();
 
         let mut command = Command::cargo_bin("sdna-create-token").unwrap();
@@ -129,7 +135,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let request_path = temp_dir.path().join("1234.dtr");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let hex = kp.public_key().to_string();
 
         let mut command = Command::cargo_bin("sdna-create-token").unwrap();
@@ -191,7 +197,7 @@ mod tests {
 
     #[test]
     fn leaf_request_display_and_certificate_display_show_correct_emails_to_notify() {
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(root_kp.public_key())
             .build()
             .load_key(root_kp.clone())
@@ -201,7 +207,7 @@ mod tests {
 
         let root_bundle = CertificateBundle::new(root_cert, None);
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let intermediate_req =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
@@ -293,7 +299,7 @@ mod tests {
 
         let cert = load_certificate_bundle_from_file::<Exemption>(&leaf_cert_path)
             .unwrap()
-            .get_lead_cert()
+            .get_lead_cert(&SystemClock)
             .unwrap()
             .clone();
 
@@ -324,7 +330,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let cert_path = temp_dir.path().join("root.cert");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let cert = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -404,7 +410,7 @@ mod tests {
         let cert_path = temp_path.join("root.cert");
         let key_path = temp_path.join("root.priv");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path).unwrap();
@@ -431,7 +437,7 @@ mod tests {
         let cert_path = temp_dir.path().join("root.cert");
         let key_path = temp_dir.path().join("root.priv");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path).unwrap();
@@ -463,7 +469,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let cert_path = temp_dir.path().join("root.cert");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let cert = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -477,7 +483,7 @@ mod tests {
 
         let mut command = Command::new("faketime");
         command.arg("-3day");
-        command.arg("../../target/debug/sdna-inspect-cert");
+        command.arg(target_path!("sdna-inspect-cert"));
         command.args(["infrastructure"]);
         command.args(["cert", cert_path.to_str().unwrap()]);
 
@@ -507,7 +513,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let cert_path = temp_dir.path().join("root.cert");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let cert = RequestBuilder::<Manufacturer>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -522,7 +528,7 @@ mod tests {
         let mut command = Command::new("faketime");
         command.arg("+29day");
 
-        command.arg("../../target/debug/sdna-inspect-cert");
+        command.arg(target_path!("sdna-inspect-cert"));
         command.args(["manufacturer"]);
         command.args(["cert", cert_path.to_str().unwrap()]);
 
@@ -549,7 +555,7 @@ mod tests {
     fn no_path_to_root_found_when_intermediate_has_expired() {
         check_faketime_installed().expect("This test requires faketime");
 
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_pk = root_kp.public_key();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(root_kp.public_key())
             .build()
@@ -560,7 +566,7 @@ mod tests {
 
         let root_bundle = CertificateBundle::new(root_cert, None);
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let intermediate_req =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
@@ -575,7 +581,7 @@ mod tests {
             )
             .expect("Couldn't issue cert bundle");
 
-        let leaf_kp = KeyPair::new_random();
+        let leaf_kp = SigningKeyPair::new_random();
         let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
         let leaf_bundle = int_bundle
@@ -590,7 +596,7 @@ mod tests {
 
         let mut command = Command::new("faketime");
         command.arg("+3day");
-        command.arg("../../target/debug/sdna-inspect-cert");
+        command.arg(target_path!("sdna-inspect-cert"));
         command.arg("exemption");
         command.args([
             "chain",
@@ -608,7 +614,7 @@ mod tests {
     fn no_path_to_root_found_when_leaf_has_expired() {
         check_faketime_installed().expect("This test requires faketime");
 
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_pk = root_kp.public_key();
 
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(root_kp.public_key())
@@ -620,7 +626,7 @@ mod tests {
 
         let root_bundle = CertificateBundle::new(root_cert, None);
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let intermediate_req =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
@@ -628,7 +634,7 @@ mod tests {
             .issue_cert_bundle(intermediate_req, IssuerAdditionalFields::default(), root_kp)
             .expect("Couldn't issue cert bundle");
 
-        let leaf_kp = KeyPair::new_random();
+        let leaf_kp = SigningKeyPair::new_random();
         let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
         // Create leaf cert that expires in two days
@@ -650,7 +656,7 @@ mod tests {
 
         let mut command = Command::new("faketime");
         command.arg("+3day");
-        command.arg("../../target/debug/sdna-inspect-cert");
+        command.arg(target_path!("sdna-inspect-cert"));
         command.arg("exemption");
         command.args([
             "chain",
@@ -666,7 +672,7 @@ mod tests {
 
     #[test]
     fn single_path_to_root_found_when_second_intermediate_has_expired() {
-        let root_kp_a = KeyPair::new_random();
+        let root_kp_a = SigningKeyPair::new_random();
         let root_pk_a = root_kp_a.public_key();
 
         let root_cert_a = RequestBuilder::<Exemption>::root_v1_builder(root_kp_a.public_key())
@@ -678,7 +684,7 @@ mod tests {
 
         let root_bundle_a = CertificateBundle::new(root_cert_a, None);
 
-        let root_kp_b = KeyPair::new_random();
+        let root_kp_b = SigningKeyPair::new_random();
         let root_pk_b = root_kp_b.public_key();
 
         let root_cert_b = RequestBuilder::<Exemption>::root_v1_builder(root_kp_b.public_key())
@@ -690,7 +696,7 @@ mod tests {
 
         let root_bundle_b = CertificateBundle::new(root_cert_b, None);
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_req_a =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
@@ -714,7 +720,7 @@ mod tests {
             .merge(int_bundle_b)
             .expect("Could not merge cert bundles");
 
-        let leaf_kp = KeyPair::new_random();
+        let leaf_kp = SigningKeyPair::new_random();
         let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
         let leaf_bundle = int_bundle
@@ -729,7 +735,7 @@ mod tests {
 
         let mut command = Command::new("faketime");
         command.arg("+3day");
-        command.arg("../../target/debug/sdna-inspect-cert");
+        command.arg(target_path!("sdna-inspect-cert"));
         command.arg("exemption");
         command.args([
             "chain",
@@ -747,7 +753,7 @@ mod tests {
 
     #[test]
     fn expired_intermediate_is_found_when_viewing_certs_not_part_of_path() {
-        let root_kp_a = KeyPair::new_random();
+        let root_kp_a = SigningKeyPair::new_random();
         let root_pk_a = root_kp_a.public_key();
 
         let root_cert_a = RequestBuilder::<Exemption>::root_v1_builder(root_kp_a.public_key())
@@ -759,7 +765,7 @@ mod tests {
 
         let root_bundle_a = CertificateBundle::new(root_cert_a, None);
 
-        let root_kp_b = KeyPair::new_random();
+        let root_kp_b = SigningKeyPair::new_random();
         let root_pk_b = root_kp_b.public_key();
 
         let root_cert_b = RequestBuilder::<Exemption>::root_v1_builder(root_kp_b.public_key())
@@ -771,7 +777,7 @@ mod tests {
 
         let root_bundle_b = CertificateBundle::new(root_cert_b, None);
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_req_a =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
@@ -796,7 +802,7 @@ mod tests {
             .merge(int_bundle_b)
             .expect("Could not merge cert bundles");
 
-        let leaf_kp = KeyPair::new_random();
+        let leaf_kp = SigningKeyPair::new_random();
         let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
         let leaf_bundle = int_bundle
@@ -811,7 +817,7 @@ mod tests {
 
         let mut command = Command::new("faketime");
         command.arg("+3day");
-        command.arg("../../target/debug/sdna-inspect-cert");
+        command.arg(target_path!("sdna-inspect-cert"));
         command.arg("exemption");
         command.args([
             "chain",

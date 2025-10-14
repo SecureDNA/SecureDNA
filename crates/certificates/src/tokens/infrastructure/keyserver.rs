@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module contains functionality for creating an `KeyserverTokenRequest`.
@@ -18,8 +18,8 @@ use crate::{
     impl_encoding_boilerplate, impl_key_boilerplate_for_token,
     impl_key_boilerplate_for_token_request, impl_key_boilerplate_for_token_request_version,
     issued::Issued,
-    key_traits::HasAssociatedKey,
-    keypair::{PublicKey, Signature},
+    key::signing::{PublicKey, Signature},
+    key_traits::HasAssociatedSigningKey,
     pem::PemTaggable,
     shared_components::{
         common::{
@@ -28,7 +28,7 @@ use crate::{
         role::Infrastructure,
     },
     tokens::{TokenData, TokenGroup},
-    CertificateChain, Digestible, KeyAvailable, KeyPair, KeyUnavailable, TokenKind,
+    CertificateChain, Digestible, KeyAvailable, KeyUnavailable, SigningKeyPair, TokenKind,
 };
 
 use super::digest::{KeyserverTokenDigest, KeyserverTokenRequestDigest};
@@ -271,18 +271,19 @@ impl_boilerplate_for_token! {KeyserverToken<K>}
 impl_encoding_boilerplate! {KeyserverToken<K>}
 impl_key_boilerplate_for_token! {KeyserverToken}
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod test {
-    use crate::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
+    use crate::key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded};
     use crate::{
-        test_helpers::create_leaf_cert, Expiration, Infrastructure, KeyPair, KeyserverTokenRequest,
+        test_helpers::create_leaf_cert, Expiration, Infrastructure, KeyserverTokenRequest,
+        SigningKeyPair,
     };
     use doprf::party::KeyserverId;
 
     #[test]
     fn can_issue_keyserver_token() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = KeyserverTokenRequest::v1_token_request(
             kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -295,7 +296,7 @@ mod test {
     #[test]
     fn keyserver_token_has_expected_public_key() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = KeyserverTokenRequest::v1_token_request(
             kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -311,7 +312,7 @@ mod test {
     #[test]
     fn keyserver_token_has_expected_keyserver_id() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = KeyserverTokenRequest::v1_token_request(
             kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -327,7 +328,7 @@ mod test {
     #[test]
     fn keyserver_token_can_sign_with_associated_keypair() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = KeyserverTokenRequest::v1_token_request(
             kp.public_key(),
             KeyserverId::try_from(1).unwrap(),

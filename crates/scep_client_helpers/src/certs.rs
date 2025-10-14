@@ -1,14 +1,15 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::sync::LazyLock;
 use std::{borrow::Cow, path::Path};
 
 use anyhow::Context;
-use once_cell::sync::OnceCell;
 
 use certificates::{
     file::{load_keypair_from_file, load_token_bundle_from_file},
-    Certificate, Infrastructure, KeyPair, KeyUnavailable, PemDecodable, PublicKey,
+    key::EncryptableKeypair,
+    Certificate, Infrastructure, KeyUnavailable, PemDecodable, PublicKey, SigningKeyPair,
     SynthesizerTokenGroup, TokenBundle,
 };
 
@@ -16,7 +17,7 @@ use certificates::{
 pub struct ClientCerts {
     pub issuer_pks: Cow<'static, [PublicKey]>,
     pub token: TokenBundle<SynthesizerTokenGroup>,
-    pub keypair: KeyPair,
+    pub keypair: SigningKeyPair,
 }
 
 impl ClientCerts {
@@ -51,10 +52,10 @@ impl ClientCerts {
         issuer_pks: Cow<'static, [PublicKey]>,
     ) -> anyhow::Result<Self> {
         let token = TokenBundle::from_file_contents(token_contents.as_ref())
-            .with_context(|| "parsing token")?;
+            .with_context(|| "Couldn't parse token. Make sure you are using the right file.")?;
 
-        let keypair = KeyPair::load_key(keypair_contents.as_ref(), keypair_passphrase)
-            .with_context(|| "parsing keypair")?;
+        let keypair = SigningKeyPair::load_key(keypair_contents.as_ref(), keypair_passphrase)
+            .with_context(|| "Couldn't load keypair. Make sure the passphrase is correct.")?;
 
         Ok(Self {
             issuer_pks,
@@ -135,7 +136,26 @@ impl ClientCerts {
         Self {
             issuer_pks: test_infrastructure_root_keys().into(),
             token: TokenBundle::from_file_contents(token_str).unwrap(),
-            keypair: KeyPair::load_key(keypair_str, "test").unwrap(),
+            keypair: SigningKeyPair::load_key(keypair_str, "test").unwrap(),
+        }
+    }
+
+    /// Load client certs with everything set to test certs
+    /// ...but with an audit_recipient configured
+    pub fn load_test_certs_with_audit() -> Self {
+        let token_str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test/certs/synthesizer-token-with-audit.st"
+        ));
+        let keypair_str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test/certs/synthesizer-token-with-audit.priv"
+        ));
+
+        Self {
+            issuer_pks: test_infrastructure_root_keys().into(),
+            token: TokenBundle::from_file_contents(token_str).unwrap(),
+            keypair: SigningKeyPair::load_key(keypair_str, "test").unwrap(),
         }
     }
 
@@ -143,7 +163,7 @@ impl ClientCerts {
     pub fn with_custom_roots(
         issuer_pks: Vec<PublicKey>,
         token: TokenBundle<SynthesizerTokenGroup>,
-        keypair: KeyPair,
+        keypair: SigningKeyPair,
     ) -> Self {
         Self {
             issuer_pks: issuer_pks.into(),
@@ -169,14 +189,14 @@ xxTl0mzFl6wm56U+mbJ9Qgo=
 -----END SECUREDNA INFRASTRUCTURE CERTIFICATE-----
         "#];
 
-    static KEYS: OnceCell<[PublicKey; 1]> = OnceCell::new();
-    KEYS.get_or_init(|| {
+    static KEYS: LazyLock<[PublicKey; 1]> = LazyLock::new(|| {
         KEY_STRINGS.map(|key_str| {
             let bytes = key_str.as_bytes();
             let cert = Certificate::<Infrastructure, KeyUnavailable>::from_pem(bytes).unwrap();
             *cert.public_key()
         })
-    })
+    });
+    &*KEYS
 }
 
 /// Contains baked-in test root certs from test/certs/infrastructure-roots
@@ -184,8 +204,7 @@ fn test_infrastructure_root_keys() -> &'static [PublicKey] {
     const KEY_DIR: include_dir::Dir<'static> =
         include_dir::include_dir!("test/certs/infrastructure-roots");
 
-    static KEYS: OnceCell<Vec<PublicKey>> = OnceCell::new();
-    KEYS.get_or_init(|| {
+    static KEYS: LazyLock<Vec<PublicKey>> = LazyLock::new(|| {
         KEY_DIR
             .files()
             .map(|f| {
@@ -194,10 +213,11 @@ fn test_infrastructure_root_keys() -> &'static [PublicKey] {
                 *cert.public_key()
             })
             .collect()
-    })
+    });
+    &KEYS
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use super::*;
 
@@ -210,7 +230,7 @@ mod tests {
             "test",
         )
         .unwrap();
-        assert!(certs.issuer_pks.len() > 0);
+        assert!(!certs.issuer_pks.is_empty());
     }
 
     #[test]
@@ -222,12 +242,12 @@ mod tests {
             "test",
         )
         .unwrap();
-        assert!(certs.issuer_pks.len() > 0);
+        assert!(!certs.issuer_pks.is_empty());
     }
 
     #[test]
     fn can_load_test_certs() {
         let certs = ClientCerts::load_test_certs();
-        assert!(certs.issuer_pks.len() > 0);
+        assert!(!certs.issuer_pks.is_empty());
     }
 }

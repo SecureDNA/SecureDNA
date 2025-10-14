@@ -8,7 +8,7 @@ To run them, try these steps in the repo root:
 earthly +dev
 mkdir ./data
 ln -s ../test/data/hdb ./data/hdb
-./bin/start_test_environment.sh  # Runs "docker compose up -d".
+./bin/start_test_environment  # Runs "docker compose up -d".
 cargo test --workspace --features run_system_tests
 ```
 

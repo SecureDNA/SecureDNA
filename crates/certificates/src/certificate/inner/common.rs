@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Contains fields of the `Common` certificate data struct - these are the  fields held in common by all certificate types.
@@ -9,11 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     asn::AsnCompatible,
-    keypair::PublicKey,
+    key::signing::PublicKey,
     shared_components::common::{
-        CompatibleIdentity, ComponentVersionGuard, Description, Expiration, ExpirationError, Id,
-        VersionedComponent,
+        Attachment, CompatibleIdentity, ComponentVersionGuard, Description, Expiration,
+        ExpirationError, Id, VersionedComponent,
     },
+    Authenticator,
 };
 
 /// v1 of fields set by certificate requester
@@ -62,6 +63,10 @@ impl Identity for Subject1 {
     fn public_key(&self) -> &PublicKey {
         &self.pk
     }
+
+    fn email_addresses(&self) -> Vec<String> {
+        self.requestor_desc.email.iter().cloned().collect()
+    }
 }
 
 impl Subject for Subject1 {
@@ -75,6 +80,10 @@ impl Subject for Subject1 {
 
     fn requestor_description(&self) -> &Description {
         &self.requestor_desc
+    }
+
+    fn auth_token(&self) -> Option<&Authenticator> {
+        None
     }
 }
 
@@ -98,6 +107,8 @@ pub struct ExemptionSubject1 {
     /// emails to be notified when exemption tokens issued by this cert are used.
     pub emails_to_notify: Vec<String>,
     pub allow_blinding: bool,
+    pub attachments: Vec<Attachment>,
+    pub auth_token: Option<Authenticator>,
 }
 
 impl VersionedComponent for ExemptionSubject1 {
@@ -111,6 +122,8 @@ impl ExemptionSubject1 {
         pk: PublicKey,
         emails_to_notify: Vec<String>,
         allow_blinding: bool,
+        attachments: Vec<Attachment>,
+        auth_token: Option<Authenticator>,
     ) -> Self {
         let guard = ComponentVersionGuard::new();
         let request_id = Id::new_random();
@@ -121,6 +134,15 @@ impl ExemptionSubject1 {
             pk,
             emails_to_notify,
             allow_blinding,
+            attachments,
+            auth_token,
+        }
+    }
+
+    pub fn totp_token_name(&self) -> Option<String> {
+        match &self.auth_token {
+            Some(Authenticator::Totp(token_name)) => Some(token_name.to_owned()),
+            _ => None,
         }
     }
 }
@@ -136,6 +158,10 @@ impl Identity for ExemptionSubject1 {
     fn public_key(&self) -> &PublicKey {
         &self.pk
     }
+
+    fn email_addresses(&self) -> Vec<String> {
+        self.requestor_desc.email.iter().cloned().collect()
+    }
 }
 
 impl Subject for ExemptionSubject1 {
@@ -149,6 +175,10 @@ impl Subject for ExemptionSubject1 {
 
     fn requestor_description(&self) -> &Description {
         &self.requestor_desc
+    }
+
+    fn auth_token(&self) -> Option<&Authenticator> {
+        self.auth_token.as_ref()
     }
 }
 
@@ -239,6 +269,10 @@ impl Identity for Issuer1 {
     fn public_key(&self) -> &PublicKey {
         &self.identity.pk
     }
+
+    fn email_addresses(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 impl Issuer for Issuer1 {
@@ -290,6 +324,7 @@ pub struct Common<S, I> {
 pub trait Identity: Clone + PartialEq + Eq + AsnCompatible {
     fn to_compatible_identity(&self) -> CompatibleIdentity;
     fn public_key(&self) -> &PublicKey;
+    fn email_addresses(&self) -> Vec<String>;
 }
 
 /// Functionality that we expect to be available on issuer supplied fields of all certificate versions.
@@ -307,4 +342,5 @@ pub trait Subject: Identity {
     fn request_id(&self) -> &Id;
     fn emails_to_notify(&self) -> &[String];
     fn requestor_description(&self) -> &Description;
+    fn auth_token(&self) -> Option<&Authenticator>;
 }

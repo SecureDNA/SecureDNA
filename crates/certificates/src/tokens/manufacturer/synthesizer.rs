@@ -1,31 +1,34 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module contains functionality for creating an `SynthesizerTokenRequest`.
 //! A `Certificate` with the `Manufacturer` role is able to sign a `SynthesizerTokenRequest` to issue a `SynthesizerToken`.
 
-use std::str::FromStr;
+use std::fmt::Display;
 
+use addr::parse_domain_name;
 use rasn::{types::*, Decode, Encode};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
     asn::ToASN1DerBytes,
-    ecies::{EncryptionKeyParseError, EncryptionPublicKey},
     error::EncodeError,
     impl_boilerplate_for_token, impl_boilerplate_for_token_request,
     impl_boilerplate_for_token_request_version, impl_boilerplate_for_token_version,
     impl_encoding_boilerplate, impl_key_boilerplate_for_token,
     impl_key_boilerplate_for_token_request, impl_key_boilerplate_for_token_request_version,
     issued::Issued,
-    key_traits::HasAssociatedKey,
-    keypair::{PublicKey, Signature},
+    key::ecies::EciesPublicKey,
+    key::signing::{PublicKey, Signature},
+    key_traits::HasAssociatedSigningKey,
     pem::PemTaggable,
     shared_components::common::{
         CompatibleIdentity, ComponentVersionGuard, Expiration, Id, Signed, VersionedComponent,
     },
     tokens::{TokenData, TokenGroup},
-    CertificateChain, Digestible, KeyAvailable, KeyPair, KeyUnavailable, Manufacturer, TokenKind,
+    CertificateChain, Digestible, KeyAvailable, KeyUnavailable, Manufacturer, SigningKeyPair,
+    TokenKind,
 };
 
 use super::digest::{SynthesizerTokenDigest, SynthesizerTokenRequestDigest};
@@ -49,19 +52,53 @@ use super::digest::{SynthesizerTokenDigest, SynthesizerTokenRequestDigest};
 )]
 pub struct AuditRecipient {
     pub(crate) email: String,
-    pub(crate) public_key: EncryptionPublicKey,
+    pub(crate) public_key: EciesPublicKey,
 }
 
 impl AuditRecipient {
-    pub fn new(
-        email: impl Into<String>,
-        public_key: impl Into<String>,
-    ) -> Result<Self, EncryptionKeyParseError> {
-        let public_key = EncryptionPublicKey::from_str(&public_key.into())?;
-        Ok(Self {
+    pub fn new(email: impl Into<String>, public_key: EciesPublicKey) -> Self {
+        Self {
             email: email.into(),
             public_key,
-        })
+        }
+    }
+
+    pub fn email(&self) -> &String {
+        &self.email
+    }
+
+    pub fn public_key(&self) -> &EciesPublicKey {
+        &self.public_key
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Domain(String);
+
+impl Domain {
+    pub fn try_new(value: impl Into<String>) -> Result<Self, InvalidDomain> {
+        value.into().try_into()
+    }
+}
+
+impl Display for Domain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("Invalid domain: {0}")]
+pub struct InvalidDomain(String);
+
+impl TryFrom<String> for Domain {
+    type Error = InvalidDomain;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if parse_domain_name(&value).is_ok() {
+            Ok(Domain(value))
+        } else {
+            Err(InvalidDomain(value))
+        }
     }
 }
 
@@ -135,7 +172,7 @@ pub struct SynthesizerTokenRequest {
 impl SynthesizerTokenRequest {
     pub fn v1_token_request(
         public_key: PublicKey,
-        manufacturer_domain: impl Into<String>,
+        manufacturer_domain: Domain,
         model: impl Into<String>,
         serial_number: impl Into<String>,
         max_dna_base_pairs_per_day: u64,
@@ -143,7 +180,7 @@ impl SynthesizerTokenRequest {
     ) -> Self {
         let request = SynthesizerTokenRequest1::new(
             public_key,
-            manufacturer_domain.into(),
+            manufacturer_domain.to_string(),
             model.into(),
             serial_number.into(),
             max_dna_base_pairs_per_day,
@@ -278,6 +315,31 @@ impl SynthesizerTokenVersion {
             SynthesizerTokenVersion::V1(s) => s.data.request.max_dna_base_pairs_per_day,
         }
     }
+
+    pub fn audit_email(&self) -> Option<&String> {
+        match self {
+            SynthesizerTokenVersion::V1(s) => {
+                s.data.request.audit_recipient.as_ref().map(|a| &a.email)
+            }
+        }
+    }
+
+    pub fn audit_email_public_key(&self) -> Option<&EciesPublicKey> {
+        match self {
+            SynthesizerTokenVersion::V1(s) => s
+                .data
+                .request
+                .audit_recipient
+                .as_ref()
+                .map(|a| &a.public_key),
+        }
+    }
+
+    pub fn audit_recipient(&self) -> &Option<AuditRecipient> {
+        match self {
+            SynthesizerTokenVersion::V1(s) => &s.data.request.audit_recipient,
+        }
+    }
 }
 
 /// Token to identify benchtop synthesizers
@@ -302,6 +364,18 @@ impl<K> SynthesizerToken<K> {
 
     pub fn max_dna_base_pairs_per_day(&self) -> u64 {
         self.version.max_dna_base_pairs_per_day()
+    }
+
+    pub fn audit_email(&self) -> Option<&String> {
+        self.version.audit_email()
+    }
+
+    pub fn audit_email_public_key(&self) -> Option<&EciesPublicKey> {
+        self.version.audit_email_public_key()
+    }
+
+    pub fn audit_recipient(&self) -> &Option<AuditRecipient> {
+        self.version.audit_recipient()
     }
 }
 
@@ -363,17 +437,18 @@ impl_boilerplate_for_token! {SynthesizerToken<K>}
 impl_encoding_boilerplate! {SynthesizerToken<K>}
 impl_key_boilerplate_for_token! {SynthesizerToken}
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod test {
-    use crate::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
+    use crate::key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded};
     use crate::test_helpers::create_intermediate_bundle;
+    use crate::SystemClock;
     use crate::{
         test_helpers::{
             create_leaf_cert, create_synth_token_request, expected_synthesizer_token_display,
         },
-        tokens::manufacturer::synthesizer::AuditRecipient,
-        Builder, Description, Digestible, Expiration, Issued, IssuerAdditionalFields, KeyPair,
-        Manufacturer, RequestBuilder, SynthesizerTokenRequest,
+        tokens::manufacturer::synthesizer::{AuditRecipient, Domain},
+        Builder, Description, Digestible, Expiration, Issued, IssuerAdditionalFields, Manufacturer,
+        RequestBuilder, SigningKeyPair, SynthesizerTokenRequest,
     };
 
     #[test]
@@ -387,18 +462,19 @@ mod test {
     #[test]
     fn plaintext_display_for_synthesizer_token_with_audit_recipient_matches_expected_display() {
         let cert = create_leaf_cert::<Manufacturer>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
 
         // Public key is hex encoded libsecp256k1 key
         // Created via ecies::utils::generate_keypair()
         let audit_recipient = AuditRecipient::new(
             "anna@example.com",
-            "03f29057c21d3eb14815eefa0127895b57278fd41c2bad78861ff7a5b1c9b5adae",
-        )
-        .unwrap();
+            "03f29057c21d3eb14815eefa0127895b57278fd41c2bad78861ff7a5b1c9b5adae"
+                .parse()
+                .unwrap(),
+        );
         let req = SynthesizerTokenRequest::v1_token_request(
             kp.public_key(),
-            "maker.synth",
+            Domain::try_new("maker.synth").unwrap(),
             "XL",
             "10AK",
             10_000u64,
@@ -436,7 +512,7 @@ mod test {
     #[test]
     fn can_access_expected_fields_on_synth_token() {
         let cert = create_leaf_cert::<Manufacturer>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
 
         let domain = "maker.synth";
         let model = "XL";
@@ -445,7 +521,7 @@ mod test {
 
         let req = SynthesizerTokenRequest::v1_token_request(
             kp.public_key(),
-            domain,
+            Domain::try_new(domain).unwrap(),
             model,
             serial_number,
             max_dna_base_pairs_per_day,
@@ -484,7 +560,7 @@ mod test {
     fn can_access_issuer_description_on_synthesizer_token() {
         let (int_bundle, int_kp, _) = create_intermediate_bundle::<Manufacturer>();
 
-        let leaf_kp = KeyPair::new_random();
+        let leaf_kp = SigningKeyPair::new_random();
 
         let leaf_req = RequestBuilder::<Manufacturer>::leaf_v1_builder(leaf_kp.public_key())
             .with_description(
@@ -495,7 +571,7 @@ mod test {
             .build();
 
         let leaf_cert = int_bundle
-            .get_lead_cert()
+            .get_lead_cert(&SystemClock)
             .unwrap()
             .clone()
             .load_key(int_kp)
@@ -515,5 +591,11 @@ mod test {
             token.issuer_description(),
             "A Company, a.company@example.com"
         )
+    }
+
+    #[test]
+    fn cannot_create_domain_from_invalid_string() {
+        let domain = Domain::try_new("maker_synth");
+        assert!(domain.is_err());
     }
 }

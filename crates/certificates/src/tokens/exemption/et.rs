@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module contains functionality for creating an `ExemptionTokenRequest`.
@@ -15,23 +15,22 @@ use crate::chain::Chain;
 use crate::{
     asn::ToASN1DerBytes,
     error::EncodeError,
-    impl_boilerplate_for_token, impl_boilerplate_for_token_request,
-    impl_boilerplate_for_token_request_version, impl_boilerplate_for_token_version,
-    impl_encoding_boilerplate,
+    impl_boilerplate_for_token, impl_boilerplate_for_token_request_version,
+    impl_boilerplate_for_token_version, impl_encoding_boilerplate,
     issued::Issued,
-    keypair::{PublicKey, Signature},
+    key::signing::{PublicKey, Signature},
     pem::PemTaggable,
     shared_components::{
         common::{
-            CompatibleIdentity, ComponentVersionGuard, Description, Expiration, Id, Signed,
-            VersionedComponent,
+            Attachment, CompatibleIdentity, ComponentVersionGuard, Description, Expiration, Id,
+            Signed, VersionedComponent,
         },
         role::Exemption,
     },
     tokens::{TokenData, TokenGroup},
-    IssuanceError, KeyAvailable, KeyMismatchError, KeyPair, KeyUnavailable,
+    IssuanceError, KeyAvailable, KeyMismatchError, KeyUnavailable, SigningKeyPair,
 };
-use crate::{Digestible, TokenKind};
+use crate::{impl_boilerplate_for_token_request, Digestible, TokenKind};
 
 use super::digest::{ExemptionTokenDigest, ExemptionTokenRequestDigest};
 use super::{authenticator::Authenticator, organism::Organism};
@@ -59,11 +58,20 @@ pub(crate) struct ExemptionTokenRequest1 {
     guard: ComponentVersionGuard<Self>,
     /// unique for each token
     pub(crate) request_id: Id,
+    /// A public key used for subsetting.
     pub(crate) public_key: Option<PublicKey>,
+    /// The exemptions requested in this ETR.
     pub(crate) exemptions: Vec<Organism>,
+    /// Information describing the party requesting exemptions.
     pub(crate) requestor: Description,
+    /// Authenticator devices (2FA methods) that will be used with the token.
     pub(crate) requestor_auth_devices: Vec<Authenticator>,
+    /// Shipping addresses that the ET will be limited to.
     pub(crate) shipping_addresses: Vec<ShippingAddress>,
+    /// Any attached digital paperwork we want to sign over.
+    pub(crate) attachments: Vec<Attachment>,
+    /// A reserved field, for adding future freeform (probably JSON) data.
+    pub(crate) reserved: String,
 }
 
 impl ExemptionTokenRequest1 {
@@ -73,6 +81,8 @@ impl ExemptionTokenRequest1 {
         requestor: Description,
         requestor_auth_devices: Vec<Authenticator>,
         shipping_addresses: Vec<ShippingAddress>,
+        attachments: Vec<Attachment>,
+        reserved: String,
     ) -> Self {
         let guard = ComponentVersionGuard::new();
         let request_id = Id::new_random();
@@ -84,6 +94,8 @@ impl ExemptionTokenRequest1 {
             requestor,
             requestor_auth_devices,
             shipping_addresses,
+            attachments,
+            reserved,
         }
     }
 }
@@ -125,6 +137,12 @@ impl ExemptionTokenRequestVersion {
             Self::V1(r) => r.public_key.as_ref(),
         }
     }
+
+    pub(crate) fn attachments(&self) -> &[Attachment] {
+        match self {
+            Self::V1(r) => &r.attachments,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -144,6 +162,7 @@ impl ExemptionTokenRequest {
         requestor: Description,
         requestor_auth_devices: Vec<Authenticator>,
         shipping_addresses: Vec<ShippingAddress>,
+        attachments: Vec<Attachment>,
     ) -> Self {
         let request = ExemptionTokenRequest1::new(
             public_key,
@@ -151,6 +170,8 @@ impl ExemptionTokenRequest {
             requestor,
             requestor_auth_devices,
             shipping_addresses,
+            attachments,
+            "".to_owned(),
         );
         let version = ExemptionTokenRequestVersion::V1(request);
         ExemptionTokenRequest::new(version)
@@ -170,6 +191,10 @@ impl ExemptionTokenRequest {
 
     pub fn try_public_key(&self) -> Option<&PublicKey> {
         self.version.try_public_key()
+    }
+
+    pub fn attachments(&self) -> &[Attachment] {
+        self.version.attachments()
     }
 }
 
@@ -195,6 +220,74 @@ impl Decode for ExemptionTokenRequest {
             constraints,
         )?;
         Ok(ExemptionTokenRequest::new(version))
+    }
+}
+
+#[derive(Default)]
+pub struct EtrBuilder {
+    public_key: Option<PublicKey>,
+    exemptions: Vec<Organism>,
+    requestor: Description,
+    requestor_auth_devices: Vec<Authenticator>,
+    shipping_addresses: Vec<ShippingAddress>,
+    attachments: Vec<Attachment>,
+    reserved: String,
+}
+
+impl EtrBuilder {
+    pub fn new() -> EtrBuilder {
+        EtrBuilder::default()
+    }
+
+    pub fn public_key(mut self, public_key: PublicKey) -> EtrBuilder {
+        self.public_key = Some(public_key);
+        self
+    }
+
+    pub fn exemptions(mut self, exemptions: Vec<Organism>) -> EtrBuilder {
+        self.exemptions = exemptions;
+        self
+    }
+
+    pub fn requestor(mut self, requestor: Description) -> EtrBuilder {
+        self.requestor = requestor;
+        self
+    }
+
+    pub fn requestor_auth_devices(
+        mut self,
+        requestor_auth_devices: Vec<Authenticator>,
+    ) -> EtrBuilder {
+        self.requestor_auth_devices = requestor_auth_devices;
+        self
+    }
+
+    pub fn shipping_addresses(mut self, shipping_addresses: Vec<ShippingAddress>) -> EtrBuilder {
+        self.shipping_addresses = shipping_addresses;
+        self
+    }
+
+    pub fn attachments(mut self, attachments: Vec<Attachment>) -> EtrBuilder {
+        self.attachments = attachments;
+        self
+    }
+    pub fn reserved(mut self, reserved: String) -> EtrBuilder {
+        self.reserved = reserved;
+        self
+    }
+
+    pub fn build_v1(self) -> ExemptionTokenRequest {
+        let request = ExemptionTokenRequest1::new(
+            self.public_key,
+            self.exemptions,
+            self.requestor,
+            self.requestor_auth_devices,
+            self.shipping_addresses,
+            self.attachments,
+            self.reserved,
+        );
+        let version = ExemptionTokenRequestVersion::V1(request);
+        ExemptionTokenRequest::new(version)
     }
 }
 
@@ -319,7 +412,7 @@ impl ExemptionTokenVersion {
         request: ExemptionTokenRequest,
         expiration: Expiration,
         issuer_auth_devices: Vec<Authenticator>,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<Self, IssuanceError> {
         match (self, request.version) {
             (Self::V1(t), ExemptionTokenRequestVersion::V1(request)) => {
@@ -368,7 +461,7 @@ fn issue_exemption_token_v1_with_keypair(
     emails_to_notify: Vec<String>,
     expiration: Expiration,
     issuer_auth_devices: Vec<Authenticator>,
-    keypair: &KeyPair,
+    keypair: &SigningKeyPair,
 ) -> Result<Signed<TokenData<ExemptionTokenRequest1, ExemptionTokenIssuer1>>, EncodeError> {
     let issuer_fields =
         ExemptionTokenIssuer1::new(issuer, expiration, issuer_auth_devices, emails_to_notify);
@@ -427,6 +520,12 @@ impl<K> ExemptionToken<K> {
 
     pub fn request(&self) -> ExemptionTokenRequest {
         ExemptionTokenRequest::new(self.version.request())
+    }
+
+    pub fn request_attachments(&self) -> &[Attachment] {
+        match &self.version {
+            ExemptionTokenVersion::V1(v1) => &v1.data.request.attachments,
+        }
     }
 
     /// Whether the child exemption token's issuance complies with all requirements
@@ -506,7 +605,7 @@ impl ExemptionToken<KeyUnavailable> {
     }
     pub fn load_key(
         self,
-        keypair: KeyPair,
+        keypair: SigningKeyPair,
     ) -> Result<ExemptionToken<KeyAvailable>, EtLoadKeyError> {
         match self.try_public_key() {
             None => Err(EtLoadKeyError::NoAssociatedKey),
@@ -625,10 +724,10 @@ impl_boilerplate_for_token_version! {ExemptionTokenVersion, V1}
 impl_boilerplate_for_token! {ExemptionToken<K>}
 impl_encoding_boilerplate! {ExemptionToken<K>}
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 pub fn issue_exemption_token_without_compliance_check(
     etr: ExemptionTokenRequest,
-    kp: &KeyPair,
+    kp: &SigningKeyPair,
     emails_to_notify: Vec<String>,
     issuer_auth_devices: Vec<Authenticator>,
 ) -> ExemptionToken<KeyUnavailable> {
@@ -652,14 +751,14 @@ pub fn issue_exemption_token_without_compliance_check(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod test {
     use crate::test_helpers::{create_etr_with_options, create_issuing_exemption_token_bundle};
-    use crate::tokens::exemption::et::{NonComplianceCause, NonCompliantChildToken};
+    use crate::tokens::exemption::et::{EtrBuilder, NonComplianceCause, NonCompliantChildToken};
     use crate::{
         test_helpers::{create_etr, create_exemptions, create_leaf_cert},
-        Description, Exemption, ExemptionToken, ExemptionTokenRequest, Expiration, GenbankId,
-        IssuanceError, KeyPair, Organism, PemDecodable, PemEncodable, Sequence, SequenceIdentifier,
+        Exemption, ExemptionToken, ExemptionTokenRequest, Expiration, GenbankId, IssuanceError,
+        Organism, PemDecodable, PemEncodable, Sequence, SequenceIdentifier, SigningKeyPair,
     };
 
     #[test]
@@ -717,7 +816,7 @@ mod test {
     fn cannot_issue_child_et_with_associated_key() {
         let (et_bundle, et_kp, _) = create_issuing_exemption_token_bundle();
 
-        let child_kp = KeyPair::new_random();
+        let child_kp = SigningKeyPair::new_random();
         let child_etr = create_etr_with_options(Some(child_kp.public_key()), vec![], vec![]);
 
         let err = et_bundle
@@ -741,13 +840,9 @@ mod test {
         let (et_bundle, et_kp, _) = create_issuing_exemption_token_bundle();
 
         let shipping_address = vec!["22 New Street".to_string(), "Some Other City".to_string()];
-        let etr = ExemptionTokenRequest::v1_token_request(
-            None,
-            vec![],
-            Description::default(),
-            vec![],
-            vec![shipping_address],
-        );
+        let etr = EtrBuilder::new()
+            .shipping_addresses(vec![shipping_address])
+            .build_v1();
 
         let err = et_bundle
             .token
@@ -773,13 +868,7 @@ mod test {
             "test",
             vec![SequenceIdentifier::Id(GenbankId::try_new("555").unwrap())],
         );
-        let etr = ExemptionTokenRequest::v1_token_request(
-            None,
-            vec![exemption],
-            Description::default(),
-            vec![],
-            vec![],
-        );
+        let etr = EtrBuilder::new().exemptions(vec![exemption]).build_v1();
 
         let err = et_bundle
             .token

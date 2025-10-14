@@ -1,12 +1,11 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { download } from "@securedna/frontend_common";
+import { Input, PrimaryButton, download } from "@securedna/frontend_common";
 import { useState } from "react";
-import { makeKeypair } from "src/util/sign_etr";
-import { PrimaryButton } from "./PrimaryButton";
+import { makeKeypair } from "../util/sign_etr";
 
 export interface MakeKeypairProps {
   setPublicKey: (hexpem: string) => void;
@@ -35,9 +34,8 @@ export const MakeKeypair = (props: MakeKeypairProps) => {
         to create sub exemption tokens.
       </p>
       <div className="flex">
-        <input
+        <Input
           type="password"
-          className="border rounded flex-1 leading-none p-2 my-2 outline-blue-500"
           onChange={(e) => {
             setPassphrase(e.target.value.trim());
           }}

@@ -1,20 +1,19 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use serde::{Deserialize, Serialize};
-use shared_types::hdb;
 
 use super::types::HitOrganism;
 
 /// SecureDNA-specific metadata for the response, which we don't expect to expose in later
 /// versions.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 // tsgen
 pub struct DebugInfo {
     pub grouped_hits: Vec<DebugFastaRecordHits>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 // tsgen
 pub struct DebugFastaRecordHits {
     pub fasta_header: String,
@@ -23,7 +22,7 @@ pub struct DebugFastaRecordHits {
     pub hits: Vec<DebugHit>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 // tsgen
 pub struct DebugHit {
     pub seq: String,
@@ -36,7 +35,7 @@ pub struct DebugHit {
     pub window_gap: usize,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 // tsgen
 pub enum SequenceProvenance {
     DnaNormal,
@@ -47,21 +46,21 @@ pub enum SequenceProvenance {
     AASampled,
 }
 
-impl From<hdb::Provenance> for SequenceProvenance {
-    fn from(value: hdb::Provenance) -> Self {
+impl From<hdb_api::Provenance> for SequenceProvenance {
+    fn from(value: hdb_api::Provenance) -> Self {
         match value {
-            hdb::Provenance::DnaNormal => Self::DnaNormal,
-            hdb::Provenance::DnaRunt => Self::DnaRunt,
-            hdb::Provenance::AAWildType => Self::AAWildType,
-            hdb::Provenance::AASingleReplacement => Self::AASingleReplacement,
-            hdb::Provenance::AADoubleReplacement => Self::AADoubleReplacement,
-            hdb::Provenance::AASampled => Self::AASampled,
+            hdb_api::Provenance::DnaNormal => Self::DnaNormal,
+            hdb_api::Provenance::DnaRunt => Self::DnaRunt,
+            hdb_api::Provenance::AAWildType => Self::AAWildType,
+            hdb_api::Provenance::AASingleReplacement => Self::AASingleReplacement,
+            hdb_api::Provenance::AADoubleReplacement => Self::AADoubleReplacement,
+            hdb_api::Provenance::AASampled => Self::AASampled,
         }
     }
 }
 
 impl DebugHit {
-    pub fn from_hdb_response(hdb_response: hdb::DebugSeqHdbResponse, dna: &str) -> Self {
+    pub fn from_hdb_response(hdb_response: hdb_api::DebugSeqHdbResponse, dna: &str) -> Self {
         Self {
             seq: dna[hdb_response.seq_range_start..hdb_response.seq_range_end].to_string(),
             index: hdb_response.seq_range_start as u64,

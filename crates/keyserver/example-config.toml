@@ -41,7 +41,10 @@ active_security_key = [
 #crypto_parallelism_per_request = 8
 
 # (optional) Size limit for JSON request bodies in SCEP
-#scep_json_size_limit = 100000
+#scep_json_size_limit = 100_000
+
+# (optional) Size limit for window/hash bodies in SCEP.
+# scep_hash_limit = 1_000_000
 
 # Directory containing manufacturer root certs for SCEP client cert verification
 manufacturer_roots = "certs/manufacturer-roots/"
@@ -55,7 +58,7 @@ token_file = "keyserver-token.kt"
 # Path to the server's .priv keypair file, used for SCEP
 keypair_file = "keyserver-token.priv"
 
-# The file containing the passphrase to decrypt the server's .priv keypair file
+# Path to the file containing the passphrase to decrypt the server's .priv keypair file
 # (keypair_file setting)
 keypair_passphrase_file = "keyserver.passphrase"
 

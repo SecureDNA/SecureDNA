@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::marker::PhantomData;
@@ -16,7 +16,7 @@ use thiserror::Error;
 use time::Duration;
 
 use crate::asn_encode_as_octet_string_impl;
-use crate::keypair::{PublicKey, Signature};
+use crate::key::signing::{PublicKey, Signature};
 use crate::utility::now_utc;
 
 /// Implemented by components of certificates and tokens.
@@ -167,6 +167,33 @@ impl Debug for Id {
 
 #[derive(
     AsnType,
+    Decode,
+    Encode,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    Serialize,
+)]
+// tsgen
+#[rasn(automatic_tags)]
+pub struct Attachment {
+    pub name: String,
+    pub contents: Vec<u8>,
+}
+
+impl Display for Attachment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?} ({} bytes)", self.name, self.contents.len())
+    }
+}
+
+#[derive(
+    AsnType,
     Debug,
     Encode,
     Decode,
@@ -252,10 +279,46 @@ pub struct Expiration {
     pub not_valid_after: i64,
 }
 
+/// An abstract interface for getting a "current time".
+///
+/// Usually, this is [SystemClock], which returns the system's current time.
+///
+/// When verifying a result from verifiable screening, a [FixedClock] is used,
+/// set to the time of the screening result. This way, the verifier cert from
+/// the result can be used even if it is expired, as long as it was valid when
+/// the result was generated.
+pub trait Clock {
+    /// Return the current Unix timestamp in seconds.
+    fn unix_timestamp(&self) -> i64;
+}
+
+/// A [Clock] that reports the current system time.
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn unix_timestamp(&self) -> i64 {
+        now_utc().unix_timestamp()
+    }
+}
+
+/// A [Clock] that is fixed to a constant timestamp.
+pub struct FixedClock {
+    pub unix_timestamp: i64,
+}
+
+impl Clock for FixedClock {
+    fn unix_timestamp(&self) -> i64 {
+        self.unix_timestamp
+    }
+}
+
 impl Expiration {
     pub const DEFAULT_DAYS: i64 = 28;
-    pub fn validate(&self) -> Result<(), OutsideValidityPeriod> {
-        let now = now_utc().unix_timestamp();
+
+    /// Validate this [Expiration] using the given [Clock] (by checking whether
+    /// the Clock's current time is within the validity range).
+    pub fn validate(&self, clock: &impl Clock) -> Result<(), OutsideValidityPeriod> {
+        let now = clock.unix_timestamp();
         if now < self.not_valid_before {
             Err(OutsideValidityPeriod::NotYetValid)
         } else if now > self.not_valid_after {
@@ -265,26 +328,49 @@ impl Expiration {
         }
     }
 
+    /// Create an [Expiration] valid from now until `days` days in the future,
+    /// using the system clock.
     pub fn expiring_in_days(days: i64) -> Result<Self, ExpirationError> {
+        Self::expiring_in_days_from(&SystemClock, days)
+    }
+
+    /// Create an [Expiration] valid from the given clock's current time until
+    /// `days` days later.
+    pub fn expiring_in_days_from(clock: &impl Clock, days: i64) -> Result<Self, ExpirationError> {
         if days <= 0 {
             return Err(ExpirationError::InsufficientDaysValid);
         }
-        Ok(Self::unchecked_expiring_in_days(days))
+        Ok(Self::unchecked_expiring_in_days_from(clock, days))
     }
 
-    fn unchecked_expiring_in_days(days: i64) -> Self {
-        let now = now_utc();
-        let expires = now + Duration::days(days);
+    fn unchecked_expiring_in_days_from(clock: &impl Clock, days: i64) -> Self {
+        let start = clock.unix_timestamp();
+        let end = start + Duration::days(days).whole_seconds();
         Self {
-            not_valid_before: now.unix_timestamp(),
-            not_valid_after: expires.unix_timestamp(),
+            not_valid_before: start,
+            not_valid_after: end,
         }
+    }
+
+    /// Compute how many days from now the validity period lasts, rounding up.
+    /// If the token is expired, the result is 0 rather than negative.
+    pub fn days_until_expiry(&self, clock: &impl Clock) -> i64 {
+        let now = clock.unix_timestamp();
+        let seconds_remaining = self.not_valid_after - now;
+        const SECONDS_PER_DAY: i64 = 24 * 60 * 60;
+
+        // div_ceil is experimental: https://github.com/rust-lang/rust/issues/88581
+        // We'll simulate `a.div_ceil(b)` using `(a + (b - 1)) / b`.
+        // let days_remaining = seconds_remaining.div_ceil(SECONDS_PER_DAY);
+        let days_remaining = (seconds_remaining + (SECONDS_PER_DAY - 1)) / SECONDS_PER_DAY;
+
+        days_remaining.max(0)
     }
 }
 
 impl Default for Expiration {
     fn default() -> Self {
-        Self::unchecked_expiring_in_days(Self::DEFAULT_DAYS)
+        Self::unchecked_expiring_in_days_from(&SystemClock, Self::DEFAULT_DAYS)
     }
 }
 
@@ -347,7 +433,7 @@ impl<L> Signed<L> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use crate::asn::ToASN1DerBytes;
 
@@ -357,5 +443,32 @@ mod tests {
         let id = Id::new_random();
         let encoded = id.to_der().unwrap();
         assert_eq!(encoded.len(), Id::LEN + 2);
+    }
+
+    #[test]
+    fn test_system_and_fixed_clock() {
+        let expiration = Expiration::expiring_in_days(3).unwrap();
+        assert_eq!(expiration.validate(&SystemClock), Ok(()));
+
+        let now_clock = FixedClock {
+            unix_timestamp: SystemClock.unix_timestamp() + 60,
+        };
+        assert_eq!(expiration.validate(&now_clock), Ok(()));
+
+        let past_clock = FixedClock {
+            unix_timestamp: SystemClock.unix_timestamp() - 1_000_000,
+        };
+        assert_eq!(
+            expiration.validate(&past_clock),
+            Err(OutsideValidityPeriod::NotYetValid)
+        );
+
+        let future_clock = FixedClock {
+            unix_timestamp: SystemClock.unix_timestamp() + 1_000_000,
+        };
+        assert_eq!(
+            expiration.validate(&future_clock),
+            Err(OutsideValidityPeriod::Expired)
+        );
     }
 }

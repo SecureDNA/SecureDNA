@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -26,7 +26,7 @@ function DownloadFiles(props: { baseName: string; files: CertRequestFiles }) {
             <DownloadFile
               mimeType="application/x-pem-file"
               contents={props.files.certr_pem}
-              name={`${props.baseName}.certr`}
+              name={`${props.baseName}.manufacturer.certr`}
               onClick={() => setGotCertr(true)}
             />
             — This is a <em>certificate request</em>. You will send this file to
@@ -59,19 +59,18 @@ function DownloadFiles(props: { baseName: string; files: CertRequestFiles }) {
           </li>
         </ol>
         <p>
-          Once you have downloaded all three files, continue to the Screening
-          Registration Form and upload the <code>.certr</code> file there.
+          Once you have downloaded all three files, continue to the registration
+          form below. You will be asked to upload the .certr file to that form.
         </p>
-        <a
-          className={
-            gotAll
-              ? "btn !no-underline"
-              : "btn !no-underline opacity-50 cursor-default"
-          }
-          href={gotAll ? "https://securedna.org/start/" : undefined}
-        >
-          Continue
-        </a>
+        <p>
+          If you have already completed the registration form but have not yet
+          sent in your .certr file, you can use the{" "}
+          <a href="https://securedna.org/cert-upload/">
+            certificate upload form
+          </a>{" "}
+          to submit your .certr file without having to redo the registration
+          form.
+        </p>
       </Card>
     </>
   );
@@ -85,6 +84,46 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState<CertRequestFiles>();
   const [error, setError] = useState("");
+
+  const handleGenerate = () => {
+    if (!email.includes("@")) {
+      setError("Email address should include @");
+      return;
+    }
+    if (passphrase.length < 10) {
+      setError("Passphrase should be at least 10 characters long.");
+      return;
+    }
+    setError("");
+    setBaseName(
+      `${(companyName || "anonymous")
+        .replaceAll(/\W+/gu, "-")
+        .replaceAll(/-+/gu, "-")
+        .replaceAll(/^-|-$/gu, "")
+        .toLowerCase()}-leaf`,
+    );
+    setBusy(true);
+    setTimeout(() => {
+      let files: CertRequestFiles;
+      try {
+        files = create_manufacturer_leaf(
+          companyName.trim(),
+          email.trim(),
+          passphrase.trim(),
+        );
+      } catch (e) {
+        setError(String(e));
+        setBusy(false);
+        return;
+      }
+
+      setFiles(files);
+      setTimeout(() => {
+        window.scrollTo(0, document.body.scrollHeight);
+        setBusy(false);
+      }, 0);
+    }, 50);
+  };
 
   return (
     <>
@@ -142,45 +181,7 @@ function App() {
           disabled={
             busy || !(companyName.trim() && email.trim() && passphrase.trim())
           }
-          onClick={() => {
-            if (!email.includes("@")) {
-              setError("Email address should include @");
-              return;
-            }
-            if (passphrase.length < 10) {
-              setError("Passphrase should be at least 10 characters long.");
-              return;
-            }
-            setError("");
-            setBaseName(
-              `${(companyName || "anonymous")
-                .replaceAll(/\W+/gu, "-")
-                .replaceAll(/-+/gu, "-")
-                .replaceAll(/^-|-$/gu, "")
-                .toLowerCase()}-leaf`,
-            );
-            setBusy(true);
-            setTimeout(() => {
-              let files: CertRequestFiles;
-              try {
-                files = create_manufacturer_leaf(
-                  companyName.trim(),
-                  email.trim(),
-                  passphrase.trim(),
-                );
-              } catch (e) {
-                setError(String(e));
-                setBusy(false);
-                return;
-              }
-
-              setFiles(files);
-              setTimeout(() => {
-                window.scrollTo(0, document.body.scrollHeight);
-                setBusy(false);
-              }, 0);
-            }, 50);
-          }}
+          onClick={handleGenerate}
         >
           Generate
         </button>

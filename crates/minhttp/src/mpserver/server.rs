@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::future::Future;
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use smallvec::SmallVec;
 use tokio::sync::{mpsc, watch};
-use tracing::{info, info_span, warn, Instrument};
+use tracing::{error_span, info, warn, Instrument};
 
 use super::tls::{redirect_to_https, terminate_tls_to_listener, TlsConfig};
 use super::traits::{
@@ -415,47 +415,50 @@ impl BundledServer {
             let control_https_listener = control_https_listener.clone();
 
             Box::pin(async move {
+                // Note: info_spans are only shown at verbose log-levels
+                // but we always want to know which service an error happened on.
                 let serve_main_http = Self::serve_internal(
                     &common_data,
                     main_http_listener,
                     Self::respond_or_redirect(&respond_to_main, main_tls_port),
                     &this.main_server,
-                );
+                )
+                .instrument(error_span!("http"));
                 let serve_main_https = Self::serve_internal(
                     &common_data,
                     main_https_listener,
                     respond_to_main,
                     &this.main_server,
                 )
-                .instrument(info_span!("tls"));
+                .instrument(error_span!("tls"));
                 let serve_monitoring_http = Self::serve_internal(
                     &common_data,
                     monitoring_http_listener,
                     Self::respond_or_redirect(&respond_to_monitoring, monitoring_tls_port),
                     &this.monitoring_server,
                 )
-                .instrument(info_span!("monitoring-plane"));
+                .instrument(error_span!("monitoring-plane"));
                 let serve_monitoring_https = Self::serve_internal(
                     &common_data,
                     monitoring_https_listener,
                     respond_to_monitoring,
                     &this.monitoring_server,
                 )
-                .instrument(info_span!("monitoring-plane-tls"));
+                .instrument(error_span!("monitoring-plane-tls"));
                 let serve_control_http = Self::serve_internal(
                     &common_data,
                     control_http_listener,
                     Self::respond_or_redirect(&respond_to_control, control_tls_port),
                     &this.control_server,
                 )
-                .instrument(info_span!("control-plane"));
+                .instrument(error_span!("control-plane"));
                 let serve_control_https = Self::serve_internal(
                     &common_data,
                     control_https_listener,
                     respond_to_control,
                     &this.control_server,
                 )
-                .instrument(info_span!("control-plane-tls"));
+                .instrument(error_span!("control-plane-tls"));
                 tokio::join!(
                     serve_main_http,
                     serve_main_https,
@@ -774,7 +777,7 @@ pub struct ExternalWorld<Listen, LoadCfg, ReadFile> {
     pub listen: Listen,
     /// Callback determining how configuration files are loaded; must be a [`LoadConfigFn`](super::traits::LoadConfigFn).
     pub load_cfg: LoadCfg,
-    /// Callback determining how to read small files; must be a [`ReadFileFn`](super::traits::ReadFileFn).
+    /// Callback determining how to read small files; must be a [`ReadFileFn`].
     ///
     /// NOTE: Not yet used by [`load_cfg`](Self::load_cfg).
     pub read_file: ReadFile,

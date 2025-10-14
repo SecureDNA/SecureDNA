@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{io::Write, path::PathBuf};
@@ -8,7 +8,7 @@ use clap::{crate_version, Parser};
 use certificates::file::{
     load_certificate_bundle_from_file, save_cert_request_to_file, CERT_EXT, CERT_REQUEST_EXT,
 };
-use certificates::{Exemption, Infrastructure, Manufacturer, Role, RoleKind};
+use certificates::{Exemption, Infrastructure, Manufacturer, Role, RoleKind, SystemClock};
 
 use super::error::CertCliError;
 
@@ -69,7 +69,7 @@ fn retrieve_request<R: Role>(opts: &RetrieveRequestOpts) -> Result<PathBuf, Cert
     };
 
     let request = load_certificate_bundle_from_file::<R>(&cert)?
-        .get_lead_cert()
+        .get_lead_cert(&SystemClock)
         .unwrap()
         .request()
         .clone();
@@ -78,7 +78,7 @@ fn retrieve_request<R: Role>(opts: &RetrieveRequestOpts) -> Result<PathBuf, Cert
     Ok(output)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use crate::shims::retrieve_cert_request::{run, RetrieveRequestOpts};
     use certificates::file::{
@@ -87,7 +87,7 @@ mod tests {
     use certificates::test_helpers::create_intermediate_bundle;
     use certificates::{
         Builder, CertificateBundle, Description, Exemption, Infrastructure, IssuerAdditionalFields,
-        KeyPair, Manufacturer, RequestBuilder, RoleKind,
+        Manufacturer, RequestBuilder, RoleKind, SigningKeyPair,
     };
     use std::fs;
     use tempfile::TempDir;
@@ -100,7 +100,7 @@ mod tests {
         let req_path = temp_path.join("root_a.certr");
         let retrieved_req_path = temp_path.join("root_b.certr");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .with_description(
                 Description::default()
@@ -145,7 +145,7 @@ mod tests {
         let req_path = temp_path.join("int_a.certr");
         let retrieved_req_path = temp_path.join("int_b.certr");
 
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root = RequestBuilder::<Infrastructure>::root_v1_builder(root_kp.public_key())
             .build()
             .load_key(root_kp.clone())
@@ -155,7 +155,7 @@ mod tests {
 
         let root_bundle = CertificateBundle::new(root, None);
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_req =
             RequestBuilder::<Infrastructure>::intermediate_v1_builder(int_kp.public_key())
                 .with_description(
@@ -197,7 +197,7 @@ mod tests {
 
         let (int_bundle, kp, _) = create_intermediate_bundle::<Manufacturer>();
 
-        let leaf_kp = KeyPair::new_random();
+        let leaf_kp = SigningKeyPair::new_random();
         let leaf_req = RequestBuilder::<Manufacturer>::leaf_v1_builder(leaf_kp.public_key())
             .with_description(
                 Description::default()
@@ -235,7 +235,7 @@ mod tests {
         let cert_path = temp_path.join("root");
         let retrieved_req_path = temp_path.join("root.certr");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)

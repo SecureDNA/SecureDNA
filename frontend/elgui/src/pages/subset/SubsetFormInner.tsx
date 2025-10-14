@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -9,11 +9,11 @@ import {
   download,
   makeFileName,
 } from "@securedna/frontend_common";
+import { PrimaryButton } from "@securedna/frontend_common";
+import { AuthenticatorsInput } from "@securedna/frontend_common";
+import { Input } from "@securedna/frontend_common";
 import update from "immutability-helper";
 import { useState } from "react";
-import { PrimaryButton } from "src/components";
-import { AuthenticatorsInput } from "src/components/AuthInput";
-import { Input } from "src/components/Input";
 import { etrToPem, subsetEt } from "src/util/sign_etr";
 
 export interface SubsetFormInnerProps {
@@ -60,6 +60,8 @@ export default (props: SubsetFormInnerProps) => {
           shipping_addresses: addresses,
           requestor_auth_devices: authenticators,
           public_key: null,
+          attachments: etr.attachments,
+          reserved: "",
         });
         const subetPem = subsetEt({
           etPem,

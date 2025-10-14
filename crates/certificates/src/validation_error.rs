@@ -1,9 +1,10 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::shared_components::common::OutsideValidityPeriod;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use thiserror::Error;
 
 pub const EXPIRED_TEXT: &str = "Expired";
 pub const NOT_YET_VALID_TEXT: &str = "Not yet valid";
@@ -52,7 +53,7 @@ impl Display for InvalidityCause {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Error)]
 // tsgen
 pub struct ValidationError {
     pub causes: Vec<InvalidityCause>,

@@ -1,10 +1,12 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+import { type AuthFileResult, Page } from "@securedna/frontend_common";
 import { useMemo, useState } from "react";
-import { AuthCard, type AuthFileResult, Page } from "src/components";
+import { AuthCard } from "src/components/AuthCard";
+import { CheckSubject } from "src/util/checkCert";
 import { etBundlePemToJsObject } from "src/util/sign_etr";
 import SubsetFormInner from "./SubsetFormInner";
 
@@ -15,10 +17,12 @@ export default () => {
   const [privateKeyPem, setPrivateKeyPem] = useState<AuthFileResult>();
 
   const [passphrase, setPassphrase] = useState("");
-  const et = useMemo(
-    () => (etPem?.ok ? etBundlePemToJsObject(etPem.value.array) : undefined),
-    [etPem],
-  );
+  const et = useMemo(() => {
+    if (!etPem?.ok) return undefined;
+    const result = etBundlePemToJsObject(etPem.value.array);
+    if (!result.ok) return undefined;
+    return result.value;
+  }, [etPem]);
 
   return (
     <Page title="Subsetting Tool">
@@ -37,32 +41,18 @@ export default () => {
             className="flex-1"
             number={undefined}
             title={"Exemption token"}
+            noun={"exemption token"}
             description={"Select an exemption token to subset."}
             header="-----BEGIN SECUREDNA EXEMPTION TOKEN-----"
             acceptExtension={".et"}
             setPem={setEtPem!}
             pem={etPem!}
+            setPrivPem={setPrivateKeyPem}
+            privPem={privateKeyPem}
+            passphrase={passphrase}
+            setPassphrase={setPassphrase}
+            checkSubject={CheckSubject.ExemptionToken}
           />
-
-          <AuthCard
-            className="flex-1"
-            number={undefined}
-            title={"Private key"}
-            description={"Prove you're the owner of the exemption token."}
-            header="-----BEGIN SECUREDNA ENCRYPTED PRIVATE KEY-----"
-            acceptExtension={".priv"}
-            setPem={setPrivateKeyPem}
-            pem={privateKeyPem}
-          >
-            <input
-              className="px-1 border mt-4 w-full"
-              type="password"
-              placeholder="Passphrase"
-              value={passphrase}
-              autoComplete="password"
-              onChange={(e) => setPassphrase(e.target.value)}
-            />
-          </AuthCard>
         </div>
       </div>
       {privateKeyPem?.ok &&

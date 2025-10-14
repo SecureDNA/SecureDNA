@@ -1,20 +1,24 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Context;
 use chrono::{Duration, NaiveDate, NaiveTime, TimeZone, Utc};
-use clap::{ArgAction, Parser};
+use clap::{ArgAction, Parser, ValueEnum};
 use tracing::{debug, info, warn, Level};
 
 use certificates::{Id, SynthesizerTokenGroup, TokenBundle};
 use hdbserver::event_store as hdb_event_store;
 use keyserver::event_store as ks_event_store;
-use persistence::{Connection, OffsetDateTime};
+use persistence::{statistics::TokenLimitRecord, Connection, OffsetDateTime};
 use tracing_subscriber::FmtSubscriber;
 
 #[derive(Parser)]
+#[command(name = "statin")]
+#[command(
+    about = "Tool for fetching usage statistics from a keyserver/hdbserver event store in TSV format."
+)]
 struct Opts {
     #[arg(
         short,
@@ -38,6 +42,14 @@ struct Opts {
     db_kind: DbKind,
 
     #[clap(
+        short = 'c',
+        long,
+        help = "Which statistics to collect",
+        default_value = "usage"
+    )]
+    collect: CollectMode,
+
+    #[clap(
         long,
         short = 's',
         help = "UTC start date for the statistics (inclusive, defaults to 30 days ago)"
@@ -50,6 +62,14 @@ struct Opts {
         help = "UTC end date for the statistics (inclusive, defaults to today)"
     )]
     end_date: Option<NaiveDate>,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum CollectMode {
+    /// Collect statistics about usage and exceedances
+    Usage,
+    /// Collect token rate limits
+    Limits,
 }
 
 #[derive(Debug, clap::Args)]
@@ -105,6 +125,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start_date = chrono_date_to_time(start_date);
     let end_date = chrono_date_to_time(end_date);
 
+    match opts.collect {
+        CollectMode::Usage => statin_usage(conn, start_date, end_date).await,
+        CollectMode::Limits => statin_limits(conn, start_date, end_date).await,
+    }
+}
+
+async fn statin_usage(
+    conn: StatinableConnection,
+    start_date: OffsetDateTime,
+    end_date: OffsetDateTime,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut records = Records::new();
     for (id, token) in conn
         .query_certs()
@@ -157,6 +188,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{date}\t{escaped_domain}\t{bp}\t{orders}\t{exceedances}");
     }
 
+    Ok(())
+}
+
+async fn statin_limits(
+    conn: StatinableConnection,
+    start_date: OffsetDateTime,
+    end_date: OffsetDateTime,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("date\ttoken_id\trate_limit\temail_addresses");
+    for record in conn.query_token_limits(start_date, end_date).await? {
+        let date = OffsetDateTime::from_unix_timestamp(record.unix_timestamp)?;
+        let token_id = record.token_id;
+        match record.data {
+            Some(data) => {
+                let rate_limit = data.rate_limit;
+                let emails = data.email_addresses.join(" ");
+                println!("{date}\t{token_id}\t{rate_limit}\t{emails}");
+            }
+            None => {
+                info!("Failed to decode cert for event at {date}");
+            }
+        }
+    }
     Ok(())
 }
 
@@ -341,5 +395,25 @@ impl StatinableConnection {
             }
         };
         Ok(result.into_iter().map(|(dt, id, exs)| (dt.into(), id, exs)))
+    }
+
+    async fn query_token_limits(
+        &self,
+        start_date: OffsetDateTime,
+        end_date: OffsetDateTime,
+    ) -> anyhow::Result<Vec<TokenLimitRecord>> {
+        let result = match self {
+            StatinableConnection::Keyserver(c) => {
+                persistence::statistics::query_token_limits(c, start_date, end_date, "open_events")
+                    .await
+                    .context("Unable to query keyserver token limits")?
+            }
+            StatinableConnection::Hdbserver(c) => {
+                persistence::statistics::query_token_limits(c, start_date, end_date, "open_events")
+                    .await
+                    .context("Unable to query hdbserver token limits")?
+            }
+        };
+        Ok(result)
     }
 }

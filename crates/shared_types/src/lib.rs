@@ -1,12 +1,12 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This crate is used for types that are shared within this repo's crates
 
+pub mod deserialize;
 pub mod error;
 pub mod et;
 pub mod hash;
-pub mod hdb;
 #[cfg(feature = "http")]
 pub mod http;
 pub mod metrics;

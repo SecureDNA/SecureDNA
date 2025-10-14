@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -9,7 +9,7 @@ use certificates::revocation::RevocationList;
 use certificates::KeyserverTokenGroup;
 use doprf::party::KeyserverId;
 use http_client::HttpError;
-use scep_client_helpers::ClientCerts;
+use scep_client_helpers::{ClientCerts, ScepClientOpenCommon};
 use scep_integration_tests::make_certs::{make_certs, MakeCertsOptions};
 use scep_integration_tests::server::{Opts, TestServer};
 use shared_types::hash::HashSpec;
@@ -41,7 +41,8 @@ pub async fn revoked_client_cert() {
     let server_port = server.port();
 
     let request_id = RequestId::new_unique();
-    let http_client = http_client::BaseApiClient::new(request_id);
+    let http_client = http_client::BaseApiClient::new(request_id).unwrap();
+    let synth_pub_key = certs.synth_keypair.public_key();
     let keyserver_client = scep_client_helpers::ScepClient::<KeyserverTokenGroup>::new(
         http_client,
         format!("http://localhost:{server_port}"),
@@ -55,16 +56,18 @@ pub async fn revoked_client_cert() {
 
     let opened_state = keyserver_client
         .open(
-            1,
-            None,
-            vec![
-                KeyserverId::try_from(1).unwrap(),
-                KeyserverId::try_from(2).unwrap(),
-                KeyserverId::try_from(3).unwrap(),
-            ]
-            .into(),
+            ScepClientOpenCommon {
+                nucleotide_total_count: 1,
+                last_server_version: None,
+                keyserver_id_set: vec![
+                    KeyserverId::try_from(1).unwrap(),
+                    KeyserverId::try_from(2).unwrap(),
+                    KeyserverId::try_from(3).unwrap(),
+                ]
+                .into(),
+                debug_info: false,
+            },
             MakeCertsOptions::default().keyserver_id,
-            false,
         )
         .await
         .unwrap();
@@ -87,11 +90,13 @@ pub async fn revoked_client_cert() {
     };
 
     assert!(!retriable);
-    assert_eq!(
-        error.to_string(),
+
+    let expected = format!(
         "the following items in the synthesizer token file are invalid: \
-        the synthesizer token registered to 'example.com' is not valid due to revocation"
+        the synthesizer token registered to 'example.com' (public key: {synth_pub_key}) \
+        is not valid due to revocation"
     );
+    assert_eq!(error.to_string(), expected);
 
     server.stop().await;
 }

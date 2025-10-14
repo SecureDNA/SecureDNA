@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{
@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use clap::{crate_version, Parser};
+use clap::Parser;
 
 use super::error::CertCliError;
 use crate::default_filepath::set_appropriate_filepath_and_create_default_dir_if_required;
@@ -25,9 +25,8 @@ use certificates::{
 #[clap(
 name = "sdna-create-cert",
 about = "Generates a SecureDNA certificate request",
-version = crate_version!()
+version = crate::certificate_client_version!()
 )]
-
 pub struct CreateCertOpts {
     #[clap(
         help = "Role of certificate [possible values: exemption, infrastructure, manufacturer]"
@@ -52,6 +51,11 @@ pub struct CreateCertOpts {
         help = "Determines whether the certificate is able to issue blinded certificates or tokens (optional, only for exemption certs)"
     )]
     pub allow_blinding: bool,
+    #[clap(
+        long,
+        help = "Name of the TOTP token to be used for the certificate (optional, only for exemption leaf certs)"
+    )]
+    pub totp_token_name: Option<String>,
     #[clap(
         long,
         help = "Filepath where the certificate request will be saved (optional). If this is not provided ~/SecureDNA will be used"
@@ -111,6 +115,11 @@ fn run<P: PassphraseReader>(
     if opts.allow_blinding && opts.role != RoleKind::Exemption {
         return Err(CertCliError::AllowBlindingNotAllowed);
     }
+    if opts.totp_token_name.is_some()
+        && (opts.role != RoleKind::Exemption || opts.hierarchy != HierarchyKind::Leaf)
+    {
+        return Err(CertCliError::TOTPTokenNameNotAllowed);
+    }
 
     match opts.role {
         RoleKind::Exemption => {
@@ -120,8 +129,13 @@ fn run<P: PassphraseReader>(
                 } else {
                     builder
                 };
-                if opts.allow_blinding {
+                let builder = if opts.allow_blinding {
                     builder.allow_blinding(true)
+                } else {
+                    builder
+                };
+                if let Some(totp_token_name) = &opts.totp_token_name {
+                    builder.with_totp_token_name(totp_token_name.to_owned())
                 } else {
                     builder
                 }
@@ -207,7 +221,7 @@ where
     Ok((request_path, key_source))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use crate::inspect::{FormatMethod, Formattable, SingleRequestOutput};
     use crate::key::{AssociatedKeyArgs, KeySource, NewKeyDetails};
@@ -223,7 +237,8 @@ mod tests {
         CERT_REQUEST_EXT, KEY_PRIV_EXT, KEY_PUB_EXT,
     };
     use certificates::{
-        Exemption, HierarchyKind, Infrastructure, KeyPair, Manufacturer, RequestDigest, RoleKind,
+        Exemption, HierarchyKind, Infrastructure, Manufacturer, RequestDigest, RoleKind,
+        SigningKeyPair,
     };
     use tempfile::TempDir;
 
@@ -244,6 +259,7 @@ mod tests {
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -273,6 +289,7 @@ mod tests {
             output: Some(request_path.clone()),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
             key: AssociatedKeyArgs::default(),
         };
 
@@ -302,6 +319,7 @@ mod tests {
             output: Some(request_path.clone()),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: Some("test_token".to_string()),
             key: AssociatedKeyArgs::default(),
         };
 
@@ -328,6 +346,7 @@ mod tests {
             output: None,
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
             key: AssociatedKeyArgs::default(),
         };
 
@@ -371,7 +390,7 @@ mod tests {
         let default_dir = temp_path.join("default/");
         let pub_key_path = temp_path.join("key.pub");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         save_public_key_to_file(kp.public_key(), &pub_key_path).unwrap();
 
         let opts = CreateCertOpts {
@@ -382,6 +401,7 @@ mod tests {
             output: Some(request_path.clone()),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
             key: AssociatedKeyArgs::key_from_file(pub_key_path),
         };
 
@@ -404,7 +424,7 @@ mod tests {
         let request_path = temp_path.join("leaf.certr");
         let default_dir = temp_path.join("default/");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let hex = kp.public_key().to_string();
 
         let opts = CreateCertOpts {
@@ -415,6 +435,7 @@ mod tests {
             output: Some(request_path.clone()),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
             key: AssociatedKeyArgs::key_from_hex(hex),
         };
 
@@ -448,6 +469,7 @@ mod tests {
             output: Some(request_path.clone()),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
             key: AssociatedKeyArgs::default(),
         };
 
@@ -482,6 +504,7 @@ mod tests {
             output: Some(request_path.clone()),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
         };
 
@@ -523,6 +546,7 @@ mod tests {
             output: Some(request_path),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
             key: AssociatedKeyArgs::create_key_at_path(key_path),
         };
 
@@ -567,6 +591,7 @@ mod tests {
             output: Some(request_path.clone()),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
         };
 
@@ -599,6 +624,7 @@ mod tests {
             key: AssociatedKeyArgs::default(),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -623,6 +649,7 @@ mod tests {
             key: AssociatedKeyArgs::create_key_at_path(key_path),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -649,6 +676,7 @@ mod tests {
             key: AssociatedKeyArgs::create_key_at_path(key_path),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -675,6 +703,7 @@ mod tests {
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -709,6 +738,7 @@ mod tests {
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -737,7 +767,7 @@ mod tests {
         let request_path = temp_path.join("1234.certr");
         let key_path = temp_path.join("key");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         save_public_key_to_file(kp.public_key(), &key_path.with_extension(KEY_PUB_EXT)).unwrap();
 
         let opts = CreateCertOpts {
@@ -749,6 +779,7 @@ mod tests {
             key: AssociatedKeyArgs::key_from_file(key_path),
             notify: vec![],
             allow_blinding: false,
+            totp_token_name: None,
         };
 
         let passphrase_reader = MemoryPassphraseReader::default();
@@ -772,6 +803,7 @@ mod tests {
             output: Some(request_path.clone()),
             notify: vec![],
             allow_blinding: true,
+            totp_token_name: None,
             key: AssociatedKeyArgs::default(),
         };
 
@@ -801,6 +833,7 @@ mod tests {
             output: Some(request_path.clone()),
             notify: vec![],
             allow_blinding: true,
+            totp_token_name: None,
             key: AssociatedKeyArgs::default(),
         };
 
@@ -827,6 +860,7 @@ mod tests {
             output: Some(request_path.clone()),
             notify: vec![],
             allow_blinding: true,
+            totp_token_name: None,
             key: AssociatedKeyArgs::default(),
         };
 
@@ -836,5 +870,90 @@ mod tests {
             .expect_err("shouldn't be possible to set 'allow blinding' on a manufacturer cert");
 
         assert_eq!(err, CertCliError::AllowBlindingNotAllowed);
+    }
+
+    #[test]
+    fn can_set_totp_token_name_on_exemption_leaf_cert() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let request_path = temp_path.join("leaf.certr");
+        let default_dir = temp_path.join("default/");
+
+        let token_name = "test-token".to_string();
+        let opts = CreateCertOpts {
+            hierarchy: HierarchyKind::Leaf,
+            role: RoleKind::Exemption,
+            name: None,
+            email: None,
+            output: Some(request_path.clone()),
+            notify: vec![],
+            allow_blinding: false,
+            totp_token_name: Some(token_name.clone()),
+            key: AssociatedKeyArgs::default(),
+        };
+
+        let passphrase_reader = MemoryPassphraseReader::default();
+
+        let (saved_path, _) = create_cert::run(&opts, &passphrase_reader, &default_dir)
+            .expect("should be able to set TOTP token name on an exemption leaf cert");
+
+        let request = load_cert_request_from_file::<Exemption>(&saved_path)
+            .expect("should be able to load the created cert request");
+
+        assert_eq!(request.totp_token_name(), Some(token_name));
+    }
+
+    #[test]
+    fn cannot_set_totp_token_name_on_infrastructure_cert() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let request_path = temp_path.join("leaf.certr");
+        let default_dir = temp_path.join("default/");
+
+        let opts = CreateCertOpts {
+            hierarchy: HierarchyKind::Leaf,
+            role: RoleKind::Infrastructure,
+            name: None,
+            email: None,
+            output: Some(request_path.clone()),
+            notify: vec![],
+            allow_blinding: false,
+            totp_token_name: Some("test-token".to_string()),
+            key: AssociatedKeyArgs::default(),
+        };
+
+        let passphrase_reader = MemoryPassphraseReader::default();
+
+        let err = create_cert::run(&opts, &passphrase_reader, &default_dir)
+            .expect_err("shouldn't be possible to set TOTP token name on an infrastructure cert");
+
+        assert_eq!(err, CertCliError::TOTPTokenNameNotAllowed);
+    }
+
+    #[test]
+    fn cannot_set_totp_token_name_on_manufacturer_cert() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let request_path = temp_path.join("leaf.certr");
+        let default_dir = temp_path.join("default/");
+
+        let opts = CreateCertOpts {
+            hierarchy: HierarchyKind::Leaf,
+            role: RoleKind::Manufacturer,
+            name: None,
+            email: None,
+            output: Some(request_path.clone()),
+            notify: vec![],
+            allow_blinding: false,
+            totp_token_name: Some("test-token".to_string()),
+            key: AssociatedKeyArgs::default(),
+        };
+
+        let passphrase_reader = MemoryPassphraseReader::default();
+
+        let err = create_cert::run(&opts, &passphrase_reader, &default_dir)
+            .expect_err("shouldn't be possible to set TOTP token name on a manufacturer cert");
+
+        assert_eq!(err, CertCliError::TOTPTokenNameNotAllowed);
     }
 }

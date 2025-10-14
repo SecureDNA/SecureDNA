@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Structs holding with certificates and certificate request versions.
@@ -15,8 +15,8 @@ use crate::certificate::inner::{
     Subject1,
 };
 use crate::error::EncodeError;
+use crate::key::signing::{PublicKey, Signature};
 use crate::key_state::KeyUnavailable;
-use crate::keypair::{PublicKey, Signature};
 use crate::shared_components::common::{Description, Expiration, Id};
 use crate::shared_components::role::{Exemption, Infrastructure};
 use crate::tokens::exemption::authenticator::Authenticator;
@@ -24,6 +24,7 @@ use crate::tokens::exemption::et::{
     ExemptionToken, ExemptionTokenRequest, ExemptionTokenRequestVersion, ExemptionTokenVersion,
     NonCompliantChildToken,
 };
+use crate::tokens::infrastructure::verifier::{VerifierTokenRequestVersion, VerifierTokenVersion};
 use crate::tokens::infrastructure::{
     database::{
         DatabaseToken, DatabaseTokenRequest, DatabaseTokenRequestVersion, DatabaseTokenVersion,
@@ -38,7 +39,8 @@ use crate::tokens::manufacturer::synthesizer::{
     SynthesizerTokenVersion,
 };
 use crate::{
-    CertificateDigest, HierarchyKind, IssuerAdditionalFields, KeyPair, Manufacturer, RequestDigest,
+    CertificateDigest, HierarchyKind, IssuerAdditionalFields, Manufacturer, RequestDigest,
+    SigningKeyPair, VerifierToken, VerifierTokenRequest,
 };
 
 /// Each role-specific implementor of `CertificateVersion` is an enum whose variants
@@ -70,13 +72,15 @@ pub trait CertificateVersion:
     fn request_id(&self) -> &Id;
     fn request(&self) -> Self::ReqVersion;
     fn public_key(&self) -> &PublicKey;
+    fn all_emails_to_notify(&self) -> Vec<String>;
+    fn email_addresses(&self) -> Vec<String>;
     fn hierarchy_level(&self) -> HierarchyKind;
 
     fn issue_cert(
         &self,
         request: Self::ReqVersion,
         additional_fields: IssuerAdditionalFields,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<Self, IssuanceError>;
 
     fn into_digest(self, role: &str) -> CertificateDigest;
@@ -186,6 +190,18 @@ macro_rules! impl_certificate_version_boilerplate {
                 }
             }
 
+            fn all_emails_to_notify(&self) -> Vec<String> {
+                match self {
+                    $(Self::$variant(c) => c.all_emails_to_notify(),)+
+                }
+            }
+
+            fn email_addresses(&self) -> Vec<String> {
+                match self {
+                    $(Self::$variant(c) => c.email_addresses(),)+
+                }
+            }
+
             fn hierarchy_level(&self) -> HierarchyKind {
                 match self {
                     Self::RootV1(_) => HierarchyKind::Root,
@@ -198,7 +214,7 @@ macro_rules! impl_certificate_version_boilerplate {
                 &self,
                 request: Self::ReqVersion,
                 additional_fields: IssuerAdditionalFields,
-                kp: &KeyPair,
+                kp: &SigningKeyPair,
             ) -> Result<Self, IssuanceError> {
                 match (self, request) {
                     (Self::RootV1(root), Self::ReqVersion::IntermediateV1(req)) => {
@@ -271,7 +287,7 @@ impl ExemptionCertificateVersion {
         token_request: ExemptionTokenRequest,
         expiration: Expiration,
         issuer_auth_devices: Vec<Authenticator>,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<ExemptionToken<KeyUnavailable>, IssuanceError> {
         match self {
             Self::LeafV1(c) => match token_request.version {
@@ -294,6 +310,14 @@ impl ExemptionCertificateVersion {
             Self::LeafV1(c) => c.blinding_allowed(),
         }
     }
+
+    pub(crate) fn totp_token_name(&self) -> Option<String> {
+        match self {
+            Self::RootV1(c) => c.totp_token_name(),
+            Self::IntermediateV1(c) => c.totp_token_name(),
+            Self::LeafV1(c) => c.totp_token_name(),
+        }
+    }
 }
 
 impl InfrastructureCertificateVersion {
@@ -301,7 +325,7 @@ impl InfrastructureCertificateVersion {
         &self,
         token_request: KeyserverTokenRequest,
         expiration: Expiration,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<KeyserverToken<KeyUnavailable>, IssuanceError> {
         match self {
             Self::LeafV1(c) => match token_request.version {
@@ -321,7 +345,7 @@ impl InfrastructureCertificateVersion {
         &self,
         token_request: DatabaseTokenRequest,
         expiration: Expiration,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<DatabaseToken<KeyUnavailable>, IssuanceError> {
         match self {
             Self::LeafV1(c) => match token_request.version {
@@ -337,11 +361,31 @@ impl InfrastructureCertificateVersion {
         }
     }
 
+    pub(crate) fn issue_verifier_token(
+        &self,
+        token_request: VerifierTokenRequest,
+        expiration: Expiration,
+        kp: &SigningKeyPair,
+    ) -> Result<VerifierToken<KeyUnavailable>, IssuanceError> {
+        match self {
+            Self::LeafV1(c) => match token_request.version {
+                VerifierTokenRequestVersion::V1(req) => {
+                    let token = c.issue_verifier_token(req, expiration, kp)?;
+                    Ok(VerifierToken::new(VerifierTokenVersion::V1(token)))
+                }
+            },
+            _ => Err(IssuanceError::NonLeafIssuingToken(
+                self.hierarchy_level().to_string(),
+                "verifier".to_string(),
+            )),
+        }
+    }
+
     pub(crate) fn issue_hlt_token(
         &self,
         token_request: HltTokenRequest,
         expiration: Expiration,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<HltToken<KeyUnavailable>, IssuanceError> {
         match self {
             Self::LeafV1(c) => match token_request.version {
@@ -363,7 +407,7 @@ impl ManufacturerCertificateVersion {
         &self,
         token_request: SynthesizerTokenRequest,
         expiration: Expiration,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<SynthesizerToken<KeyUnavailable>, IssuanceError> {
         match self {
             Self::LeafV1(c) => match token_request.version {
@@ -394,7 +438,7 @@ pub trait RequestVersion:
     fn self_sign(
         self,
         additional_fields: IssuerAdditionalFields,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<Self::CertVersion, IssuanceError>;
 }
 
@@ -443,7 +487,7 @@ macro_rules! impl_request_version_boilerplate {
             fn self_sign(
                 self,
                 additional_fields: IssuerAdditionalFields,
-                kp: &KeyPair,
+                kp: &SigningKeyPair,
             ) -> Result<Self::CertVersion, IssuanceError> {
                 match self {
                     Self::RootV1(root) => {
@@ -475,6 +519,14 @@ impl ExemptionRequestVersion {
             Self::RootV1(r) => r.blinding_allowed(),
             Self::IntermediateV1(r) => r.blinding_allowed(),
             Self::LeafV1(r) => r.blinding_allowed(),
+        }
+    }
+
+    pub(crate) fn totp_token_name(&self) -> Option<String> {
+        match self {
+            Self::RootV1(r) => r.totp_token_name(),
+            Self::IntermediateV1(r) => r.totp_token_name(),
+            Self::LeafV1(r) => r.totp_token_name(),
         }
     }
 }

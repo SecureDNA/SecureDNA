@@ -1,27 +1,30 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
 import { download, makeFileName } from "@securedna/frontend_common";
-import { useState } from "react";
 import {
-  AuthCard,
   type AuthFileResult,
   Button,
   OrganismCard,
   PrimaryButton,
-} from "src/components";
+} from "@securedna/frontend_common";
+import { useState } from "react";
+import { AuthCard } from "src/components/AuthCard";
+import { CheckSubject } from "src/util/checkCert";
 import { signEtr } from "src/util/sign_etr";
 import { useApprovalStore } from "./store";
 
 const SigningPage = () => {
+  const [certPem, setCertPem] = useState<AuthFileResult>();
   const [privateKeyPem, setPrivateKeyPem] = useState<AuthFileResult>();
-
   const [passphrase, setPassphrase] = useState("");
   const [signError, setSignError] = useState("");
+  const [validationState, setValidationState] = useState<
+    "unfilled" | "error" | "ok"
+  >("unfilled");
 
-  const certPem = useApprovalStore((state) => state.certPem);
   const etr = useApprovalStore((state) => state.etr);
   const etrPem = useApprovalStore((state) => state.etrPem);
   const screenedExemptions = useApprovalStore(
@@ -29,7 +32,10 @@ const SigningPage = () => {
   );
   const back = useApprovalStore((state) => state.back);
 
-  if (!certPem || !etr || !etrPem || !screenedExemptions) return undefined;
+  if (!etr) return "Error: SigningPage missing etr";
+  if (!etrPem) return "Error: SigningPage missing etrPem";
+  if (!screenedExemptions)
+    return "Error: SigningPage missing screenedExemptions";
 
   const has2FA = etr.V1.requestor_auth_devices.length > 0;
   const hasAssociatedKey = etr.V1.public_key !== undefined;
@@ -37,10 +43,12 @@ const SigningPage = () => {
 
   const readyToSign =
     etrPem.ok &&
+    certPem &&
     certPem.ok &&
     privateKeyPem !== undefined &&
     privateKeyPem.ok &&
     passphrase !== "" &&
+    validationState === "ok" &&
     has2FA;
 
   const sign = () => {
@@ -123,27 +131,25 @@ const SigningPage = () => {
         Authenticate yourself to sign this request. If you don't have a .priv
         file, contact your administrator.
       </p>
-      <form>
+      <div>
         <div className="flex space-x-4 mt-4 px-12">
           <AuthCard
             className="flex-1 w-[50%]"
             number={undefined}
-            title={"Private key"}
-            description={"Prove you're the owner of the certificate."}
-            header="-----BEGIN SECUREDNA ENCRYPTED PRIVATE KEY-----"
-            acceptExtension={".priv"}
-            setPem={setPrivateKeyPem}
-            pem={privateKeyPem}
-          >
-            <input
-              className="px-1 border mt-4 w-full"
-              type="password"
-              placeholder="Passphrase"
-              value={passphrase}
-              autoComplete="password"
-              onChange={(e) => setPassphrase(e.target.value)}
-            />
-          </AuthCard>
+            title={"Certificate"}
+            noun="certificate"
+            description={"Authenticate yourself to sign this request"}
+            header="-----BEGIN SECUREDNA EXEMPTION CERTIFICATE-----"
+            acceptExtension={".cert"}
+            setPem={setCertPem}
+            pem={certPem}
+            setPrivPem={setPrivateKeyPem}
+            privPem={privateKeyPem}
+            passphrase={passphrase}
+            setPassphrase={setPassphrase}
+            setValidationState={setValidationState}
+            checkSubject={CheckSubject.ExemptionCert}
+          />
         </div>
         <p className="mt-4 mb-2">
           Signing this request creates an <strong>.et</strong> token file that
@@ -163,7 +169,7 @@ const SigningPage = () => {
           </Button>
           <PrimaryButton
             type="button"
-            className="flex-[2] my-2 py-3"
+            className="flex-2 my-2 py-3"
             disabled={!readyToSign}
             onClick={sign}
           >
@@ -171,7 +177,7 @@ const SigningPage = () => {
           </PrimaryButton>
         </div>
         {signError && <p className="text-red-500">{signError}</p>}
-      </form>
+      </div>
     </div>
   );
 };

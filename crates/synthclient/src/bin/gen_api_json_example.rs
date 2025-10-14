@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Small script to generate example API response for use in documentation. Comments/docs are not
@@ -44,6 +44,7 @@ fn main() {
                 ],
             }],
         }],
+        verifiable: None,
         warnings: vec![],
         errors: vec![],
         debug_info: None,

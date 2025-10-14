@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use bytes::Bytes;
@@ -6,8 +6,7 @@ use bytes::Bytes;
 use crate::{error::DoprfError, retry_if::retry_if};
 use http_client::BaseApiClient;
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[async_trait::async_trait]
 pub trait DnsLookup {
     /// Lookup a domain name, and return `true` if it exists.
     /// The string MUST be a bare domain, not a URL—it must not have a scheme or path component.
@@ -26,21 +25,22 @@ impl DnsOverHttps {
     /// of a DNS-over-HTTPS resolver.
     ///
     /// ```rust
+    /// # use http_client::BaseApiClient;
     /// # use doprf_client::server_selection::dns::DnsOverHttps;
-    /// let cloudflare_dns = DnsOverHttps::new("1.1.1.1");
-    /// let google_dns = DnsOverHttps::new("dns.google");
-    /// let localhost = DnsOverHttps::new("localhost:8000");
+    /// let api_client = BaseApiClient::new_external();
+    /// let cloudflare_dns = DnsOverHttps::new(api_client.clone(), "1.1.1.1");
+    /// let google_dns = DnsOverHttps::new(api_client.clone(), "dns.google");
+    /// let localhost = DnsOverHttps::new(api_client, "localhost:8000");
     /// ```
-    pub fn new(server: &str) -> Self {
+    pub fn new(api_client: BaseApiClient, server: &str) -> Self {
         Self {
-            api_client: BaseApiClient::new_external(),
+            api_client,
             dns_over_https_endpoint: format!("https://{server}/dns-query"),
         }
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[async_trait::async_trait]
 impl DnsLookup for &DnsOverHttps {
     async fn lookup(&self, domain: &str) -> Result<bool, LookupError> {
         let mut builder = dns_parser::Builder::new_query(0, true);
@@ -65,7 +65,7 @@ impl DnsLookup for &DnsOverHttps {
                             &self.dns_over_https_endpoint,
                             packet.clone(), // bytes::Bytes is rc'd, so this is cheap
                             "application/dns-message",
-                            "application/dns-message",
+                            Some("application/dns-message"),
                         )
                         .await?)
                 }
@@ -81,8 +81,7 @@ impl DnsLookup for &DnsOverHttps {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[async_trait::async_trait]
 impl DnsLookup for DnsOverHttps {
     async fn lookup(&self, domain: &str) -> Result<bool, LookupError> {
         (&self).lookup(domain).await
@@ -144,8 +143,7 @@ pub mod test_utils {
         domain_results: HashMap<String, LookupResultGenerator>,
     }
 
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    #[async_trait::async_trait]
     impl DnsLookup for &MockDns {
         async fn lookup(&self, domain: &str) -> Result<bool, LookupError> {
             match self.domain_results.get(domain) {
@@ -158,8 +156,7 @@ pub mod test_utils {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    #[async_trait::async_trait]
     impl DnsLookup for MockDns {
         async fn lookup(&self, domain: &str) -> Result<bool, LookupError> {
             (&self).lookup(domain).await
@@ -248,7 +245,8 @@ mod tests {
 
     #[tokio::test]
     async fn lookup_real_doh() {
-        let dns = DnsOverHttps::new("1.1.1.1");
+        let api_client = BaseApiClient::new_external();
+        let dns = DnsOverHttps::new(api_client, "1.1.1.1");
         assert!(flaky(|| dns.lookup("securedna.org")).await.unwrap());
     }
 
@@ -263,7 +261,8 @@ mod tests {
 
     #[tokio::test]
     async fn lookup_fake_doh() {
-        let dns = DnsOverHttps::new("1.1.1.1");
+        let api_client = BaseApiClient::new_external();
+        let dns = DnsOverHttps::new(api_client, "1.1.1.1");
         assert!(
             !flaky(|| dns.lookup("donotmakethissubdomainorthetestswillbreak.securedna.org",))
                 .await

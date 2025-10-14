@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::Path;
@@ -7,7 +7,7 @@ use anyhow::Context;
 
 use certificates::{
     file::{load_keypair_from_file, load_token_bundle_from_file, TokenExtension},
-    Certificate, KeyPair, KeyUnavailable, PemDecodable, Role, TokenBundle, TokenGroup,
+    Certificate, KeyUnavailable, PemDecodable, Role, SigningKeyPair, TokenBundle, TokenGroup,
 };
 
 pub fn read_tokenbundle<T: TokenGroup + TokenExtension>(
@@ -16,7 +16,7 @@ pub fn read_tokenbundle<T: TokenGroup + TokenExtension>(
     load_token_bundle_from_file(path.as_ref()).context("reading server token bundle")
 }
 
-pub fn read_keypair(path: impl AsRef<Path>, passphrase: &str) -> anyhow::Result<KeyPair> {
+pub fn read_keypair(path: impl AsRef<Path>, passphrase: &str) -> anyhow::Result<SigningKeyPair> {
     load_keypair_from_file(path.as_ref(), passphrase.as_bytes()).context("reading server keypair")
 }
 

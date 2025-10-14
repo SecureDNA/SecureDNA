@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::{Path, PathBuf};
@@ -11,8 +11,8 @@ use minhttp::mpserver::{cli::ServerConfigSource, traits::RelativeConfig};
 #[derive(Debug, Parser)]
 #[clap(
     name = "hdbserver",
-    about = "SecureDNA HDB Server",
-    version = crate_version!()
+    about = concat!("SecureDNA HDB Server ", crate_version!()),
+    version = crate_version!(),
 )]
 pub struct Opts {
     #[command(flatten)]
@@ -71,7 +71,8 @@ pub struct Config {
     #[clap(
         long,
         help = "Yubico API secret key. This is a base-64 string, used to verify YubiKey OTPs when handling an order with a 2FA-enabled exemption.",
-        env = "SECUREDNA_HDBSERVER_YUBICO_API_SECRET_KEY"
+        env = "SECUREDNA_HDBSERVER_YUBICO_API_SECRET_KEY",
+        hide_env_values = true
     )]
     pub yubico_api_secret_key: Option<String>,
 
@@ -83,6 +84,15 @@ pub struct Config {
     )]
     #[serde(default = "Config::default_scep_json_size_limit")]
     pub scep_json_size_limit: u64,
+
+    #[clap(
+        long,
+        help = "Size limit for window/hash bodies in SCEP.",
+        env = "SECUREDNA_HDBSERVER_SCEP_HASH_LIMIT",
+        default_value_t = Config::default_scep_hash_limit()
+    )]
+    #[serde(default = "Config::default_scep_hash_limit")]
+    pub scep_hash_limit: u64,
 
     #[clap(
         long,
@@ -137,6 +147,49 @@ pub struct Config {
 
     #[clap(
         long,
+        help = "Path to the database's verification token and certificate chain bundle file, used for verifiable screening",
+        env = "SECUREDNA_HDBSERVER_VERIFIER_TOKEN_FILE"
+    )]
+    pub verifier_token_file: Option<PathBuf>,
+
+    #[clap(
+        long,
+        help = "Path to the database's .priv verification keypair file, used for verifiable screening",
+        env = "SECUREDNA_HDBSERVER_VERIFIER_KEYPAIR_FILE"
+    )]
+    pub verifier_keypair_file: Option<PathBuf>,
+
+    #[clap(
+        long,
+        help = "The file containing the passphrase to decrypt the database's .priv verification keypair file (--verifier-keypair-file)",
+        env = "SECUREDNA_HDBSERVER_VERIFIER_KEYPAIR_PASSPHRASE_FILE"
+    )]
+    pub verifier_keypair_passphrase_file: Option<PathBuf>,
+
+    #[clap(
+        long,
+        help = "Path to the TOTP certificate bundle",
+        env = "SECUREDNA_HDBSERVER_TOTP_CERT_FILE"
+    )]
+    pub totp_cert_file: PathBuf,
+
+    #[clap(
+        long,
+        help = "The file containing the access password to talk to the TOTP server",
+        env = "SECUREDNA_HDBSERVER_TOTP_ACCESS_PASSPHRASE_FILE"
+    )]
+    pub totp_access_passphrase_file: PathBuf,
+
+    #[clap(
+        long,
+        help = "The URL to the verifiable screening public key history that will be signed into verifiable screening responses.",
+        env = "SECUREDNA_HDBSERVER_VERIFIER_HISTORY_URL",
+        default_value = "https://github.com/SecureDNA/verifiable-screening"
+    )]
+    pub verifier_history_url: Option<String>,
+
+    #[clap(
+        long,
         help = "Do not set the `secure` flag on session cookies, allowing them to be transported over http://. This is useful for local testing.",
         env = "SECUREDNA_HDBSERVER_ALLOW_INSECURE_COOKIE",
         default_value_t = false
@@ -152,6 +205,20 @@ pub struct Config {
     )]
     #[serde(default = "Config::default_event_store_path")]
     pub event_store_path: PathBuf,
+
+    #[clap(
+        long,
+        help = "Path to a file containing a SendGrid API key used to send audit email. If unset, sending audit email is disabled.",
+        env = "SECUREDNA_HDBSERVER_AUDIT_SENDGRID_API_KEY_FILE"
+    )]
+    pub audit_sendgrid_api_key_file: Option<PathBuf>,
+
+    #[clap(
+        long,
+        help = "The TOML template file used when sending audit email. See ../audit-email-template.toml for an example.",
+        env = "SECUREDNA_HDBSERVER_AUDIT_TEMPLATE_FILE"
+    )]
+    pub audit_template_file: Option<PathBuf>,
 }
 
 impl Config {
@@ -168,11 +235,15 @@ impl Config {
     }
 
     pub fn default_scep_json_size_limit() -> u64 {
-        100000
+        100_000
+    }
+
+    pub fn default_scep_hash_limit() -> u64 {
+        1_000_000
     }
 
     pub fn default_et_size_limit() -> u64 {
-        100000
+        100_000
     }
 
     pub fn default_event_store_path() -> PathBuf {
@@ -202,9 +273,17 @@ impl RelativeConfig for Config {
         self.token_file = base.join(self.token_file);
         self.keypair_file = base.join(self.keypair_file);
         self.keypair_passphrase_file = base.join(self.keypair_passphrase_file);
+        self.verifier_token_file = self.verifier_token_file.map(|p| base.join(p));
+        self.verifier_keypair_file = self.verifier_keypair_file.map(|p| base.join(p));
+        self.verifier_keypair_passphrase_file =
+            self.verifier_keypair_passphrase_file.map(|p| base.join(p));
+        self.totp_cert_file = base.join(self.totp_cert_file);
+        self.totp_access_passphrase_file = base.join(self.totp_access_passphrase_file);
         if self.event_store_path != Path::new(":memory:") {
             self.event_store_path = base.join(self.event_store_path);
         }
+        self.audit_sendgrid_api_key_file = self.audit_sendgrid_api_key_file.map(|p| base.join(p));
+        self.audit_template_file = self.audit_template_file.map(|p| base.join(p));
         self
     }
 }

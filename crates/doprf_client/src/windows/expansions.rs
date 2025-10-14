@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::num::NonZeroUsize;
@@ -20,9 +20,9 @@ pub struct WindowExpansions {
 
 /// Tracks the current window and amount of ambiguity
 ///
-/// Unlike [T]::windows, this doesn't require holding on to a borrow, at the cost of extra
-/// bounds checks. Also it keeps track of how much ambiguity a given window has.
-/// These fields are grouped together because they tend to be borrowed together.
+/// Unlike [`[T]::windows`](slice::windows), this doesn't require holding on to a borrow,
+/// at the cost of extra bounds checks. Also it keeps track of how much ambiguity a given
+/// window has. These fields are grouped together because they tend to be borrowed together.
 #[derive(Clone)]
 struct UnexpandedWindows {
     src: Arc<[NucleotideAmbiguous]>,
@@ -239,10 +239,11 @@ impl std::ops::DivAssign<u32> for NumExpansions {
 mod test {
     use std::collections::HashSet;
 
-    use quickcheck::{quickcheck, Arbitrary, Gen};
+    use quickcheck::quickcheck;
 
     use quickdna::{BaseSequence, DnaSequence};
 
+    use super::super::test::{Oligo, SemiAmbiguousDna, WindowLen};
     use super::*;
 
     fn to_dna(repr: &str) -> Vec<Nucleotide> {
@@ -552,70 +553,7 @@ mod test {
     }
 
     // Max length of windows iterators that will be checked by the quickcheck tests
-    const MAX_ITER_LEN: usize = 10000;
-
-    #[derive(Clone, Debug)]
-    struct WindowLen(usize);
-
-    impl WindowLen {
-        fn for_slice<T>(&self, slice: &[T]) -> NonZeroUsize {
-            // Using len + 1 has two advantages: no div-by-zero and occasionally checking window sizes larger than the data size
-            NonZeroUsize::new(1 + self.0 % (slice.len() + 1)).unwrap()
-        }
-    }
-
-    impl Arbitrary for WindowLen {
-        fn arbitrary(g: &mut Gen) -> Self {
-            Self(Arbitrary::arbitrary(g))
-        }
-
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            Box::new(self.0.shrink().map(Self))
-        }
-    }
-
-    #[derive(Clone, Debug)]
-    struct SemiAmbiguousDna(Vec<NucleotideAmbiguous>);
-
-    impl Arbitrary for SemiAmbiguousDna {
-        fn arbitrary(g: &mut Gen) -> Self {
-            let (dna, mut ambiguities): (Vec<Nucleotide>, Vec<(usize, NucleotideAmbiguous)>) =
-                Arbitrary::arbitrary(g);
-            ambiguities.truncate(dna.len() / 4);
-
-            let mut dna: Vec<_> = dna.into_iter().map(NucleotideAmbiguous::from).collect();
-            for (i, nuc) in ambiguities {
-                dna.insert(i % (dna.len() + 1), nuc);
-            }
-            Self(dna)
-        }
-
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            Box::new(self.0.shrink().map(Self))
-        }
-    }
-
-    // One provider does a lot of oligos that match [ATCG]*(KNN|SNN|NNN|NNS|NNK)*[ATCG]*
-    // Let's make sure we can handle that kind of thing tolerably well.
-    #[derive(Clone, Debug)]
-    struct Oligo(Vec<NucleotideAmbiguous>);
-
-    impl Arbitrary for Oligo {
-        fn arbitrary(g: &mut Gen) -> Self {
-            use NucleotideAmbiguous::{K, N, S};
-            let ambiguous_aa_type = g
-                .choose(&[[K, N, N], [S, N, N], [N, N, N], [N, N, S], [N, N, K]])
-                .unwrap();
-            let (prefix, ambiguous_aas, suffix): (Vec<Nucleotide>, Vec<()>, Vec<Nucleotide>) =
-                Arbitrary::arbitrary(g);
-
-            let mut dna = Vec::new();
-            dna.extend(prefix.into_iter().map(NucleotideAmbiguous::from));
-            dna.extend(ambiguous_aas.iter().flat_map(|_| ambiguous_aa_type));
-            dna.extend(suffix.into_iter().map(NucleotideAmbiguous::from));
-            Self(dna)
-        }
-    }
+    const MAX_ITER_LEN: usize = 10_000;
 
     // Simple reference implementation for situations where there are no ambiguities
     fn unambiguous_windows_reference_implementation(

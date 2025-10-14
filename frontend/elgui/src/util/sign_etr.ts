@@ -1,16 +1,16 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
 import type {
-  Authenticator,
   ExemptionToken,
   ExemptionTokenRequest,
   ExemptionTokenRequest1,
   GenbankId,
   Organism,
   PemKeyPair,
+  Result,
   SequenceIdentifier,
   SignEtr,
 } from "@securedna/frontend_common";
@@ -22,24 +22,6 @@ import type {
   SequenceIdentifierWithSource,
   ShippingAddress,
 } from "src/types";
-
-const YUBIKEY_ID_LENGTH = 12;
-
-export function parseYubikeyId(yubikeyId: string): Authenticator {
-  const candidate = [...yubikeyId.toUpperCase()];
-  if (yubikeyId.length !== YUBIKEY_ID_LENGTH) {
-    throw new Error(
-      `Invalid Yubikey ID length: ${yubikeyId.length} (should be ${YUBIKEY_ID_LENGTH})`,
-    );
-  }
-
-  for (const letter of candidate) {
-    if ("CBDEFGHIJKLNRTUV".indexOf(letter) === -1) {
-      throw new Error(`Invalid modhex character: ${letter}`);
-    }
-  }
-  return { Yubikey: yubikeyId.toLowerCase() };
-}
 
 function flattenShippingAddress({
   streetAddress,
@@ -106,6 +88,7 @@ export function makeEtrPem(el: Exemption): Uint8Array {
     requestor: el.requestor,
     requestor_auth_devices: el.authenticators,
     shipping_addresses: el.shippingAddresses.map(flattenShippingAddress),
+    attachments: el.attachments,
   });
 }
 
@@ -121,15 +104,28 @@ export function etrToPem(
     requestor: etr.requestor,
     requestor_auth_devices: etr.requestor_auth_devices,
     shipping_addresses: etr.shipping_addresses,
+    attachments: etr.attachments,
   });
 }
 
-export function etrPemToJsObject(pem: Uint8Array): ExemptionTokenRequest {
-  return wasm.etr_pem_to_js_object(pem);
+export function etrPemToJsObject(
+  pem: Uint8Array,
+): Result<ExemptionTokenRequest, string> {
+  try {
+    return { ok: true, value: wasm.etr_pem_to_js_object(pem) };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
 
-export function etBundlePemToJsObject(pem: Uint8Array): ExemptionToken {
-  return wasm.et_bundle_pem_to_js_object(pem);
+export function etBundlePemToJsObject(
+  pem: Uint8Array,
+): Result<ExemptionToken, string> {
+  try {
+    return { ok: true, value: wasm.et_bundle_pem_to_js_object(pem) };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
 
 function makeSignEtrBody(fields: SignEtrFields): SignEtr {
@@ -176,4 +172,19 @@ export function subsetEt(fields: SubsetEtFields): Uint8Array {
  */
 export function makeKeypair(passphrase: string): PemKeyPair {
   return wasm.make_keypair(passphrase);
+}
+
+/**
+ * Decrypt an encrypted screening response.
+ */
+export function decryptEncryptedScreeningResponse(
+  esrPem: string,
+  eciesPem: string,
+  eciesPassphrase: string,
+): Uint8Array {
+  return wasm.decrypt_encrypted_screening_response(
+    esrPem,
+    eciesPem,
+    eciesPassphrase,
+  );
 }

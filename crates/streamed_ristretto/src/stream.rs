@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Lowish-level semi-framework-agnostic tools for working with streamed ristrettos
@@ -16,7 +16,7 @@ use http::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use pin_project::pin_project;
 use thiserror::Error;
 
-use doprf::prf::{CompletedHashValue, Query};
+use doprf::prf::{CompressedCompletedHashValue, CompressedQuery};
 
 use crate::util;
 use crate::HasContentType;
@@ -57,7 +57,7 @@ pub trait StreamableRistretto:
     fn fit_error(error: &ShortErrorMsg) -> Self::Array;
 }
 
-impl StreamableRistretto for Query {
+impl StreamableRistretto for CompressedQuery {
     type Array = [u8; HASH_SIZE];
     type ConversionError = <Self::Array as TryInto<Self>>::Error;
 
@@ -68,12 +68,12 @@ impl StreamableRistretto for Query {
     }
 }
 
-impl StreamableRistretto for CompletedHashValue {
+impl StreamableRistretto for CompressedCompletedHashValue {
     type Array = [u8; HASH_SIZE];
     type ConversionError = <Self::Array as TryInto<Self>>::Error;
 
     fn fit_error(error: &ShortErrorMsg) -> Self::Array {
-        Query::fit_error(error)
+        CompressedQuery::fit_error(error)
     }
 }
 
@@ -367,7 +367,7 @@ mod tests {
         type ConversionError = <[u8; HASH_SIZE] as TryInto<Self>>::Error;
 
         fn fit_error(error: &ShortErrorMsg) -> Self::Array {
-            <Query as StreamableRistretto>::fit_error(error)
+            <CompressedQuery as StreamableRistretto>::fit_error(error)
         }
     }
 
@@ -403,7 +403,7 @@ mod tests {
         type ConversionError = <[u8; HASH_SIZE] as TryInto<Self>>::Error;
 
         fn fit_error(error: &ShortErrorMsg) -> Self::Array {
-            <Query as StreamableRistretto>::fit_error(error)
+            <CompressedQuery as StreamableRistretto>::fit_error(error)
         }
     }
 

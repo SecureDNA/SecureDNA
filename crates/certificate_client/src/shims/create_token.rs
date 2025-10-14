@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for generating a new token request
@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use clap::{crate_version, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 
 use doprf::party::KeyserverId;
 
@@ -19,19 +19,18 @@ use crate::{
     passphrase_reader::{PassphraseReader, PassphraseSource, ENV_PASSPHRASE_WARNING},
 };
 use certificates::{
-    file::{save_token_request_to_file, TokenExtension},
-    AuditRecipient, DatabaseTokenGroup, DatabaseTokenRequest, HltTokenGroup, HltTokenRequest,
-    KeyserverTokenGroup, KeyserverTokenRequest, PublicKey, SynthesizerTokenGroup,
-    SynthesizerTokenRequest, TokenGroup,
+    file::{load_audit_public_key_from_file, save_token_request_to_file, TokenExtension},
+    AuditRecipient, DatabaseTokenGroup, DatabaseTokenRequest, Domain, HltTokenGroup,
+    HltTokenRequest, KeyserverTokenGroup, KeyserverTokenRequest, PublicKey, SynthesizerTokenGroup,
+    SynthesizerTokenRequest, TokenGroup, VerifierTokenGroup, VerifierTokenRequest,
 };
 
 #[derive(Debug, Parser)]
 #[clap(
 name = "sdna-create-token",
 about = "Generates a SecureDNA token request",
-version = crate_version!()
+version = crate::certificate_client_version!()
 )]
-
 pub struct CreateTokenOpts {
     #[clap(help = "Type of token [possible values: keyserver, database, synthesizer, hlt]")]
     #[clap(subcommand)]
@@ -57,6 +56,7 @@ pub enum TokenArgs {
         keyserver_id: KeyserverId,
     },
     Database,
+    Verifier,
     Hlt,
     Synthesizer {
         #[clap(long, help = "The domain name of the manufacturer")]
@@ -72,8 +72,8 @@ pub enum TokenArgs {
         rate_limit: u64,
         #[clap(long, help = "Email of the audit recipient")]
         audit_email: Option<String>,
-        #[clap(long, help = "Public key of the audit recipient")]
-        audit_public_key: Option<String>,
+        #[clap(long, help = "File containing the public key of the audit recipient")]
+        audit_public_key_file: Option<PathBuf>,
     },
 }
 
@@ -122,7 +122,7 @@ fn run<P: PassphraseReader>(
     let (req_path, key_info) = match &opts.token {
         // Leaving as TODO for now due to complications of entering exemption token fields via CLI
         // See https://github.com/SecureDNA/SecureDNA/issues/1342
-        TokenArgs::Exemption {} => {
+        TokenArgs::Exemption => {
             todo!()
         }
         TokenArgs::Keyserver { keyserver_id } => {
@@ -139,6 +139,12 @@ fn run<P: PassphraseReader>(
             default_directory,
             DatabaseTokenRequest::v1_token_request,
         ),
+        TokenArgs::Verifier => create_token_with_associated_keypair::<_, VerifierTokenGroup, _>(
+            opts,
+            passphrase_reader,
+            default_directory,
+            VerifierTokenRequest::v1_token_request,
+        ),
         TokenArgs::Hlt => create_token_with_associated_keypair::<_, HltTokenGroup, _>(
             opts,
             passphrase_reader,
@@ -151,16 +157,20 @@ fn run<P: PassphraseReader>(
             serial,
             rate_limit: max_dna_base_pairs_per_day,
             audit_email,
-            audit_public_key,
+            audit_public_key_file,
         } => {
-            let audit_recipient = match (audit_email, audit_public_key) {
+            let audit_recipient = match (audit_email, audit_public_key_file) {
                 (None, None) => Ok(None),
-                (Some(email), Some(public_key)) => AuditRecipient::new(email, public_key)
-                    .map(Some)
-                    .map_err(|_| CertCliError::AuditKeyParseError),
+                (Some(email), Some(public_key_file)) => {
+                    let public_key = load_audit_public_key_from_file(public_key_file)
+                        .map_err(CertCliError::FileError)?;
+                    Ok(Some(AuditRecipient::new(email, public_key)))
+                }
                 (None, Some(_)) => Err(CertCliError::MissingAuditEmail),
                 (Some(_), None) => Err(CertCliError::MissingAuditPublicKey),
             }?;
+
+            let domain = Domain::try_new(domain).map_err(|_| CertCliError::InvalidDomain)?;
 
             create_token_with_associated_keypair::<_, SynthesizerTokenGroup, _>(
                 opts,
@@ -224,7 +234,7 @@ where
     Ok::<_, CertCliError>((request_path, key_source))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
 
     use crate::shims::create_token;
@@ -235,10 +245,13 @@ mod tests {
         EnvVarPassphraseReader, MemoryPassphraseReader, PassphraseReaderError,
         KEY_ENCRYPTION_PASSPHRASE_ENV_VAR,
     };
-    use certificates::file::{KEYSERVER_TOKEN_REQUEST_EXT, KEY_PRIV_EXT, KEY_PUB_EXT};
+    use certificates::file::{
+        save_audit_public_key_to_file, KEYSERVER_TOKEN_REQUEST_EXT, KEY_PRIV_EXT, KEY_PUB_EXT,
+    };
+    use certificates::key::ecies::EciesKeyPair;
     use certificates::{
         file::{load_keypair_from_file, load_token_request_from_file, save_public_key_to_file},
-        KeyPair, TokenKind,
+        SigningKeyPair, TokenKind,
     };
     use tempfile::TempDir;
 
@@ -454,7 +467,7 @@ mod tests {
         let request_path = destination_directory.path().join("token.ktr");
         let pub_key_path = destination_directory.path().join("key.pub");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         save_public_key_to_file(kp.public_key(), &pub_key_path).unwrap();
 
         let pass_reader = MemoryPassphraseReader::default();
@@ -481,7 +494,7 @@ mod tests {
         let destination_directory = TempDir::new().unwrap();
         let request_path = destination_directory.path().join("token.ktr");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let hex = kp.public_key().to_string();
 
         let pass_reader = MemoryPassphraseReader::default();
@@ -652,6 +665,29 @@ mod tests {
     }
 
     #[test]
+    fn can_create_verifier_token_request() {
+        let default_directory = TempDir::new().unwrap();
+        let destination_directory = TempDir::new().unwrap();
+        let request_path = destination_directory.path().join("token.vtr");
+        let key_path = destination_directory.path().join("key.priv");
+        let pass_reader = MemoryPassphraseReader::default();
+
+        let opts = CreateTokenOpts {
+            token: TokenArgs::Verifier {},
+            output: Some(request_path.clone()),
+            key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
+        };
+
+        create_token::run(&opts, &pass_reader, default_directory.path()).unwrap();
+
+        assert!(request_path.exists());
+        assert!(key_path.exists());
+
+        let result = load_token_request_from_file::<VerifierTokenGroup>(&request_path);
+        assert!(result.is_ok(), "{:?}", result.err())
+    }
+
+    #[test]
     fn can_create_hlt_token_request() {
         let default_directory = TempDir::new().unwrap();
         let destination_directory = TempDir::new().unwrap();
@@ -694,7 +730,7 @@ mod tests {
                 serial,
                 rate_limit: max_dna_base_pairs_per_day,
                 audit_email: None,
-                audit_public_key: None,
+                audit_public_key_file: None,
             },
             output: Some(request_path.clone()),
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
@@ -714,7 +750,8 @@ mod tests {
         let default_directory = TempDir::new().unwrap();
         let destination_directory = TempDir::new().unwrap();
         let request_path = destination_directory.path().join("token.str");
-        let key_path = destination_directory.path().join("key.priv");
+        let signing_key_path = destination_directory.path().join("key.priv");
+        let audit_key_path = destination_directory.path().join("audit_key.pub");
         let pass_reader = MemoryPassphraseReader::default();
 
         let domain = "maker.synth".to_owned();
@@ -722,10 +759,8 @@ mod tests {
         let serial = "10AK".to_owned();
         let max_dna_base_pairs_per_day = 10_000_000u64;
 
-        // Hex encoded libsecp256k1 key
-        // Created via ecies::utils::generate_keypair()
-        let audit_public_key =
-            Some("03f29057c21d3eb14815eefa0127895b57278fd41c2bad78861ff7a5b1c9b5adae".to_string());
+        let audit_key = EciesKeyPair::new_random();
+        save_audit_public_key_to_file(audit_key.public_key(), &audit_key_path).unwrap();
 
         let opts = CreateTokenOpts {
             token: TokenArgs::Synthesizer {
@@ -734,16 +769,16 @@ mod tests {
                 serial,
                 rate_limit: max_dna_base_pairs_per_day,
                 audit_email: Some("anna@example.com".to_string()),
-                audit_public_key,
+                audit_public_key_file: Some(audit_key_path),
             },
             output: Some(request_path.clone()),
-            key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
+            key: AssociatedKeyArgs::create_key_at_path(signing_key_path.clone()),
         };
 
         create_token::run(&opts, &pass_reader, default_directory.path()).unwrap();
 
         assert!(request_path.exists());
-        assert!(key_path.exists());
+        assert!(signing_key_path.exists());
 
         let result = load_token_request_from_file::<SynthesizerTokenGroup>(&request_path);
         assert!(result.is_ok(), "{:?}", result.err())
@@ -769,7 +804,42 @@ mod tests {
                 serial,
                 rate_limit: max_dna_base_pairs_per_day,
                 audit_email: Some("anna@example.com".to_string()),
-                audit_public_key: Some("not a secp256k1 key".to_string()),
+                audit_public_key_file: Some(PathBuf::from("nothing/at/this/path")),
+            },
+            output: Some(request_path.clone()),
+            key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
+        };
+
+        create_token::run(&opts, &pass_reader, default_directory.path())
+            .expect_err("should not succeed with incorrect public key");
+    }
+
+    #[test]
+    fn cannot_create_synthesizer_token_request_with_signing_public_key_in_place_of_audit_public_key(
+    ) {
+        let default_directory = TempDir::new().unwrap();
+        let destination_directory = TempDir::new().unwrap();
+        let request_path = destination_directory.path().join("token.str");
+        let key_path = destination_directory.path().join("key.priv");
+        let audit_key_path = destination_directory.path().join("audit_key.pub");
+        let pass_reader = MemoryPassphraseReader::default();
+
+        let signing_key = SigningKeyPair::new_random();
+        save_public_key_to_file(signing_key.public_key(), &audit_key_path).unwrap();
+
+        let domain = "maker.synth".to_owned();
+        let model = "XL".to_owned();
+        let serial = "10AK".to_owned();
+        let max_dna_base_pairs_per_day = 10_000_000u64;
+
+        let opts = CreateTokenOpts {
+            token: TokenArgs::Synthesizer {
+                domain,
+                model,
+                serial,
+                rate_limit: max_dna_base_pairs_per_day,
+                audit_email: Some("anna@example.com".to_string()),
+                audit_public_key_file: Some(audit_key_path),
             },
             output: Some(request_path.clone()),
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
@@ -784,13 +854,17 @@ mod tests {
         let default_directory = TempDir::new().unwrap();
         let destination_directory = TempDir::new().unwrap();
         let request_path = destination_directory.path().join("token.str");
-        let key_path = destination_directory.path().join("key.priv");
+        let signing_key_path = destination_directory.path().join("key.priv");
+        let audit_key_path = destination_directory.path().join("audit_key.pub");
         let pass_reader = MemoryPassphraseReader::default();
 
         let domain = "maker.synth".to_owned();
         let model = "XL".to_owned();
         let serial = "10AK".to_owned();
         let max_dna_base_pairs_per_day = 10_000_000u64;
+
+        let audit_key = EciesKeyPair::new_random();
+        save_audit_public_key_to_file(audit_key.public_key(), &audit_key_path).unwrap();
 
         let opts = CreateTokenOpts {
             token: TokenArgs::Synthesizer {
@@ -799,13 +873,10 @@ mod tests {
                 serial,
                 rate_limit: max_dna_base_pairs_per_day,
                 audit_email: None,
-                audit_public_key: Some(
-                    "03f29057c21d3eb14815eefa0127895b57278fd41c2bad78861ff7a5b1c9b5adae"
-                        .to_string(),
-                ),
+                audit_public_key_file: Some(audit_key_path),
             },
             output: Some(request_path.clone()),
-            key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
+            key: AssociatedKeyArgs::create_key_at_path(signing_key_path.clone()),
         };
 
         create_token::run(&opts, &pass_reader, default_directory.path())
@@ -832,7 +903,7 @@ mod tests {
                 serial,
                 rate_limit: max_dna_base_pairs_per_day,
                 audit_email: Some("anna@example.com".to_string()),
-                audit_public_key: None,
+                audit_public_key_file: None,
             },
             output: Some(request_path.clone()),
             key: AssociatedKeyArgs::create_key_at_path(key_path.clone()),
@@ -849,7 +920,7 @@ mod tests {
         let request_path = destination_directory.path().join("token.ktr");
         let pub_key_path = destination_directory.path().join("key");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         save_public_key_to_file(kp.public_key(), &pub_key_path.with_extension(KEY_PUB_EXT))
             .unwrap();
 
@@ -884,6 +955,7 @@ mod tests {
                 },
             ),
             (vec!["database"], TokenKind::Database, TokenArgs::Database),
+            (vec!["verifier"], TokenKind::Verifier, TokenArgs::Verifier),
             (vec!["hlt"], TokenKind::Hlt, TokenArgs::Hlt),
             (
                 vec![
@@ -898,8 +970,8 @@ mod tests {
                     "10000",
                     "--audit-email",
                     "anna@example.com",
-                    "--audit-public-key",
-                    "03f29057c21d3eb14815eefa0127895b57278fd41c2bad78861ff7a5b1c9b5adae",
+                    "--audit-public-key-file",
+                    "path/to/audit/key.pub",
                 ],
                 TokenKind::Synthesizer,
                 TokenArgs::Synthesizer {
@@ -908,10 +980,7 @@ mod tests {
                     serial: "45678".to_string(),
                     rate_limit: 10000,
                     audit_email: Some("anna@example.com".to_string()),
-                    audit_public_key: Some(
-                        "03f29057c21d3eb14815eefa0127895b57278fd41c2bad78861ff7a5b1c9b5adae"
-                            .to_string(),
-                    ),
+                    audit_public_key_file: Some(PathBuf::from("path/to/audit/key.pub")),
                 },
             ),
         ];

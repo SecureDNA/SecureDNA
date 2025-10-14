@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Shared certs / open_events logic
@@ -93,6 +93,7 @@ pub mod test_utils {
 
     use certificates::Builder;
     use certificates::CertificateBundle;
+    use certificates::Description;
     use std::time::Duration;
 
     use super::*;
@@ -170,9 +171,15 @@ pub mod test_utils {
     pub fn make_synth_tokens<const N: usize>() -> [TokenBundle<SynthesizerTokenGroup>; N] {
         use certificates as c;
         // make manufacturer root
-        let manu_root_keypair = c::KeyPair::new_random();
+        let manu_root_keypair = c::SigningKeyPair::new_random();
         let manu_root_cert =
             c::RequestBuilder::<c::Manufacturer>::root_v1_builder(manu_root_keypair.public_key())
+                .with_description(Description {
+                    name: Some("SecureDNA".to_owned()),
+                    email: Some("root@securedna.org".to_owned()),
+                    phone_number: None,
+                    orcid: None,
+                })
                 .build()
                 .load_key(manu_root_keypair.clone())
                 .unwrap()
@@ -182,10 +189,16 @@ pub mod test_utils {
         let manu_root_bundle = CertificateBundle::new(manu_root_cert, None);
 
         // make manufacturer intermediate
-        let manu_inter_keypair = c::KeyPair::new_random();
+        let manu_inter_keypair = c::SigningKeyPair::new_random();
         let manu_inter_cert_req = c::RequestBuilder::<c::Manufacturer>::intermediate_v1_builder(
             manu_inter_keypair.public_key(),
         )
+        .with_description(Description {
+            name: Some("Jane Int".to_owned()),
+            email: Some("int@example.com".to_owned()),
+            phone_number: None,
+            orcid: None,
+        })
         .build();
         let manu_inter_bundle = manu_root_bundle
             .issue_cert_bundle(
@@ -199,9 +212,15 @@ pub mod test_utils {
             .unwrap();
 
         // make manufacturer leaf
-        let manu_leaf_keypair = c::KeyPair::new_random();
+        let manu_leaf_keypair = c::SigningKeyPair::new_random();
         let manu_leaf_cert_req =
             c::RequestBuilder::<c::Manufacturer>::leaf_v1_builder(manu_leaf_keypair.public_key())
+                .with_description(Description {
+                    name: Some("John Leaf".to_owned()),
+                    email: Some("leaf@example.com".to_owned()),
+                    phone_number: None,
+                    orcid: None,
+                })
                 .build();
         let manu_leaf_bundle = manu_inter_bundle
             .issue_cert_bundle(
@@ -216,10 +235,10 @@ pub mod test_utils {
 
         // make synthesizer tokens
         std::array::from_fn(|_| {
-            let synth_keypair = c::KeyPair::new_random();
+            let synth_keypair = c::SigningKeyPair::new_random();
             let synth_req = c::SynthesizerTokenRequest::v1_token_request(
                 synth_keypair.public_key(),
-                "example.com",
+                c::Domain::try_new("example.com").unwrap(),
                 "synthesizer mcsynthface",
                 "1337",
                 1_000,

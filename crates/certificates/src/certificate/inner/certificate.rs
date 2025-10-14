@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module defines functionality available for issued certificates.
@@ -13,7 +13,7 @@ use serde::Serialize;
 use crate::{
     asn::ToASN1DerBytes,
     error::EncodeError,
-    keypair::{PublicKey, Signature},
+    key::signing::{PublicKey, Signature, SigningKeyPair},
     shared_components::{
         common::{Expiration, Id, Signed},
         role::{Exemption, Infrastructure, Role, RoleGuard},
@@ -27,12 +27,13 @@ use crate::{
             database::{DatabaseTokenIssuer1, DatabaseTokenRequest1},
             hlt::{HltTokenIssuer1, HltTokenRequest1},
             keyserver::{KeyserverTokenIssuer1, KeyserverTokenRequest1},
+            verifier::{VerifierTokenIssuer1, VerifierTokenRequest1},
         },
         manufacturer::synthesizer::{SynthesizerTokenIssuer1, SynthesizerTokenRequest1},
         TokenData,
     },
     utility::combine_and_dedup_items,
-    Description, KeyPair, Manufacturer,
+    Description, Manufacturer,
 };
 
 use super::{
@@ -107,6 +108,10 @@ where
     pub fn data(&self) -> Result<Vec<u8>, EncodeError> {
         self.0.data.to_der()
     }
+    pub fn email_addresses(&self) -> Vec<String> {
+        self.0.data.common.subject.email_addresses()
+    }
+
     pub(crate) fn issuer_public_key(&self) -> &PublicKey {
         self.0.data.common.issuer.public_key()
     }
@@ -125,6 +130,15 @@ where
 
     pub(crate) fn request(&self) -> RequestInner<T, R, S> {
         RequestInner::new(self.0.data.common.subject.clone())
+    }
+
+    /// Get a list of emails that should be notified when any token issued by
+    /// this cert is used. (This function combines and deduplicates
+    /// emails supplied by the issuer and those configured by the subject.)
+    pub fn all_emails_to_notify(&self) -> Vec<String> {
+        let notify_emails = self.0.data.common.subject.emails_to_notify();
+        let additional_notify_emails = self.0.data.common.issuer.additional_emails_to_notify();
+        combine_and_dedup_items(notify_emails, additional_notify_emails)
     }
 }
 
@@ -145,7 +159,7 @@ where
         &self,
         req: RequestInner<M, R, S2>,
         additional_fields: IssuerAdditionalFields,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<CertificateInner<M, R, S2, Issuer1>, EncodeError> {
         let issuer_identity = self.0.data.common.subject.to_compatible_identity();
         let issuer = Issuer1::new(issuer_identity, additional_fields);
@@ -175,7 +189,7 @@ where
         &self,
         intermediate: RequestInner<M, R, S2>,
         additional_fields: IssuerAdditionalFields,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<CertificateInner<M, R, S2, Issuer1>, EncodeError> {
         self.issue_cert(intermediate, additional_fields, kp)
     }
@@ -191,7 +205,7 @@ where
         &self,
         intermediate: RequestInner<M, R, S2>,
         additional_fields: IssuerAdditionalFields,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<CertificateInner<M, R, S2, Issuer1>, EncodeError> {
         self.issue_cert(intermediate, additional_fields, kp)
     }
@@ -199,7 +213,7 @@ where
         &self,
         intermediate: RequestInner<M, R, S2>,
         additional_fields: IssuerAdditionalFields,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<CertificateInner<M, R, S2, Issuer1>, EncodeError> {
         self.issue_cert(intermediate, additional_fields, kp)
     }
@@ -218,16 +232,15 @@ where
         request: ExemptionTokenRequest1,
         expiration: Expiration,
         issuer_auth_devices: Vec<Authenticator>,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<Signed<TokenData<ExemptionTokenRequest1, ExemptionTokenIssuer1>>, EncodeError> {
         let issuer = self.0.data.common.subject.to_compatible_identity();
-
-        let notify_emails = self.0.data.common.subject.emails_to_notify();
-        let additional_notify_emails = self.0.data.common.issuer.additional_emails_to_notify();
-        let emails_to_notify = combine_and_dedup_items(notify_emails, additional_notify_emails);
-
-        let issuer_fields =
-            ExemptionTokenIssuer1::new(issuer, expiration, issuer_auth_devices, emails_to_notify);
+        let issuer_fields = ExemptionTokenIssuer1::new(
+            issuer,
+            expiration,
+            issuer_auth_devices,
+            self.all_emails_to_notify(),
+        );
 
         let et = TokenData {
             request,
@@ -244,6 +257,10 @@ where
     pub(crate) fn blinding_allowed(&self) -> bool {
         self.0.data.common.subject.allow_blinding
     }
+
+    pub(crate) fn totp_token_name(&self) -> Option<String> {
+        self.0.data.common.subject.totp_token_name()
+    }
 }
 
 impl<T, S, I> CertificateInner<T, Infrastructure, S, I>
@@ -256,7 +273,7 @@ where
         &self,
         request: KeyserverTokenRequest1,
         expiration: Expiration,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<Signed<TokenData<KeyserverTokenRequest1, KeyserverTokenIssuer1>>, EncodeError> {
         let issuer = self.0.data.common.subject.to_compatible_identity();
 
@@ -269,11 +286,28 @@ where
         kp.sign_asn_encodable_data(kt)
     }
 
+    pub(crate) fn issue_verifier_token(
+        &self,
+        request: VerifierTokenRequest1,
+        expiration: Expiration,
+        kp: &SigningKeyPair,
+    ) -> Result<Signed<TokenData<VerifierTokenRequest1, VerifierTokenIssuer1>>, EncodeError> {
+        let issuer = self.0.data.common.subject.to_compatible_identity();
+
+        let issuer_fields = VerifierTokenIssuer1::new(issuer, expiration);
+
+        let kt = TokenData {
+            request,
+            issuer_fields,
+        };
+        kp.sign_asn_encodable_data(kt)
+    }
+
     pub(crate) fn issue_database_token(
         &self,
         request: DatabaseTokenRequest1,
         expiration: Expiration,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<Signed<TokenData<DatabaseTokenRequest1, DatabaseTokenIssuer1>>, EncodeError> {
         let issuer = self.0.data.common.subject.to_compatible_identity();
 
@@ -290,7 +324,7 @@ where
         &self,
         request: HltTokenRequest1,
         expiration: Expiration,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<Signed<TokenData<HltTokenRequest1, HltTokenIssuer1>>, EncodeError> {
         let issuer = self.0.data.common.subject.to_compatible_identity();
 
@@ -314,7 +348,7 @@ where
         &self,
         request: SynthesizerTokenRequest1,
         expiration: Expiration,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<Signed<TokenData<SynthesizerTokenRequest1, SynthesizerTokenIssuer1>>, EncodeError>
     {
         let issuer = self.0.data.common.subject.to_compatible_identity();

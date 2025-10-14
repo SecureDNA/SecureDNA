@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -6,7 +6,7 @@ use std::sync::Arc;
 use certificates::KeyserverTokenGroup;
 use doprf::party::KeyserverId;
 use scep::error::{ClientPrevalidation, ScepError};
-use scep_client_helpers::ClientCerts;
+use scep_client_helpers::{ClientCerts, ScepClientOpenCommon};
 use scep_integration_tests::make_certs::{make_certs, MakeCertsOptions};
 use scep_integration_tests::server::{Opts, TestServer};
 use shared_types::{hash::HashSpec, requests::RequestId};
@@ -40,7 +40,7 @@ pub async fn wrong_keyserver_id() {
     let server_port = server.port();
 
     let request_id = RequestId::new_unique();
-    let http_client = http_client::BaseApiClient::new(request_id);
+    let http_client = http_client::BaseApiClient::new(request_id).unwrap();
     let keyserver_client = scep_client_helpers::ScepClient::<KeyserverTokenGroup>::new(
         http_client,
         format!("http://localhost:{server_port}"),
@@ -54,16 +54,18 @@ pub async fn wrong_keyserver_id() {
 
     let err = keyserver_client
         .open(
-            1,
-            None,
-            vec![
-                KeyserverId::try_from(1).unwrap(),
-                KeyserverId::try_from(2).unwrap(),
-                KeyserverId::try_from(3).unwrap(),
-            ]
-            .into(),
+            ScepClientOpenCommon {
+                nucleotide_total_count: 1,
+                last_server_version: None,
+                keyserver_id_set: vec![
+                    KeyserverId::try_from(1).unwrap(),
+                    KeyserverId::try_from(2).unwrap(),
+                    KeyserverId::try_from(3).unwrap(),
+                ]
+                .into(),
+                debug_info: false,
+            },
             client_expected_id,
-            false,
         )
         .await
         .unwrap_err();

@@ -1,0 +1,4 @@
+This is not the real passphrase for talking to the prod TOTP server.
+But that's okay, because the integration test that loads this file
+doesn't actually use any exemption tokens, and so it won't talk to
+the TOTP server's /check endpoint.

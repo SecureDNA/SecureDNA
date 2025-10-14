@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -14,13 +14,12 @@ use hyper::header::{HeaderValue, CONTENT_TYPE};
 use hyper::{Request, Response};
 use tracing::{error, info};
 
-use doprf::prf::{HashPart, Query};
+use doprf::prf::{CompressedHashPart, CompressedQuery, DecodeError, HashPart, Query};
 use minhttp::response::GenericResponse;
+use scep::cookie::SessionCookie;
 use shared_types::requests::RequestId;
 use streamed_ristretto::hyper::{check_content_length, BodyStream};
-use streamed_ristretto::stream::{
-    check_content_type, ConversionError, HasShortErrorMsg, RistrettoError, HASH_SIZE,
-};
+use streamed_ristretto::stream::{check_content_type, HasShortErrorMsg, RistrettoError, HASH_SIZE};
 use streamed_ristretto::util::chunked;
 use streamed_ristretto::HasContentType;
 
@@ -35,7 +34,7 @@ fn map_ristretto_stream<I, P>(
     heavy_request_permit: P,
     input: I,
     f: impl FnMut(Query) -> HashPart + Clone + Send + 'static,
-) -> impl TryStream<Ok = Bytes, Error = RistrettoError<I::Error, ConversionError<Query>>>
+) -> impl TryStream<Ok = Bytes, Error = RistrettoError<I::Error, DecodeError>>
 where
     I: TryStream,
     I::Ok: Buf,
@@ -101,7 +100,7 @@ fn map_ristretto_chunk<SE>(
     mut input: Bytes,
     mut output_buf: BytesMut,
     mut f: impl FnMut(Query) -> HashPart,
-) -> impl TryStream<Ok = Bytes, Error = RistrettoError<SE, ConversionError<Query>>> {
+) -> impl TryStream<Ok = Bytes, Error = RistrettoError<SE, DecodeError>> {
     while !input.is_empty() {
         let data = input.split_to(HASH_SIZE);
         let data_ref: &[u8; HASH_SIZE] = data.as_ref().try_into().unwrap();
@@ -129,11 +128,11 @@ pub async fn scep_endpoint_keyserve(
     server_state: &Arc<KeyserverState>,
     request: Request<Incoming>,
 ) -> Result<GenericResponse, scep::error::ScepError<scep::error::Keyserve>> {
-    check_content_type(request.headers(), Query::CONTENT_TYPE)
+    check_content_type(request.headers(), CompressedQuery::CONTENT_TYPE)
         .context("in keyserve")
         .map_err(scep::error::ScepError::InvalidMessage)?;
 
-    let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
+    let cookie = SessionCookie::from_request_http_headers(request.headers())?;
 
     let permit = match server_state.throttle_heavy_requests() {
         Ok(permit) => permit,
@@ -197,7 +196,7 @@ pub async fn scep_endpoint_keyserve(
     let mut response = Response::new(body);
     response.headers_mut().insert(
         CONTENT_TYPE,
-        HeaderValue::from_static(HashPart::CONTENT_TYPE),
+        HeaderValue::from_static(CompressedHashPart::CONTENT_TYPE),
     );
     let response = response.map(|body| BodyExt::map_err(body, anyhow::Error::from).boxed());
     Ok(response)

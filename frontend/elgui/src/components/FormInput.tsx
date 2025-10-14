@@ -1,16 +1,16 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
 import { type FieldHookConfig, useField } from "formik";
-import { type InputHTMLAttributes, useEffect, useState } from "react";
+import { type InputHTMLAttributes, useEffect, useId, useState } from "react";
 import ReactPhoneNumberInput from "react-phone-number-input";
 import "react-phone-number-input/style.css";
+import { Typeahead } from "@securedna/frontend_common";
 import { type DigitPattern, fitToDigitPattern } from "src/util/digitPattern";
 import { twMerge } from "tailwind-merge";
 import { useDebounce } from "use-debounce";
-import { Typeahead } from "./Typeahead";
 
 type BaseInputProps = FieldHookConfig<string> & {
   /// Mark this field as "required" by displaying an asterisk on the label.
@@ -33,6 +33,9 @@ type ParseableInputProps = BaseInputProps & {
   parse?: (value: string) => Promise<any>;
   /// A list of suggestions to show while the user is typing.
   suggestions?: string[];
+  /// If present, allow typing a custom value with a typeahead label like
+  /// `Custom ${custom} "${value}"`.
+  custom?: string;
   /// A function to run when the user accepts a suggestion.
   onAcceptSuggestion?: (suggestion: string) => void;
 };
@@ -46,7 +49,7 @@ const GenericInput = (props: GenericInputProps) => {
   const [field, meta, helpers] = useField(props);
   const [rawValue, setRawValue] = useState("");
 
-  let classes = "peer border rounded w-full leading-none";
+  let classes = "peer border rounded-sm w-full leading-none bg-white";
   classes +=
     meta.touched && meta.error ? " border-red-500" : " border-gray-200";
   if (props.monospace) {
@@ -76,7 +79,7 @@ const GenericInput = (props: GenericInputProps) => {
     // Use "arbitrary variants" to style the insides of the more complex PhoneNumber input:
     // https://tailwindcss.com/blog/tailwindcss-v3-1#arbitrary-values-but-for-variants
     classes += " [&>.PhoneInputCountry]:px-2";
-    classes += " [&>input]:p-2 [&>input]:outline-blue-500 [&>input]:rounded";
+    classes += " [&>input]:p-2 [&>input]:outline-blue-500 [&>input]:rounded-sm";
   } else {
     classes += " p-2 outline-blue-500";
   }
@@ -100,9 +103,12 @@ const GenericInput = (props: GenericInputProps) => {
     }
   }, [lookup, debouncedValue]);
 
+  const inputId = useId();
+
   return (
     <label
       className={twMerge("relative flex flex-col flex-1 my-1", props.className)}
+      htmlFor={inputId}
     >
       {props.hideLabel ? undefined : (
         <div className="flex flex-row ml-1">
@@ -118,11 +124,12 @@ const GenericInput = (props: GenericInputProps) => {
         </div>
       )}
       {props.variant === "select" ? (
-        <select className={classes} {...field}>
+        <select id={inputId} className={classes} {...field}>
           {props.children}
         </select>
       ) : props.variant === "textarea" ? (
         <textarea
+          id={inputId}
           className={classes}
           rows={"rows" in props ? props.rows : 20}
           {...field}
@@ -133,6 +140,7 @@ const GenericInput = (props: GenericInputProps) => {
         </textarea>
       ) : props.variant === "phone" ? (
         <ReactPhoneNumberInput
+          id={inputId}
           className={classes}
           value={field.value}
           onChange={(e: any) => {
@@ -143,8 +151,10 @@ const GenericInput = (props: GenericInputProps) => {
         </ReactPhoneNumberInput>
       ) : props.suggestions ? (
         <Typeahead
+          id={inputId}
           className={classes}
           suggestions={props.suggestions}
+          custom={props.custom}
           value={field.value}
           onChange={(option) => {
             helpers.setValue(option ?? "", true);
@@ -155,6 +165,7 @@ const GenericInput = (props: GenericInputProps) => {
         />
       ) : (
         <input
+          id={inputId}
           className={classes}
           {...field}
           maxLength={(props as InputHTMLAttributes<any>)?.maxLength}

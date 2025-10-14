@@ -1,7 +1,8 @@
 {
   "name": "certificates_wasm",
+  "type": "module",
   "description": "WebAssembly bindings for SecureDNA certificates code",
-  "version": "1.0.7-dev",
+  "version": "1.0.13-dev",
   "license": "MIT OR Apache-2.0",
   "files": [
     "certificates_wasm_bg.wasm",
@@ -9,7 +10,7 @@
     "certificates_wasm_bg.js",
     "certificates_wasm.d.ts"
   ],
-  "module": "certificates_wasm.js",
+  "main": "certificates_wasm.js",
   "types": "certificates_wasm.d.ts",
   "sideEffects": [
     "./certificates_wasm.js",

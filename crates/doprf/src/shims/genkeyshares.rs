@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::io::ErrorKind;
@@ -54,12 +54,17 @@ pub fn main<Out: Write, Err: Write>(
 mod tests {
     use std::num::NonZeroU32;
 
+    use rand::rngs::OsRng;
+
     use crate::party::KeyserverIdSet;
+    use crate::prf::SECURITY_PARAMETER;
+    use crate::queryset::setup_queries;
 
     #[test]
     fn keyshares_agree_with_original_key() {
+        use crate::active_security::ActiveSecurityKey;
         use crate::party::KeyserverId;
-        use crate::prf::{KeyShare, Query, QueryState};
+        use crate::prf::{KeyShare, Query};
         use crate::shims::genkey;
         use std::str::FromStr;
 
@@ -72,6 +77,8 @@ mod tests {
             None => unreachable!(),
         };
         const QUERY_STRING: &str = "Hello, world!";
+
+        let mut rng = OsRng;
 
         let mut stdout: Vec<u8> = vec![];
         genkey::main(&genkey::Opts {}, &mut stdout, &mut vec![]).expect("Generating key failed");
@@ -99,8 +106,14 @@ mod tests {
 
         assert_eq!(shares.len(), NUM_KEYHOLDERS.get() as usize);
 
-        let query_state =
-            QueryState::new(QUERY_STRING.as_bytes(), KEYHOLDERS_REQUIRED.get() as usize);
+        let active_security_key =
+            ActiveSecurityKey::from_secret_and_keyshares(&key, &shares, KEYHOLDERS_REQUIRED)
+                .unwrap();
+
+        let windows = [QUERY_STRING];
+        let padding = 0;
+        let (queries, security_context) =
+            setup_queries(&mut rng, windows, padding, SECURITY_PARAMETER);
 
         let keyserver_subsets = vec![
             (0, 1, 2),
@@ -115,25 +128,32 @@ mod tests {
             (2, 3, 4),
         ];
         for (k0, k1, k2) in keyserver_subsets {
-            let mut query_state = query_state.clone();
-            for k in [k0, k1, k2] {
-                let coeff = KeyserverIdSet::from_iter(vec![
-                    KeyserverId::try_from(k0 + 1).unwrap(),
-                    KeyserverId::try_from(k1 + 1).unwrap(),
-                    KeyserverId::try_from(k2 + 1).unwrap(),
-                ])
-                .langrange_coefficient_for_id(&KeyserverId::try_from(k + 1).unwrap());
+            let security_context = security_context.clone();
+            let keyservers = KeyserverIdSet::from_iter([
+                KeyserverId::try_from(k0 + 1).unwrap(),
+                KeyserverId::try_from(k1 + 1).unwrap(),
+                KeyserverId::try_from(k2 + 1).unwrap(),
+            ]);
 
-                assert!(!query_state.has_hash());
-                query_state.incorporate_response(
-                    KeyserverId::try_from(k + 1).unwrap(),
-                    shares[k as usize]
-                        .apply_query_and_lagrange_coefficient(*query_state.query(), &coeff),
-                );
-            }
-            assert!(query_state.has_hash());
-            let completed_hash = query_state.get_hash_value().expect("Hash value");
-            assert_eq!(hash_bytes, <[u8; 32]>::from(&completed_hash));
+            let responses = [k0, k1, k2].map(|k| {
+                let ks_id = KeyserverId::try_from(k + 1).unwrap();
+                let coeff = keyservers.langrange_coefficient_for_id(&ks_id);
+                let hash_parts = queries
+                    .iter()
+                    .map(|query| {
+                        let query = query.decompress().unwrap();
+                        shares[k as usize]
+                            .apply_query_and_lagrange_coefficient(query, &coeff)
+                            .compress()
+                    })
+                    .collect();
+                (ks_id, hash_parts)
+            });
+
+            let completed_hashes = security_context
+                .recombine(&responses, &active_security_key)
+                .expect("Hash value");
+            assert_eq!(hash_bytes, <[u8; 32]>::from(&completed_hashes[0]));
         }
     }
 }

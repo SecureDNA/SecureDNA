@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use pem::{encode_config, parse, EncodeConfig, LineEnding, Pem};
@@ -50,6 +50,23 @@ impl<T: FromASN1DerBytes + PemTaggable> PemDecodable for T {
         let pem = parse(data)?;
         from_pem_inner::<T>(&pem)
     }
+}
+
+pub fn bytes_to_pem(bytes: &[u8], tag: &str) -> String {
+    let pem = Pem::new(tag, bytes);
+    let config = EncodeConfig::new().set_line_ending(LineEnding::LF);
+    encode_config(&pem, config)
+}
+
+pub fn bytes_from_pem(pem: impl AsRef<[u8]>, expected_tag: String) -> Result<Vec<u8>, DecodeError> {
+    let pem = parse(pem)?;
+    if pem.tag() != expected_tag {
+        return Err(DecodeError::UnexpectedPemTag(
+            expected_tag,
+            pem.tag().to_owned(),
+        ));
+    }
+    Ok(pem.contents().to_vec())
 }
 
 pub struct MultiItemPemBuilder(Vec<Pem>);

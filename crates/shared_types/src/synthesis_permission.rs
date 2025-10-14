@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,9 @@ impl Default for Region {
 serde_plain::derive_fromstr_from_deserialize!(Region);
 serde_plain::derive_display_from_serialize!(Region);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, std::hash::Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, std::hash::Hash, Serialize, Deserialize, Ord, PartialOrd,
+)]
 pub enum SynthesisPermission {
     #[serde(rename = "granted")]
     Granted,

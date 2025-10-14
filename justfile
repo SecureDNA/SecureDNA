@@ -1,4 +1,4 @@
-# Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+# Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 # Runs the system using docker in the background, but additionally links test hdb to where the docker-compose.yml expects to find it.
@@ -8,7 +8,7 @@ run-docker-with-test-hdb:
     earthly build +dev
     mkdir ./data
     ln -s --no-target-directory ../test/data/hdb ./data/hdb # no-target-directory prevents recursive linking if ./data/hdb already exists
-    ./bin/start_test_environment.sh  # Runs "docker compose up -d".
+    ./bin/start_test_environment  # Runs "docker compose up -d".
 
 build-docker:
     earthly build +dev
@@ -43,7 +43,7 @@ gh-runs date *args='':
 
 # Testing here can check if tsgen properly generated type information from rust types
 test-web-interface:
-    cd web-interface && npm ci && npm exec tsc && npm test -- --passWithNoTests
+    cd web-interface && npm ci && npm exec tsc && npm test
 
 # Note: tsgen is run here.
 build-wasm-bindings:
@@ -57,12 +57,12 @@ build-wasm-bindings:
 #
 # It's better to run clean-ghcr-dry-run first
 clean-ghcr image cutoff-date:
-    source bin/clean-ghcr.sh &&
+    source bin/clean-ghcr &&
     delete-package-versions {{image}} {{cutoff-date}}
 
 # Dry-run of clean-ghcr, will output the versions being deleted.
 clean-ghcr-dry-run image cutoff-date:
-    source bin/clean-ghcr.sh &&
+    source bin/clean-ghcr &&
     delete-package-versions-dry-run {{image}} {{cutoff-date}}
 
 build-arm version:
@@ -73,10 +73,10 @@ build-arm version:
     gcloud compute instances create arm-builder --zone=us-central1-a --image-project=debian-cloud --image-family=debian-12-arm64 --machine-type=t2a-standard-4
 
     # Setup build deps, build binaries. The `-A` flag forwards authentication agent for the `git clone`
-    gcloud compute ssh --ssh-flag="-A" --zone=us-central1-a arm-builder -- 'bash -s {{version}}' < bin/setup-build-synthclient-tools.sh
+    gcloud compute ssh --ssh-flag="-A" --zone=us-central1-a arm-builder -- 'bash -s {{version}}' < bin/setup-build-synthclient-tools
 
     # package deb
-    gcloud compute ssh --zone=us-central1-a arm-builder -- 'bash -s {{version}} securedna-dev/target/release arm64' < bin/package-deb.sh
+    gcloud compute ssh --zone=us-central1-a arm-builder -- 'bash -s {{version}} securedna-dev/target/release arm64' < bin/package-deb
 
     # Copy .deb off the vm:
     gcloud compute scp --zone=us-central1-a arm-builder:~/synthclient_{{version}}_arm64.deb .
@@ -85,7 +85,6 @@ build-arm version:
     gcloud compute instances delete --quiet --zone=us-central1-a arm-builder
 
 # Copy to public repo
-# excludes crates/doprf/bench, which includes a binary blog for queryset.
 # requires, realpath, which is linux only (`brew install coreutils` on osx)
 public version dirpath:
     #! /usr/bin/env bash
@@ -98,7 +97,12 @@ public version dirpath:
     git clone git@github.com:securedna/securedna-dev "$wd"
     cd "$wd"
     git checkout {{version}}
-    rsync -av --progress --exclude .git --exclude .github --exclude ./crates/doprf/bench --exclude CHANGELOG.md . "$dir"
+    rsync -av --progress --delete --recursive \
+        --exclude .git \
+        --exclude .github \
+        --exclude CHANGELOG.md \
+        --exclude '*.internal.*' \
+        . "$dir"
     cd ..
     rm -rf "$temp"
 

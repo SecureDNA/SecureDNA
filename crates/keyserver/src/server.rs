@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::collections::HashMap;
@@ -34,7 +34,7 @@ use crate::state::{GenerationKeyInfo, KeyserverState};
 use crate::{event_store, Config};
 
 /// SCEP server version
-const SERVER_VERSION: u64 = 1;
+const SERVER_VERSION: u64 = 2;
 
 pub fn server_setup() -> impl ValidServerSetup<Config, KeyserverState> {
     MultiplaneServer::builder()
@@ -50,20 +50,31 @@ async fn reconfigure(
     let app_cfg = server_cfg.main.custom;
     let prev_state = Weak::upgrade(&prev_state);
 
-    // Avoiding std::thread::available_parallelism because the KS seems to experience too much
-    // contention between cores, so using the physical number of cores seems better.
-    let num_cores = num_cpus::get_physical();
-    let crypto_parallelism_per_server = app_cfg.crypto_parallelism_per_server.unwrap_or(num_cores);
+    info!("Attempting load of keyserver version {}", get_version());
+
+    // After testing and discussion ('ks singlethreading' in #dev-sre), we found that the
+    // servers show about half as much load as you'd expect from the parallelism you choose.
+    // So on a machine with 2 physical cores and hyperthreading, getting full 400% load
+    // would require 8 threads... HOWEVER, in practice, fully utilizing the processors didn't
+    // seem to translate into much actual improvement to wallclock times... going with 2 threads
+    // only showed 100% load, yet completed tasks nearly as quickly.
+    //
+    // We've opted to set the default parallelism to the number of logical CPUs. Even though that
+    // yields only minor wallclock improvements at the cost of doubled server CPU usage, we pay
+    // cloud services for the core and not the usage, so we might as well get our money's worth.
+    let physical_cores = num_cpus::get_physical();
+    let logical_cores = num_cpus::get();
+    let default_parallelism = logical_cores;
+    let crypto_parallelism_per_server = app_cfg
+        .crypto_parallelism_per_server
+        .unwrap_or(default_parallelism);
     let parallelism_per_request = app_cfg
         .crypto_parallelism_per_request
-        .unwrap_or(num_cores)
+        .unwrap_or(default_parallelism)
         .min(crypto_parallelism_per_server);
     info!(
         "Parallelism: per-request={} per-server={} physical-cores={} logical-cores={}",
-        parallelism_per_request,
-        crypto_parallelism_per_server,
-        num_cores,
-        num_cpus::get(),
+        parallelism_per_request, crypto_parallelism_per_server, physical_cores, logical_cores,
     );
 
     if app_cfg.active_security_key.len() != app_cfg.keyholders_required as usize {
@@ -158,6 +169,7 @@ async fn reconfigure(
         scep: ServerState {
             clients: Default::default(),
             json_size_limit: app_cfg.scep_json_size_limit,
+            request_hash_limit: app_cfg.scep_hash_limit,
             manufacturer_roots,
             revocation_list,
             token_bundle,
@@ -189,6 +201,7 @@ async fn respond(
             .await
         }
         "/version" => handle_get(&method, version()).await,
+        "/robots.txt" => handle_get(&method, robots_txt()).await,
         scep::OPEN_ENDPOINT => {
             handle_post(
                 &method,
@@ -275,7 +288,7 @@ async fn handle_scep_err<F, E>(
 ) -> GenericResponse
 where
     F: Future<Output = Result<GenericResponse, scep::error::ScepError<E>>>,
-    E: std::error::Error,
+    E: std::error::Error + 'static,
 {
     let result_response = future.await;
     match result_response {
@@ -298,6 +311,10 @@ async fn version() -> GenericResponse {
     // this serialization can't fail
     let json = serde_json::to_string(&response).unwrap();
     response::json(StatusCode::OK, json)
+}
+
+async fn robots_txt() -> GenericResponse {
+    response::text(StatusCode::OK, "User-agent: *\nDisallow: /\n")
 }
 
 async fn scep_endpoint_open(

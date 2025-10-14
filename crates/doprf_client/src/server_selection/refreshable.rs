@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::future::Future;
@@ -86,6 +86,10 @@ impl<T: Clone> Refreshable<T> {
         let refresh = async {
             let mut rx = self.rx.clone();
             loop {
+                // don't busy-loop: without this line, if the lock is uncontested, we will spin
+                // forever and never yield to the select! to let `latest_valid` go
+                rx.wait_for(|v| accept(v.clone()).is_none()).await.unwrap();
+
                 let _lock = self.refreshing.lock().await;
                 // The value may have been populated between when we waited
                 // for it to be empty and grabbed the lock...

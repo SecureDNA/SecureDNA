@@ -1,6 +1,6 @@
 # Example revocation list
 
-# Note: To figure out the public keys, request ids or issuance ids,
+# Note: To figure out the public keys, request ids, or issuance ids,
 # the sdna-inspect-token and sdna-inspect-cert commands may be helpful.
 
 # List of public keys of any revoked certificates

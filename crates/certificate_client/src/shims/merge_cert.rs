@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for merging two certificates which are derived from the same certificate request
@@ -101,14 +101,14 @@ fn merge_certs<R: Role>(
     Ok(cert_path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use certificates::file::CERT_EXT;
     use certificates::test_helpers::create_intermediate_bundle;
     use certificates::{
         file::{load_certificate_bundle_from_file, save_certificate_bundle_to_file},
-        test_helpers, Builder, CertificateBundle, Infrastructure, IssuerAdditionalFields, KeyPair,
-        Manufacturer, RequestBuilder, RoleKind,
+        test_helpers, Builder, CertificateBundle, Infrastructure, IssuerAdditionalFields,
+        Manufacturer, RequestBuilder, RoleKind, SigningKeyPair,
     };
     use std::path::Path;
     use tempfile::TempDir;
@@ -159,7 +159,7 @@ mod tests {
         let int_b_path = temp_path.join("int_b.cert");
         let int_path = temp_dir.path().join("int.cert");
 
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Manufacturer>::root_v1_builder(root_kp.public_key())
             .build()
             .load_key(root_kp.clone())
@@ -168,7 +168,7 @@ mod tests {
             .unwrap();
         let root_bundle = CertificateBundle::new(root_cert, None);
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_req_a =
             RequestBuilder::<Manufacturer>::intermediate_v1_builder(int_kp.public_key()).build();
         let int_req_b = int_req_a.clone();
@@ -300,7 +300,7 @@ mod tests {
         let (int_bundle_a, _, _) = create_intermediate_bundle::<Infrastructure>();
         let int_req = int_bundle_a.certs[0].request();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let root_b = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp.clone())

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{fmt::Display, hash::Hash, str::FromStr};
@@ -49,6 +49,7 @@ pub enum TokenKind {
     Exemption,
     Keyserver,
     Database,
+    Verifier,
     Hlt,
     Synthesizer,
 }
@@ -59,6 +60,7 @@ impl Display for TokenKind {
             TokenKind::Exemption => write!(f, "exemption token"),
             TokenKind::Keyserver => write!(f, "keyserver token"),
             TokenKind::Database => write!(f, "database token"),
+            TokenKind::Verifier => write!(f, "verifier token"),
             TokenKind::Hlt => write!(f, "HLT token"),
             TokenKind::Synthesizer => write!(f, "synthesizer token"),
         }
@@ -66,7 +68,7 @@ impl Display for TokenKind {
 }
 
 #[derive(Error, Debug)]
-#[error("could not parse token type, expected one of (exemption, keyserver, database, synthesizer, hlt)")]
+#[error("could not parse token type, expected one of (exemption, keyserver, database, verifier, synthesizer, hlt)")]
 pub struct TokenKindParseError;
 impl FromStr for TokenKind {
     type Err = TokenKindParseError;
@@ -76,6 +78,7 @@ impl FromStr for TokenKind {
             "exemption" => Ok(TokenKind::Exemption),
             "keyserver" => Ok(TokenKind::Keyserver),
             "database" => Ok(TokenKind::Database),
+            "verifier" => Ok(TokenKind::Verifier),
             "hlt" => Ok(TokenKind::Hlt),
             "synthesizer" => Ok(TokenKind::Synthesizer),
             _ => Err(TokenKindParseError),
@@ -281,7 +284,7 @@ macro_rules! impl_encoding_boilerplate {
 #[macro_export]
 macro_rules! impl_key_boilerplate_for_token {
     ($name:ident) => {
-        impl<K> $crate::key_traits::HasAssociatedKey for $name<K> {
+        impl<K> $crate::key_traits::HasAssociatedSigningKey for $name<K> {
             fn public_key(&self) -> &PublicKey {
                 self.version.public_key()
             }
@@ -295,13 +298,13 @@ macro_rules! impl_key_boilerplate_for_token {
                 self.public_key().verify(message, signature)
             }
         }
-        impl $crate::key_traits::CanLoadKey for $name<KeyUnavailable> {
+        impl $crate::key_traits::CanLoadSigningKey for $name<KeyUnavailable> {
             type KeyAvailableType = $name<KeyAvailable>;
 
             /// Expects PEM encoded keypair bytes
             fn load_key(
                 self,
-                keypair: KeyPair,
+                keypair: SigningKeyPair,
             ) -> Result<$name<KeyAvailable>, $crate::KeyMismatchError> {
                 let public_key = self.public_key();
                 let key_state = KeyUnavailable::load_key(keypair, public_key)?;
@@ -311,7 +314,7 @@ macro_rules! impl_key_boilerplate_for_token {
                 })
             }
         }
-        impl $crate::key_traits::KeyLoaded for $name<KeyAvailable> {
+        impl $crate::key_traits::SigningKeyLoaded for $name<KeyAvailable> {
             type KeyUnavailableType = $name<KeyUnavailable>;
             fn into_key_unavailable(self) -> Self::KeyUnavailableType {
                 $name {

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt::{Display, Error, Formatter};
@@ -13,7 +13,10 @@ use crate::{
     ChainItem, ChainTraversal, DecodeError, EncodeError, Exemption, ExemptionTokenGroup,
     MultiItemPemBuilder,
 };
-use crate::{Authenticator, ExemptionTokenRequest, Expiration, IssuanceError, KeyPair, Role};
+use crate::{
+    Authenticator, ExemptionTokenRequest, Expiration, HierarchyKind, IssuanceError, Role,
+    SigningKeyPair, SystemClock,
+};
 
 use super::exemption::et::EtLoadKeyError;
 use super::TokenGroup;
@@ -101,10 +104,10 @@ impl TokenBundle<ExemptionTokenGroup> {
         token_request: ExemptionTokenRequest,
         expiration: Expiration,
         issuer_auth_devices: Vec<Authenticator>,
-        keypair: KeyPair,
+        keypair: SigningKeyPair,
     ) -> Result<TokenBundle<ExemptionTokenGroup>, TokenBundleError<Exemption>> {
-        self.path_to_leaf()
-            .map_err(TokenBundleError::NoValidChainToLeaf)?;
+        self.path_to_cert_with_hierarchy_level(&HierarchyKind::Intermediate, &SystemClock)
+            .map_err(TokenBundleError::NoValidChainToInt)?;
         let token = self
             .token
             .clone()
@@ -127,7 +130,7 @@ pub enum TokenBundleError<R: Role> {
     Decode(#[from] DecodeError),
     KeyLoad(#[from] EtLoadKeyError),
     Issuance(#[from] IssuanceError),
-    NoValidChainToLeaf(ChainValidationError<R>),
+    NoValidChainToInt(ChainValidationError<R>),
 }
 
 impl<R: Role> Display for TokenBundleError<R> {
@@ -142,7 +145,7 @@ impl<R: Role> Display for TokenBundleError<R> {
             TokenBundleError::Decode(e) => e.fmt(f),
             TokenBundleError::KeyLoad(e) => e.fmt(f),
             TokenBundleError::Issuance(e) => e.fmt(f),
-            TokenBundleError::NoValidChainToLeaf(e) => {
+            TokenBundleError::NoValidChainToInt(e) => {
                 write!(
                     f,
                     "one or more items in the token file are not valid:\n{}\n",
@@ -153,7 +156,7 @@ impl<R: Role> Display for TokenBundleError<R> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod test {
     use crate::{test_for_all_token_types, PublicKey, TokenBundle, TokenGroup};
 

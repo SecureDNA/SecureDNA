@@ -1,9 +1,9 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import axios from "axios";
+import axios, { isAxiosError } from "axios";
 import { useEffect, useRef, useState } from "react";
 import { Toaster } from "react-hot-toast";
 import useLocalStorageState from "use-local-storage-state";
@@ -14,6 +14,7 @@ import {
   ScreeningVisualization,
   ncbi,
 } from "@securedna/frontend_common";
+import { Page } from "@securedna/frontend_common";
 import EtInput, { type EtWithPem } from "./EtInput";
 import { FastaInput } from "./FastaInput";
 import { NcbiInput } from "./NcbiInput";
@@ -45,7 +46,7 @@ function confirmLargeOrder(length: number): boolean {
   }
 
   // Empirically, screening 100k bp takes about 3 minutes on our demo hardware.
-  const estimatedMinutes = Math.round((length / 100000) * 3);
+  const estimatedMinutes = Math.round((length / 100_000) * 3);
   return window.confirm(
     `This ${length.toLocaleString()} bp order may take about ` +
       `${estimatedMinutes} minutes to process. Really submit?`,
@@ -90,7 +91,9 @@ function Main() {
             synthesis_permission: "denied",
             errors: [
               {
-                diagnostic: String(error),
+                diagnostic: isAxiosError(error)
+                  ? "Could not connect to synthclient. Make sure you're running synthclient and have entered the correct URL and port above."
+                  : "Check the developer console for more information.",
                 additional_info: "",
               },
             ],
@@ -138,7 +141,7 @@ function Main() {
   };
 
   const buttonClass =
-    "border border-primary/50 text-primary hover:bg-primary/20 cursor-pointer rounded px-2 flex-none";
+    "enabled:border rounded-lg border-secondary enabled:hover:bg-secondary enabled:hover:text-white enabled:hover:opacity-90 py-2 px-4 transition disabled:bg-black/10 disabled:text-black/20";
 
   const disableReason = busy
     ? "Busy…"
@@ -147,19 +150,10 @@ function Main() {
       : undefined;
 
   return (
-    <div className="w-full flex flex-col items-center gap-10 min-h-screen">
+    <Page title="Web Interface" maxw="max-w-2xl">
       <Toaster position="top-left" />
-      <section className="inset-0 w-full block p-10 bg-gradient-to-br from-primary-dark to-primary text-white">
-        <div className="absolute top-0 left-0 p-2">
-          <ShowVersion baseUrl={baseUrl} />
-        </div>
-        <h1 className="text-center font-bold text-3xl">
-          SecureDNA Web Interface
-        </h1>
-      </section>
-
-      <div className="flex flex-col items-center w-full max-w-xl">
-        <form className="w-full flex flex-col gap-2">
+      <div className="flex flex-col items-center w-full max-w-2xl py-4 px-2">
+        <form className="w-full flex flex-col gap-2 mt-4">
           <details className="border px-6 py-4 rounded-lg" open={true}>
             <summary>
               Synthclient URL <small>{synthClientUrl}</small>
@@ -190,6 +184,7 @@ function Main() {
                 </div>
               )}
             />
+            <ShowVersion baseUrl={baseUrl} />
             <UrlWarning
               setSynthClientUrl={setSynthClientUrl}
               synthClientUrl={synthClientUrl}
@@ -248,7 +243,7 @@ function Main() {
           </>
         )
       )}
-    </div>
+    </Page>
   );
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fs::{self, File};
@@ -8,13 +8,15 @@ use std::path::Path;
 use std::sync::{Arc, Weak};
 
 use anyhow::Context;
+use certificates::key_traits::CanLoadSigningKey;
+use hdb_api::verification::Verifier;
 use hyper::body::Incoming;
 use hyper::{Method, Request, StatusCode};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
-use certificates::{DatabaseTokenGroup, Exemption, Issued, Manufacturer};
+use certificates::{DatabaseTokenGroup, Exemption, Issued, Manufacturer, VerifierTokenGroup};
 use hdb::{Database, HazardLookupTable};
 use minhttp::error::ErrWrapper;
 use minhttp::mpserver::traits::ValidServerSetup;
@@ -29,12 +31,13 @@ use shared_types::requests::RequestId;
 use shared_types::server_versions::HdbVersion;
 
 use crate::event_store;
+use crate::mail::MailService;
 use crate::opts::Config;
-use crate::state::{BuildTimestamp, HdbServerState};
+use crate::state::HdbServerState;
 use crate::validation::NetworkingValidator;
 
 /// SCEP server version
-const SERVER_VERSION: u64 = 1;
+const SERVER_VERSION: u64 = 2;
 
 pub fn server_setup() -> impl ValidServerSetup<Config, HdbServerState> {
     MultiplaneServer::builder()
@@ -50,20 +53,50 @@ async fn reconfigure(
     let app_cfg = server_cfg.main.custom;
     let prev_state = Weak::upgrade(&prev_state);
 
-    let build_info = get_hdb_build_info(&app_cfg.database);
-    match &build_info {
-        Ok(build_info) => info!("HDB Build Info: {build_info:?}"),
-        Err(err) => warn!("{err:?}"),
-    }
-    let build_timestamp = build_info.ok().map(|bi| BuildTimestamp(bi.build_timestamp));
+    info!("Attempting load of hdbserver version {}", get_version());
+
+    let version = {
+        let build_info = get_hdb_build_info(&app_cfg.database);
+        match &build_info {
+            Ok(build_info) => info!("HDB Build Info: {build_info:?}"),
+            Err(err) => warn!("{err:?}"),
+        }
+        HdbVersion {
+            server_version: get_version(),
+            hdb_timestamp: build_info.ok().map(|bi| bi.build_timestamp),
+        }
+    };
 
     info!("Starting HDB server");
-    let path = &app_cfg.database;
-    let database =
-        Database::open(path).with_context(|| format!("failed to open database: {path:?}"))?;
-    info!("Database is opened!");
-    let hlt = HazardLookupTable::read(&app_cfg.database).context("failed to open HLT")?;
-    info!("HLT is ready!");
+    // The database-related datastructures (mostly indexes) are rather memory intensive,
+    // so we should try to reuse them if the database path hasn't changed. However, we need
+    // to be mindful that symlinks could be used to change the database path without
+    // changing the config.
+    let cfg_database_path = &app_cfg.database;
+    let database_path = std::fs::canonicalize(cfg_database_path)
+        .with_context(|| format!("Failed to canonicalize database path: {cfg_database_path:?}"))?;
+    if cfg_database_path != &database_path {
+        info!("Interpreting database path {cfg_database_path:?} as {database_path:?}");
+    }
+    let database;
+    let hlt;
+    if let Some(previous_state) = prev_state
+        .as_ref()
+        .filter(|ps| ps.database_path == database_path)
+    {
+        info!("database path is unchanged from {database_path:?}; reusing existing database");
+        database = previous_state.database.clone();
+        hlt = previous_state.hlt.clone();
+    } else {
+        database = Database::open(&database_path)
+            .with_context(|| format!("failed to open database: {database_path:?}"))?
+            .into();
+        info!("Database is opened!");
+        hlt = HazardLookupTable::read(&database_path)
+            .context("failed to open HLT")?
+            .into();
+        info!("HLT is ready!");
+    }
 
     let exemptions_roots =
         scep_server_helpers::certs::read_certificates::<Exemption>(app_cfg.exemption_roots)
@@ -125,10 +158,31 @@ async fn reconfigure(
         serde_json::from_str(&hash_spec_json_string).context("failed to decode hash spec json")?;
     hash_spec.validate().context("hash spec is invalid")?;
 
+    let token_server_bundle = {
+        let path = app_cfg.totp_cert_file;
+        let contents = tokio::fs::read_to_string(&path)
+            .await
+            .context("failed to read TOTP certificate bundle")?;
+        certificates::CertificateBundle::<Exemption>::from_file_contents(contents)
+            .context("failed to parse TOTP certificate bundle")?
+    };
+
+    let totp_access_passphrase = fs::read_to_string(&app_cfg.totp_access_passphrase_file)
+        .context("failed to read TOTP access passphrase file")?
+        .trim()
+        .to_string();
+
     let validator = NetworkingValidator {
         yubico_api_client_id: app_cfg.yubico_api_client_id,
         yubico_api_secret_key: app_cfg.yubico_api_secret_key,
+        token_server_bundle,
+        totp_access_passphrase,
     };
+
+    // Validate that the TOTP certificate chains back to exemption roots.
+    validator
+        .validate_totp_certificate_chain(&exemptions_roots, &revocation_list)
+        .context("TOTP certificate chain validation failed")?;
 
     let persistence_connection = if let Some(prev_state) = prev_state {
         if app_cfg.event_store_path != prev_state.persistence_path {
@@ -146,11 +200,85 @@ async fn reconfigure(
             .context("opening event_store db")?
     };
 
+    let verifier = match (
+        &app_cfg.verifier_token_file,
+        &app_cfg.verifier_keypair_passphrase_file,
+        &app_cfg.verifier_keypair_file,
+        app_cfg.verifier_history_url,
+    ) {
+        (Some(token_file), Some(passphrase_file), Some(keypair_file), Some(url)) => {
+            let token_bundle =
+                scep_server_helpers::certs::read_tokenbundle::<VerifierTokenGroup>(token_file)
+                    .context("reading database verifier token bundle")?;
+
+            let passphrase = fs::read_to_string(passphrase_file)
+                .context("reading database verifier keypair passphrase file")?;
+
+            let keypair = scep_server_helpers::certs::read_keypair(keypair_file, passphrase.trim())
+                .context("reading database verifier keypair")?;
+
+            let token = token_bundle
+                .token
+                .load_key(keypair)
+                .context("loading verifier key")?;
+
+            Some(Verifier::new(token, url))
+        }
+        (None, None, None, None) => None,
+        _ => {
+            return Err(anyhow::anyhow!(
+                "If any of --verifier-token-file, --verifier-keypair-passphrase-file, \
+                --verifier-keypair-file, or --verifier-history-url is specified, \
+                all of them must be specified."
+            )
+            .into())
+        }
+    };
+
+    let mail_service = match (
+        &app_cfg.audit_sendgrid_api_key_file,
+        &app_cfg.audit_template_file,
+    ) {
+        (Some(api_key_path), Some(template_path)) => {
+            let api_key = tokio::fs::read_to_string(api_key_path)
+                .await
+                .context("failed to open SendGrid API key file")?
+                .trim()
+                .to_string();
+            let audit_template_toml = tokio::fs::read_to_string(template_path)
+                .await
+                .context("failed to open audit template file")?;
+            let audit_template = toml::from_str(&audit_template_toml)
+                .context("failed to read audit template TOML file")?;
+
+            Some(MailService {
+                sendgrid_api_key: api_key,
+                audit_template,
+            })
+        }
+        (None, None) => {
+            warn!(
+                "Starting without audit email configuration because --audit-sendgrid-api-key \
+                (or SECUREDNA_HDBSERVER_AUDIT_SENDGRID_API_KEY_FILE) is not set. \
+                Any requests that would necessitate sending audit email will be denied!"
+            );
+            None
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "If either of --audit-sendgrid-api-key or --audit-template-file is specified, \
+                both of them must be specified."
+            )
+            .into())
+        }
+    };
+
     Ok(Arc::new(HdbServerState {
-        build_timestamp,
+        version,
+        database_path,
         database,
-        heavy_requests,
         hlt,
+        heavy_requests,
         metrics: metrics.clone(),
         hdb_queries,
         parallelism_per_request: app_cfg.disk_parallelism_per_request,
@@ -159,6 +287,7 @@ async fn reconfigure(
         scep: ServerState {
             clients: Default::default(),
             json_size_limit: app_cfg.scep_json_size_limit,
+            request_hash_limit: app_cfg.scep_hash_limit,
             manufacturer_roots,
             revocation_list,
             token_bundle,
@@ -169,6 +298,8 @@ async fn reconfigure(
         exemptions_roots,
         persistence_path: app_cfg.event_store_path,
         persistence_connection,
+        verifier,
+        mail_service,
     }))
 }
 
@@ -208,6 +339,7 @@ async fn respond(
             .await
         }
         "/version" => handle_get(&method, version(&hdbs_state)).await,
+        "/robots.txt" => handle_get(&method, robots_txt()).await,
         scep::OPEN_ENDPOINT => {
             handle_post(
                 &method,
@@ -304,15 +436,14 @@ async fn respond(
 }
 
 async fn version(hdbs_state: &HdbServerState) -> GenericResponse {
-    let server_version = get_version();
-    let hdb_timestamp = hdbs_state.build_timestamp.clone().map(|t| t.0);
-    let response = HdbVersion {
-        server_version,
-        hdb_timestamp,
-    };
+    let response = hdbs_state.version.clone();
     // this serialization can't fail
     let json = serde_json::to_string(&response).unwrap();
     response::json(StatusCode::OK, json)
+}
+
+async fn robots_txt() -> GenericResponse {
+    response::text(StatusCode::OK, "User-agent: *\nDisallow: /\n")
 }
 
 async fn handle_get(
@@ -359,7 +490,7 @@ async fn handle_scep_err<F, E>(
 ) -> GenericResponse
 where
     F: Future<Output = Result<GenericResponse, scep::error::ScepError<E>>>,
-    E: std::error::Error,
+    E: std::error::Error + 'static,
 {
     let result_response = future.await;
     match result_response {
@@ -486,6 +617,7 @@ mod test {
             yubico_api_client_id: None,
             yubico_api_secret_key: None,
             scep_json_size_limit: Config::default_scep_json_size_limit(),
+            scep_hash_limit: Config::default_scep_hash_limit(),
             et_size_limit: Config::default_et_size_limit(),
             exemption_roots: "test/certs/exemption-roots".into(),
             manufacturer_roots: "test/certs/manufacturer-roots".into(),
@@ -495,6 +627,16 @@ mod test {
             keypair_passphrase_file: "test/certs/database-token.passphrase".into(),
             allow_insecure_cookie: true,
             event_store_path: Config::default_event_store_path(),
+            audit_sendgrid_api_key_file: None,
+            audit_template_file: None,
+            verifier_token_file: Some("test/certs/verifier-token.vt".into()),
+            verifier_keypair_file: Some("test/certs/verifier-token.priv".into()),
+            verifier_keypair_passphrase_file: Some("test/certs/verifier-token.passphrase".into()),
+            // We don't talk to the TOTP server, so we can use any dummy cert here,
+            // as long as it chains back to the exemption roots.
+            totp_cert_file: "test/certs/exemption-leaf.cert".into(),
+            totp_access_passphrase_file: "test/certs/totp-access.passphrase".into(),
+            verifier_history_url: Some("https://example.com".into()),
         };
         let server_config = ServerConfig {
             main: PlaneConfig {

@@ -68,9 +68,11 @@ If you want to use the test hdb for local dev, run `ln -s test/data data` in the
       - If `docker compose` doesn't work, you may need to try `docker-compose`
         (note the dash) instead: `earthly +dev && docker-compose up`
 
+If you are running `keyserver` on a Raspberry Pi, you may need to add `privileged: true` to docker-compose.yml to work around a crash in the `clock_gettime` syscall.
+
 ### Without containerization
 
-A script to build and run w/out containerization: [local_test_environment.sh](./bin/local_test_environment.sh).
+A script to build and run w/out containerization: [local_test_environment](./bin/local_test_environment).
 
 To build the repository, install rust and run `cargo build`.
 
@@ -81,7 +83,7 @@ To build the frontend, install [pnpm 8](https://pnpm.io/) and [wasm-pack 0.12.1+
 Once you have synthclient running, either via Earthly or `cargo run`, try the following command (needs [jq](https://stedolan.github.io/jq/)):
 
 ```bash
-echo -e ">Influenza_segment_1\nggcacatctggggtggagtctgctgtcctgagaggatttctcattttcgacaaagaagacaagagatatgacctagcattaagcatcaatgaactgagcaatcttgcaaaaggagagaaggctaatgtgctaattgggcaaggggacgtagtgttggtaatgaaacgaaaacgggactctagcatacttactgacagccagacagcgaccaaaagaattcggatggccatcaattag\n" | jq -sR '{fasta: ., region: "all"}' | curl localhost/v1/screen -d@-
+echo -e ">Testvirus\nCTTCGCGGGATGAGTGTTTTGCCATCTAATAAGTCCAACATTAATTACGGTGCATCAGGC\n" | jq -sR '{fasta: ., region: "all"}' | curl localhost/v1/screen -d@-
 ```
 
 You should get a response after a couple seconds. The response format is documented in the [API](https://pages.securedna.org/production/assets/Synthclient-API.pdf).
@@ -96,10 +98,6 @@ As an example, to run the system tests:
 - `just run-docker-with-test-hdb` will build docker images for backend, link to the test hdb in this repo, and run the system in the background.
 - You can follow up with `just test-system`, which will run tests against the system started in the previous step.
 
-### Nix
-
-For developers who use nix, there is a `flake.nix` which sets up a local dev environment that includes all dev dependencies and language toolchains, as well as miscellaneous tools. Note that `docker` is not included, it must be installed separately.
-
 ## Packaging
 
 We currently package synthclient and cert tools for debian-based distros (ubuntu 22.04, debian Bookworm and later).
@@ -111,3 +109,20 @@ We run this on github actions, and make it available on our own PPA.
 ### arm64
 
 We run this manually, and make it available on our own PPA. In the future, we may also run it on github actions (once runners are available). For now, use `just build-arm <version>`
+
+### Certificate and token tests
+
+The certificate tests do not run by default due to their speed. To enable them run with the `cert_tests` feature flag. With `cert_tests` enabled it is advisable to run the tests in release mode, otherwise tests involoving key encryption/decryption will be very slow.
+
+```shell
+cargo test --release --features cert_tests
+```
+
+## Updates
+
+Note that our public repo only contains drops of major versions of the client, servers, and ancillary code, which may happen several times per year.
+Day-to-day development takes place in a private repo.
+
+The database used for screening is updated on an independent schedule, and the timestamp of its last update is returned by `synthclient` as part of its screening results.
+
+You can find small provider-specific tooling in the [tools](https://github.com/SecureDNA/tools) repo. Since these are typically version-agnostic, they are updated on their own schedule.

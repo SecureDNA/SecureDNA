@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Tools for implementing [`hyper`] servers
@@ -28,7 +28,7 @@ use crate::HasContentType;
 /// see [`check_content_length`] for that.
 pub fn from_request<B, R>(
     request: Request<B>,
-) -> Result<impl Stream<Item = Result<R, RistrettoError<B::Error, ConversionError<R>>>>, MessageError>
+) -> Result<impl Stream<Item = RistrettoResult<R, B>>, MessageError>
 where
     B: Body + Send + Sync,
     B::Error: Send + Sync,
@@ -37,6 +37,8 @@ where
     check_content_type(request.headers(), R::CONTENT_TYPE)?;
     Ok(decode(BodyStream(request.into_body())))
 }
+
+type RistrettoResult<R, B> = Result<R, RistrettoError<<B as Body>::Error, ConversionError<R>>>;
 
 #[pin_project]
 pub struct BodyStream<B>(#[pin] pub B);

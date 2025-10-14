@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -7,6 +7,7 @@
 // Underscores are used in field names to align with Rust/JSON formats.
 
 import type {
+  Attachment,
   Authenticator,
   Description,
   GenbankId,
@@ -42,6 +43,7 @@ export interface Exemption {
   shippingAddresses: ShippingAddress[];
   requestor: Description;
   authenticators: Authenticator[];
+  attachments: Attachment[];
 }
 
 export interface ExemptionFormData extends Exemption {
@@ -68,6 +70,7 @@ export function emptyExemptionFormData(): ExemptionFormData {
     shippingAddresses: [emptyShippingAddress()],
     requestor: { name: "", email: "", phone_number: "", orcid: "" },
     authenticators: [],
+    attachments: [],
     fastaEditor: "",
   };
 }

@@ -1,9 +1,9 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use doprf::{
-    active_security::Commitment,
-    prf::{CompletedHashValue, HashPart, Query},
+    active_security::CompressedCommitment,
+    prf::{CompressedCompletedHashValue, CompressedHashPart, CompressedQuery},
     tagged::TaggedHash,
 };
 
@@ -18,22 +18,22 @@ pub trait PackableRistretto: TryFrom<Self::Array> + Into<Self::Array> + Send + S
     const MAGIC: [u8; 4];
 }
 
-impl PackableRistretto for Query {
+impl PackableRistretto for CompressedQuery {
     type Array = [u8; 32];
     const MAGIC: [u8; 4] = *b"QURY";
 }
 
-impl PackableRistretto for HashPart {
+impl PackableRistretto for CompressedHashPart {
     type Array = [u8; 32];
     const MAGIC: [u8; 4] = *b"HPRT";
 }
 
-impl PackableRistretto for CompletedHashValue {
+impl PackableRistretto for CompressedCompletedHashValue {
     type Array = [u8; 32];
     const MAGIC: [u8; 4] = *b"CHSH";
 }
 
-impl PackableRistretto for Commitment {
+impl PackableRistretto for CompressedCommitment {
     type Array = [u8; 32];
     const MAGIC: [u8; 4] = *b"TCBT";
 }

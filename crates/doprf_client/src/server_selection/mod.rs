@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{
@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{future::join, stream::FuturesUnordered, StreamExt};
 use rand::seq::IteratorRandom;
 use serde::de::DeserializeOwned;
 use tracing::info;
@@ -20,6 +20,7 @@ use crate::{
     server_selection::dns::*,
 };
 use doprf::{active_security::ActiveSecurityKey, party::KeyserverId};
+use http_client::body::Json;
 use http_client::BaseApiClient;
 use shared_types::server_selection::{
     HdbQualificationResponse, KeyserverQualificationResponse, QualificationRequest, Role, Tier,
@@ -350,8 +351,13 @@ pub async fn server_selection(
             tier,
             apex,
         } => {
-            let dns = DnsOverHttps::new(provider_domain);
-            enumerate(&dns, tier, apex).await
+            let (service, worker) = http_client::service_and_worker();
+            let enumerate_servers = async {
+                // BEWARE: `dns` needs to be dropped for `worker` to terminate.
+                let dns = DnsOverHttps::new(service.into(), provider_domain);
+                enumerate(&dns, tier, apex).await
+            };
+            join(enumerate_servers, worker).await.0
         }
         ServerEnumerationSource::Fixed {
             keyserver_domains,
@@ -462,9 +468,10 @@ async fn qualify_one<D: DeserializeOwned>(
         .retry_if(
             || {
                 retry_if::with_timeout(Duration::from_secs(5), async {
-                    Ok(api_client
-                        .json_json_post(&url, &QualificationRequest { client_version: 0 })
-                        .await?)
+                    let Json(response) = api_client
+                        .post(&url, Json(&QualificationRequest { client_version: 0 }))
+                        .await?;
+                    Ok(response)
                 })
             },
             // don't retry 400 Bad Request
@@ -670,7 +677,7 @@ fn select_active_security_key(
 
     let keys_with_matching_count_and_quorum: Vec<_> = keys_with_sufficient_count
         .into_iter()
-        .filter(|(key, _)| key.supported_quorum() == quorum)
+        .filter(|(key, _)| u32::try_from(key.supported_quorum()).is_ok_and(|q| q == quorum))
         .collect();
 
     let max_count = keys_with_matching_count_and_quorum

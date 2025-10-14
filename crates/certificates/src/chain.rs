@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::pem::PemTaggable;
@@ -60,12 +60,12 @@ impl<R: Role> PemTaggable for Chain<R> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use crate::chain::Chain;
     use crate::{
         asn::{FromASN1DerBytes, ToASN1DerBytes},
-        keypair::KeyPair,
+        key::signing::SigningKeyPair,
         shared_components::role::{Exemption, Infrastructure},
         Builder, CertificateRequest, DecodeError, IssuerAdditionalFields, KeyUnavailable,
         Manufacturer, PemDecodable, PemEncodable, RequestBuilder, Role,
@@ -102,7 +102,7 @@ mod tests {
     fn adding_duplicate_cert_does_nothing() {
         let chain = make_chain::<Infrastructure>();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let new_root_cert = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -131,7 +131,7 @@ mod tests {
     where
         RequestBuilder<R>: Builder<Item = CertificateRequest<R, KeyUnavailable>>,
     {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
 
         let root_cert = RequestBuilder::<R>::root_v1_builder(kp.public_key())
             .build()
@@ -140,7 +140,7 @@ mod tests {
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_req = RequestBuilder::<R>::intermediate_v1_builder(int_kp.public_key()).build();
         let int_cert = root_cert
             .issue_cert(int_req, IssuerAdditionalFields::default())

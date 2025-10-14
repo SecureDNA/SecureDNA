@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -35,7 +35,7 @@ pub async fn not_json() {
             &format!("http://localhost:{server_port}{}", scep::OPEN_ENDPOINT),
             "tea, earl grey, hot".into(),
             "application/json",
-            "text/plain",
+            Some("text/plain"),
         )
         .await
         .unwrap_err();

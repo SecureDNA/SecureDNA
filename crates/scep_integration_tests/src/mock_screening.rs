@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use certificates::{GenbankId, Sequence, SequenceIdentifier};
@@ -7,11 +7,9 @@ use doprf::{
     tagged::TaggedHash,
 };
 use hdb::{Exemptions, HdbOrganism};
+use hdb_api::{BaseHdbScreeningResult, ConsolidatedHazardResult, HdbScreeningResult, Organism};
 use pipeline_bridge::OrganismType;
-use shared_types::{
-    hdb::{ConsolidatedHazardResult, HdbScreeningResult, Organism},
-    synthesis_permission::SynthesisPermission,
-};
+use shared_types::{server_versions::HdbVersion, synthesis_permission::SynthesisPermission};
 
 pub fn mock_hazard_organism() -> Organism {
     Organism {
@@ -97,12 +95,17 @@ fn screen_hash(hash: &TaggedHash, exemptions: &Exemptions) -> Option<Consolidate
 }
 
 pub fn mock_screen(hashes: &[TaggedHash], exemptions: &Exemptions) -> HdbScreeningResult {
-    HdbScreeningResult {
+    HdbScreeningResult::base(BaseHdbScreeningResult {
         results: hashes
             .iter()
             .filter_map(|hash| screen_hash(hash, exemptions))
             .collect(),
         debug_hdb_responses: None,
         provider_reference: None,
-    }
+        timestamp: "2024-05-29T12:00:00Z".to_string(),
+        hdb_version: HdbVersion {
+            server_version: "foo".to_owned(),
+            hdb_timestamp: None,
+        },
+    })
 }

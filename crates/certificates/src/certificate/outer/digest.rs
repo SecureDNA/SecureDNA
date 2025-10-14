@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt;
@@ -6,9 +6,10 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::certificate::{CertificateVersion, RequestVersion};
+use crate::Authenticator;
 use crate::{
     certificate::inner::{CertificateInner, HierarchyLevel, Issuer, RequestInner, Subject},
-    keypair::Signature,
+    key::signing::Signature,
     shared_components::{
         common::{CompatibleIdentity, Expiration, Id},
         digest::{INDENT, INDENT2},
@@ -32,6 +33,7 @@ pub struct CertificateDigest {
     pub expiration: Expiration,
     pub signature: Signature,
     pub emails_to_notify: Vec<String>,
+    pub auth_token: Option<Authenticator>,
 }
 
 impl<R, K> From<Certificate<R, K>> for CertificateDigest
@@ -69,6 +71,10 @@ impl fmt::Display for CertificateDigest {
                 }
             }
         }
+        if let Some(auth_token) = &self.auth_token {
+            writeln!(f, "\n{:INDENT$}Authentication:", "")?;
+            write!(f, "{:INDENT2$}{}", "", auth_token)?;
+        }
         Ok(())
     }
 }
@@ -91,6 +97,8 @@ impl CertificateDigest {
         let additional_notify_emails = inner.0.data.common.issuer.additional_emails_to_notify();
         let emails_to_notify = combine_and_dedup_items(notify_emails, additional_notify_emails);
 
+        let auth_token = inner.0.data.common.subject.auth_token().cloned();
+
         Self {
             version,
             issued_to,
@@ -100,6 +108,7 @@ impl CertificateDigest {
             request_id,
             issuance_id,
             emails_to_notify,
+            auth_token,
         }
     }
 }
@@ -111,6 +120,7 @@ pub struct RequestDigest {
     pub request_id: Id,
     pub subject: CompatibleIdentity,
     pub emails_to_notify: Vec<String>,
+    pub auth_token: Option<Authenticator>,
 }
 
 impl<R, K> From<CertificateRequest<R, K>> for RequestDigest
@@ -131,11 +141,13 @@ impl RequestDigest {
         let request_id = *inner.subject.request_id();
         let subject = inner.subject.to_compatible_identity();
         let emails_to_notify = inner.subject.emails_to_notify().to_vec();
+        let auth_token = inner.subject.auth_token().cloned();
         Self {
             version,
             request_id,
             subject,
             emails_to_notify,
+            auth_token,
         }
     }
 }
@@ -157,6 +169,10 @@ impl fmt::Display for RequestDigest {
                 }
             }
         }
+        if let Some(auth_token) = &self.auth_token {
+            writeln!(f, "\n{:INDENT$}Authentication:", "")?;
+            write!(f, "{:INDENT2$}{}", "", auth_token)?;
+        }
         Ok(())
     }
 }
@@ -168,18 +184,18 @@ fn capitalize_first(input: &str) -> String {
     head.chain(tail).collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod test {
     use crate::{
         concat_with_newline,
         test_helpers::{self, expected_cert_display, expected_cert_request_display},
         Builder, Description, Digestible, Exemption, Infrastructure, Issued,
-        IssuerAdditionalFields, KeyPair, Manufacturer, RequestBuilder,
+        IssuerAdditionalFields, Manufacturer, RequestBuilder, SigningKeyPair,
     };
 
     #[test]
     fn display_for_root_exemption_certificate_matches_expected_display() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -203,7 +219,7 @@ mod test {
 
     #[test]
     fn display_for_intermediate_infrastructure_certificate_matches_expected_display() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -212,7 +228,7 @@ mod test {
             .unwrap();
 
         let req = RequestBuilder::<Infrastructure>::intermediate_v1_builder(
-            KeyPair::new_random().public_key(),
+            SigningKeyPair::new_random().public_key(),
         )
         .build();
         let int_cert = root_cert
@@ -251,7 +267,7 @@ mod test {
 
     #[test]
     fn display_for_intermediate_certificate_with_description_matches_expected_display() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .with_description(
                 Description::default()
@@ -265,7 +281,7 @@ mod test {
             .unwrap();
 
         let req = RequestBuilder::<Exemption>::intermediate_v1_builder(
-            KeyPair::new_random().public_key(),
+            SigningKeyPair::new_random().public_key(),
         )
         .with_description(Description::default().with_name("B Person"))
         .build();
@@ -292,7 +308,7 @@ mod test {
 
     #[test]
     fn display_for_certificate_with_emails_to_notify_matches_expected_display() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -300,7 +316,7 @@ mod test {
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_public_key = int_kp.public_key();
 
         let intermediate_req =
@@ -310,7 +326,7 @@ mod test {
             .unwrap();
 
         let leaf_req =
-            RequestBuilder::<Exemption>::leaf_v1_builder(KeyPair::new_random().public_key())
+            RequestBuilder::<Exemption>::leaf_v1_builder(SigningKeyPair::new_random().public_key())
                 .with_emails_to_notify(vec!["a@example.com", "b@example.com"])
                 .build();
         let leaf_cert = intermediate_cert
@@ -343,7 +359,7 @@ mod test {
 
     #[test]
     fn display_for_certificate_with_orchid_id_matches_expected_display() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .with_description(Description::default().with_orcid("0000-0002-1825-0097"))
             .build()
@@ -368,7 +384,7 @@ mod test {
 
     #[test]
     fn display_for_root_infrastructure_certificate_request_matches_expected_display() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         let public_key = req.public_key();
@@ -386,7 +402,7 @@ mod test {
 
     #[test]
     fn display_for_intermediate_exemption_certificate_request_matches_expected_display() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Exemption>::intermediate_v1_builder(kp.public_key()).build();
 
         let public_key = req.public_key();
@@ -404,7 +420,7 @@ mod test {
 
     #[test]
     fn display_for_leaf_manufacturer_certificate_request_matches_expected_display() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Manufacturer>::leaf_v1_builder(kp.public_key()).build();
 
         let public_key = req.public_key();
@@ -422,7 +438,7 @@ mod test {
 
     #[test]
     fn display_for_certificate_request_with_description_matches_expected_display() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Manufacturer>::leaf_v1_builder(kp.public_key())
             .with_description(
                 Description::default()

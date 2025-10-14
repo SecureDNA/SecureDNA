@@ -1,10 +1,10 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
 import type { ApiResponse } from "@securedna/frontend_common";
-import type { FastaFile } from "src/types";
+import type { ScreeningWorkerMessage, ScreeningWorkerParams } from "./types";
 import screeningWorkerUrl from "./worker?url";
 
 export type ScreeningProgress =
@@ -15,12 +15,9 @@ let num = 0;
 
 /// Run screening in a Web Worker.
 export async function performScreening(
-  args: {
-    sequence: string | FastaFile;
-  },
+  params: ScreeningWorkerParams,
   callback: (progress: ScreeningProgress) => void,
 ): Promise<void> {
-  const { sequence } = args;
   const url = new URL(screeningWorkerUrl, import.meta.url);
   const screenWorker = new Worker(url, { type: "module" });
 
@@ -33,6 +30,10 @@ export async function performScreening(
   const channel = new MessageChannel();
   channel.port2.onmessage = (e) => callback(e.data);
 
-  const message = { command: "screen", requestId, sequence };
+  const message: ScreeningWorkerMessage = {
+    ...params,
+    command: "screen",
+    requestId,
+  };
   screenWorker.postMessage(message, [channel.port1]);
 }

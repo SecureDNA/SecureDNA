@@ -1,13 +1,14 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fs;
 use std::path::Path;
 
 use certificates::file::{load_keypair_from_file, load_token_bundle_from_file, TokenExtension};
-use certificates::key_traits::CanLoadKey;
+use certificates::key_traits::CanLoadSigningKey;
 use certificates::{
-    ChainTraversal, ExemptionTokenGroup, KeyPair, PublicKey, TokenBundle, TokenGroup,
+    ChainTraversal, ExemptionTokenGroup, PublicKey, SigningKeyPair, SystemClock, TokenBundle,
+    TokenGroup,
 };
 
 pub fn parse_token_files_and_validate_path_to_root<T>(
@@ -15,7 +16,7 @@ pub fn parse_token_files_and_validate_path_to_root<T>(
     key_file: &Path,
     passphrase_file: &Path,
     root_public_key: &PublicKey,
-) -> Result<(TokenBundle<T>, KeyPair), String>
+) -> Result<(TokenBundle<T>, SigningKeyPair), String>
 where
     T: TokenGroup + TokenExtension,
 {
@@ -27,7 +28,8 @@ where
     let keypair = load_keypair_from_file(key_file, passphrase.trim())
         .map_err(|err| format!("Failed to load keypair from file: {err:?}"))?;
 
-    if let Err(err) = token_bundle.validate_path_to_issuers(&[*root_public_key], None) {
+    if let Err(err) = token_bundle.validate_path_to_issuers(&[*root_public_key], None, &SystemClock)
+    {
         return Err(format!(
             "No path to root public key found for token: {err:?}"
         ));
@@ -44,7 +46,7 @@ pub fn check_token_bundle_and_associated_key<T>(
 ) -> Result<(), String>
 where
     T: TokenGroup + TokenExtension,
-    T::Token: CanLoadKey,
+    T::Token: CanLoadSigningKey,
 {
     let (token_bundle, keypair) = parse_token_files_and_validate_path_to_root::<T>(
         token_file,

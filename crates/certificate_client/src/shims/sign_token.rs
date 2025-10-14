@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for using a certificate to sign another certificate, or self-signing a root certificate request
@@ -12,10 +12,11 @@ use certificates::file::{
     save_token_bundle_to_file, TokenExtension, CERT_EXT, KEY_PRIV_EXT,
 };
 use certificates::{
-    CertificateBundle, CertificateBundleError, DatabaseTokenGroup, Expiration, HltTokenGroup,
-    KeyPair, KeyserverTokenGroup, SynthesizerTokenGroup, TokenBundle, TokenGroup, TokenKind,
+    CertificateBundle, CertificateBundleError, ChainTraversal, DatabaseTokenGroup, Expiration,
+    HltTokenGroup, KeyserverTokenGroup, SigningKeyPair, SynthesizerTokenGroup, SystemClock,
+    TokenBundle, TokenGroup, TokenKind, VerifierTokenGroup,
 };
-use clap::{crate_version, Parser};
+use clap::Parser;
 
 use crate::passphrase_reader::{PassphraseReader, PassphraseSource, ENV_PASSPHRASE_WARNING};
 
@@ -25,7 +26,7 @@ use super::error::CertCliError;
 #[clap(
     name = "sdna-sign-token",
     about = "Signs a SecureDNA token request",
-    version = crate_version!()
+    version = crate::certificate_client_version!()
 )]
 pub struct SignTokenOpts {
     #[clap(help = "Type of token [possible values: keyserver, database, synthesizer, hlt]")]
@@ -59,15 +60,24 @@ pub fn main<P: PassphraseReader, W: Write, E: Write>(
     stderr: &mut E,
 ) -> Result<(), std::io::Error> {
     match run(opts, passphrase_reader, default_directory) {
-        Ok((filepath, passphrase_source)) => {
+        Ok(TokenIssuanceDetails {
+            filepath,
+            passphrase_source,
+            expiring_cert_warnings,
+        }) => {
             if passphrase_source == PassphraseSource::EnvVar {
                 writeln!(stderr, "{}", &*ENV_PASSPHRASE_WARNING)?;
+            }
+            for warning in expiring_cert_warnings {
+                writeln!(stdout, "Warning: {warning}")?;
             }
             writeln!(
                 stdout,
                 "A newly issued token has been saved to {}",
                 filepath.display()
-            )
+            )?;
+
+            Ok(())
         }
         Err(err) => writeln!(stderr, "{err}"),
     }
@@ -77,7 +87,7 @@ fn run<P: PassphraseReader>(
     opts: &SignTokenOpts,
     passphrase_reader: P,
     default_directory: &Path,
-) -> Result<(PathBuf, PassphraseSource), CertCliError> {
+) -> Result<TokenIssuanceDetails, CertCliError> {
     let expiration = opts
         .days_valid
         .map_or_else(|| Ok(Expiration::default()), Expiration::expiring_in_days)?;
@@ -107,6 +117,13 @@ fn run<P: PassphraseReader>(
             |bundle, req, kp| bundle.issue_database_token_bundle(req, expiration, kp),
             default_directory,
         ),
+        TokenKind::Verifier => issue_token::<_, VerifierTokenGroup, _>(
+            opts,
+            passphrase_reader,
+            &key_path,
+            |bundle, req, kp| bundle.issue_verifier_token_bundle(req, expiration, kp),
+            default_directory,
+        ),
         TokenKind::Hlt => issue_token::<_, HltTokenGroup, _>(
             opts,
             passphrase_reader,
@@ -124,27 +141,40 @@ fn run<P: PassphraseReader>(
     }
 }
 
+#[derive(Debug)]
+pub struct TokenIssuanceDetails {
+    pub filepath: PathBuf,
+    pub passphrase_source: PassphraseSource,
+    pub expiring_cert_warnings: Vec<String>,
+}
+
 fn issue_token<P, T, F>(
     opts: &SignTokenOpts,
     passphrase_reader: P,
     key_path: &Path,
     token_issuer: F,
     default_directory: &Path,
-) -> Result<(PathBuf, PassphraseSource), CertCliError>
+) -> Result<TokenIssuanceDetails, CertCliError>
 where
     P: PassphraseReader,
     T: TokenGroup + TokenExtension,
     F: FnOnce(
         CertificateBundle<T::AssociatedRole>,
         T::TokenRequest,
-        KeyPair,
+        SigningKeyPair,
     ) -> Result<TokenBundle<T>, CertificateBundleError>,
 {
+    let clock = SystemClock;
     let cert = match opts.cert.extension() {
         Some(_) => opts.cert.to_owned(),
         None => opts.cert.with_extension(CERT_EXT),
     };
     let issuing_bundle = load_certificate_bundle_from_file::<T::AssociatedRole>(&cert)?;
+
+    let mut expiring_cert_warnings = Vec::new();
+    for item in issuing_bundle.expiry_within_days_excluding_shorter_validity(30, &clock) {
+        expiring_cert_warnings.push(item.expiring_soon_text());
+    }
 
     let (cert_passphrase, passphrase_source) = passphrase_reader
         .read_passphrase()
@@ -173,13 +203,17 @@ where
 
     save_token_bundle_to_file(token_bundle, &token_path)?;
 
-    Ok((token_path, passphrase_source))
+    Ok(TokenIssuanceDetails {
+        filepath: token_path,
+        passphrase_source,
+        expiring_cert_warnings,
+    })
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod test {
     use certificates::file::{TokenExtension, CERT_EXT, KEYSERVER_TOKEN_EXT, KEY_PRIV_EXT};
-    use certificates::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
+    use certificates::key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded};
     use certificates::{
         file::{
             load_token_bundle_from_file, save_certificate_bundle_to_file, save_keypair_to_file,
@@ -187,12 +221,14 @@ mod test {
         },
         test_helpers::create_leaf_bundle,
         ChainTraversal, DatabaseTokenGroup, DatabaseTokenRequest, Exemption, HltTokenGroup,
-        HltTokenRequest, Infrastructure, KeyPair, KeyserverTokenGroup, KeyserverTokenRequest,
-        Manufacturer, SynthesizerTokenGroup, SynthesizerTokenRequest, TokenKind,
+        HltTokenRequest, Infrastructure, KeyserverTokenGroup, KeyserverTokenRequest, Manufacturer,
+        SigningKeyPair, SynthesizerTokenGroup, SynthesizerTokenRequest, TokenKind,
     };
+    use certificates::{Domain, SystemClock};
     use doprf::party::KeyserverId;
     use tempfile::TempDir;
 
+    use super::TokenIssuanceDetails;
     use crate::passphrase_reader::{
         EnvVarPassphraseReader, MemoryPassphraseReader, PassphraseReaderError,
         ENV_PASSPHRASE_WARNING, KEY_ENCRYPTION_PASSPHRASE_ENV_VAR,
@@ -218,7 +254,7 @@ mod test {
 
         save_certificate_bundle_to_file(leaf_bundle, &cert_path).unwrap();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let request = DatabaseTokenRequest::v1_token_request(kp.public_key());
 
         save_token_request_to_file::<DatabaseTokenGroup>(request, &request_path).unwrap();
@@ -274,7 +310,7 @@ mod test {
 
         save_certificate_bundle_to_file(leaf_bundle, &cert_path).unwrap();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let request = DatabaseTokenRequest::v1_token_request(kp.public_key());
 
         save_token_request_to_file::<DatabaseTokenGroup>(request, &request_path).unwrap();
@@ -323,7 +359,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = KeyserverTokenRequest::v1_token_request(
             token_kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -363,7 +399,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = KeyserverTokenRequest::v1_token_request(
             token_kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -403,7 +439,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = KeyserverTokenRequest::v1_token_request(
             token_kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -419,7 +455,10 @@ mod test {
             days_valid: None,
             output: Some(token_path.clone()),
         };
-        let (actual_token_path, _) = sign_token::run(&opts, pass_reader, &default_dir).unwrap();
+        let TokenIssuanceDetails {
+            filepath: actual_token_path,
+            ..
+        } = sign_token::run(&opts, pass_reader, &default_dir).unwrap();
 
         assert_eq!(token_path, actual_token_path);
     }
@@ -443,7 +482,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = KeyserverTokenRequest::v1_token_request(
             token_kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -459,7 +498,10 @@ mod test {
             days_valid: None,
             output: Some(token_path.clone()),
         };
-        let (actual_token_path, _) = sign_token::run(&opts, pass_reader, &default_dir).unwrap();
+        let TokenIssuanceDetails {
+            filepath: actual_token_path,
+            ..
+        } = sign_token::run(&opts, pass_reader, &default_dir).unwrap();
 
         assert_eq!(
             token_path.with_extension(KEYSERVER_TOKEN_EXT),
@@ -484,7 +526,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = KeyserverTokenRequest::v1_token_request(
             token_kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -529,7 +571,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = KeyserverTokenRequest::v1_token_request(
             token_kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -573,7 +615,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = KeyserverTokenRequest::v1_token_request(
             token_kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -617,7 +659,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = KeyserverTokenRequest::v1_token_request(
             token_kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -666,7 +708,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = KeyserverTokenRequest::v1_token_request(
             token_kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -692,13 +734,13 @@ mod test {
         // Load token and validate its cert chain
         let token_bundle = load_token_bundle_from_file::<KeyserverTokenGroup>(&token_path).unwrap();
 
-        let incorrect_root = KeyPair::new_random().public_key();
+        let incorrect_root = SigningKeyPair::new_random().public_key();
 
         token_bundle
-            .validate_path_to_issuers(&[root_public_key], None)
+            .validate_path_to_issuers(&[root_public_key], None, &SystemClock)
             .expect("should find path to correct root");
         token_bundle
-            .validate_path_to_issuers(&[incorrect_root], None)
+            .validate_path_to_issuers(&[incorrect_root], None, &SystemClock)
             .expect_err("should not find path to incorrect root");
     }
 
@@ -719,7 +761,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = DatabaseTokenRequest::v1_token_request(token_kp.public_key());
 
         let request_path = temp_path.join("token.dtr");
@@ -761,7 +803,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = DatabaseTokenRequest::v1_token_request(token_kp.public_key());
 
         let request_path = temp_path.join("token.dtr");
@@ -802,7 +844,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = DatabaseTokenRequest::v1_token_request(token_kp.public_key());
         let request_path = temp_path.join("token.dtr");
         save_token_request_to_file::<DatabaseTokenGroup>(request, &request_path).unwrap();
@@ -842,7 +884,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = DatabaseTokenRequest::v1_token_request(token_kp.public_key());
 
         let request_path = temp_path.join("token.dtr");
@@ -888,7 +930,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = DatabaseTokenRequest::v1_token_request(token_kp.public_key());
 
         let request_path = temp_path.join("token.dtr");
@@ -911,13 +953,13 @@ mod test {
         // Load token and validate its cert chain
         let token_bundle = load_token_bundle_from_file::<DatabaseTokenGroup>(&token_path).unwrap();
 
-        let incorrect_root = KeyPair::new_random().public_key();
+        let incorrect_root = SigningKeyPair::new_random().public_key();
 
         token_bundle
-            .validate_path_to_issuers(&[root_public_key], None)
+            .validate_path_to_issuers(&[root_public_key], None, &SystemClock)
             .expect("should find path to correct root");
         token_bundle
-            .validate_path_to_issuers(&[incorrect_root], None)
+            .validate_path_to_issuers(&[incorrect_root], None, &SystemClock)
             .expect_err("should not find path to incorrect root");
     }
 
@@ -938,7 +980,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = HltTokenRequest::v1_token_request(token_kp.public_key());
 
         let request_path = temp_path.join("token.htr");
@@ -980,7 +1022,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = HltTokenRequest::v1_token_request(token_kp.public_key());
 
         let request_path = temp_path.join("token.htr");
@@ -1021,7 +1063,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = HltTokenRequest::v1_token_request(token_kp.public_key());
         let request_path = temp_path.join("token.htr");
         save_token_request_to_file::<HltTokenGroup>(request, &request_path).unwrap();
@@ -1061,7 +1103,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = HltTokenRequest::v1_token_request(token_kp.public_key());
 
         let request_path = temp_path.join("token.htr");
@@ -1107,7 +1149,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = HltTokenRequest::v1_token_request(token_kp.public_key());
 
         let request_path = temp_path.join("token.htr");
@@ -1130,13 +1172,13 @@ mod test {
         // Load token and validate its cert chain
         let token_bundle = load_token_bundle_from_file::<HltTokenGroup>(&token_path).unwrap();
 
-        let incorrect_root = KeyPair::new_random().public_key();
+        let incorrect_root = SigningKeyPair::new_random().public_key();
 
         token_bundle
-            .validate_path_to_issuers(&[root_public_key], None)
+            .validate_path_to_issuers(&[root_public_key], None, &SystemClock)
             .expect("should find path to correct root");
         token_bundle
-            .validate_path_to_issuers(&[incorrect_root], None)
+            .validate_path_to_issuers(&[incorrect_root], None, &SystemClock)
             .expect_err("should not find path to incorrect root");
     }
 
@@ -1157,11 +1199,11 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let domain = "maker.synth".to_owned();
+        let domain = Domain::try_new("maker.synth").unwrap();
         let model = "XL".to_owned();
         let serial = "10AK".to_owned();
         let max_dna_base_pairs_per_day = 10_000_000u64;
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = SynthesizerTokenRequest::v1_token_request(
             token_kp.public_key(),
             domain,
@@ -1210,11 +1252,11 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let domain = "maker.synth".to_owned();
+        let domain = Domain::try_new("maker.synth").unwrap();
         let model = "XL".to_owned();
         let serial = "10AK".to_owned();
         let max_dna_base_pairs_per_day = 10_000_000u64;
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = SynthesizerTokenRequest::v1_token_request(
             token_kp.public_key(),
             domain,
@@ -1262,11 +1304,11 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let domain = "maker.synth".to_owned();
+        let domain = Domain::try_new("maker.synth").unwrap();
         let model = "XL".to_owned();
         let serial = "10AK".to_owned();
         let max_dna_base_pairs_per_day = 10_000_000u64;
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = SynthesizerTokenRequest::v1_token_request(
             token_kp.public_key(),
             domain,
@@ -1314,11 +1356,11 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let domain = "maker.synth".to_owned();
+        let domain = Domain::try_new("maker.synth").unwrap();
         let model = "XL".to_owned();
         let serial = "10AK".to_owned();
         let max_dna_base_pairs_per_day = 10_000_000u64;
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = SynthesizerTokenRequest::v1_token_request(
             token_kp.public_key(),
             domain,
@@ -1373,11 +1415,11 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let domain = "maker.synth".to_owned();
+        let domain = Domain::try_new("maker.synth").unwrap();
         let model = "XL".to_owned();
         let serial = "10AK".to_owned();
         let max_dna_base_pairs_per_day = 10_000_000u64;
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = SynthesizerTokenRequest::v1_token_request(
             token_kp.public_key(),
             domain,
@@ -1407,13 +1449,13 @@ mod test {
         let token_bundle =
             load_token_bundle_from_file::<SynthesizerTokenGroup>(&token_path).unwrap();
 
-        let incorrect_root = KeyPair::new_random().public_key();
+        let incorrect_root = SigningKeyPair::new_random().public_key();
 
         token_bundle
-            .validate_path_to_issuers(&[root_public_key], None)
+            .validate_path_to_issuers(&[root_public_key], None, &SystemClock)
             .expect("should find path to correct root");
         token_bundle
-            .validate_path_to_issuers(&[incorrect_root], None)
+            .validate_path_to_issuers(&[incorrect_root], None, &SystemClock)
             .expect_err("should not find path to incorrect root");
     }
 
@@ -1434,7 +1476,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = HltTokenRequest::v1_token_request(token_kp.public_key());
 
         let request_path = temp_path.join("token.htr");
@@ -1473,7 +1515,7 @@ mod test {
         save_keypair_to_file(cert_kp, &pass_reader.passphrase, &cert_key_path).unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = HltTokenRequest::v1_token_request(token_kp.public_key());
 
         let request_path = temp_path.join("token");
@@ -1521,7 +1563,7 @@ mod test {
         .unwrap();
 
         // Create token request and save to file
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let request = HltTokenRequest::v1_token_request(token_kp.public_key());
 
         let request_path = temp_path.join("token.htr");

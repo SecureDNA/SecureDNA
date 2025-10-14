@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for inspecting the contents of a certificate or certificate request
@@ -25,7 +25,6 @@ use certificates::{
     about = "Inspects and validates a SecureDNA certificate, certificate request, or certificate chain",
     version = crate_version!()
 )]
-
 pub struct InspectCertOpts {
     #[clap(subcommand)]
     pub target: Target,
@@ -123,7 +122,7 @@ fn inspect_file<R: Role>(opts: &InspectCertOpts) -> Result<String, CertCliError>
     Ok(display_text)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
 
     use certificates::file::{
@@ -131,7 +130,7 @@ mod tests {
     };
     use certificates::{
         test_helpers, Builder, CertificateBundle, Digestible, Exemption, IssuerAdditionalFields,
-        KeyPair, RequestBuilder, RoleKind,
+        RequestBuilder, RoleKind, SigningKeyPair,
     };
     use tempfile::TempDir;
 
@@ -150,7 +149,7 @@ mod tests {
         let (int_bundle, int_kp, _) = test_helpers::create_intermediate_bundle::<Exemption>();
 
         let leaf_request =
-            RequestBuilder::<Exemption>::leaf_v1_builder(KeyPair::new_random().public_key())
+            RequestBuilder::<Exemption>::leaf_v1_builder(SigningKeyPair::new_random().public_key())
                 .build();
 
         let leaf_bundle = int_bundle
@@ -181,7 +180,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let leaf_cert_path = temp_dir.path().join("leaf.cert");
 
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_public_key = root_kp.public_key();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(root_kp.public_key())
             .build()
@@ -191,7 +190,7 @@ mod tests {
             .unwrap();
         let root_bundle = CertificateBundle::new(root_cert, None);
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_req_a =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
         let int_req_b = int_req_a.clone();
@@ -212,7 +211,7 @@ mod tests {
             .unwrap();
         let int_bundle = int_bundle_a.merge(int_bundle_b).unwrap();
 
-        let leaf_kp = KeyPair::new_random();
+        let leaf_kp = SigningKeyPair::new_random();
         let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
         let leaf_bundle = int_bundle
             .issue_cert_bundle(leaf_req, IssuerAdditionalFields::default(), int_kp)
@@ -242,7 +241,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let request_path = temp_dir.path().join("root");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let request = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key()).build();
         save_cert_request_to_file(request, &request_path.with_extension(CERT_REQUEST_EXT)).unwrap();
 
@@ -260,7 +259,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let cert_path = temp_dir.path().join("root");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -288,7 +287,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let cert_path = temp_dir.path().join("root");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::ffi::OsString;
@@ -30,7 +30,11 @@ const BUILD_INFO_FILENAME: &str = "BUILD_INFO.json";
     version = crate_version!()
 )]
 pub struct Opts {
-    #[clap(help = "the randomly generated secret key to use to generate")]
+    #[clap(
+        long,
+        env = "SECUREDNA_GENHDB_SECRET_KEY",
+        help = "the randomly generated secret key to use to generate"
+    )]
     pub secret_key: KeyShare,
 
     #[clap(help = "the location of the artifacts dir")]

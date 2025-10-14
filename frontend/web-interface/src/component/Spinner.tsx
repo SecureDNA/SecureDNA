@@ -1,11 +1,11 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
 export default function Spinner() {
   return (
-    <div role="status">
+    <output>
       <svg
         aria-hidden="true"
         className="h-12 w-12 my-6 animate-spin"
@@ -15,6 +15,6 @@ export default function Spinner() {
         <path fill="none" stroke="#00000020" d="M6,1a5,5,0,1,0,5,5" />
       </svg>
       <span className="sr-only">Loading...</span>
-    </div>
+    </output>
   );
 }

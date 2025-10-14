@@ -1,81 +1,131 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import { faCancel, faCheck } from "@fortawesome/free-solid-svg-icons";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import type { Result } from "@securedna/frontend_common";
-import { type ReactNode, useRef } from "react";
-import { PrimaryButton } from "./PrimaryButton";
-
-export type AuthFileResult = Result<
-  { array: Uint8Array; name: string },
-  string
->;
-
-/**
- * An onChange handler for file uploads that calls a bound setter with the
- * contents of the uploaded file.
- */
-function loadFromFile(
-  header: string,
-  setter: (result: AuthFileResult) => void,
-  e: React.ChangeEvent<HTMLInputElement>,
-): void {
-  const files = e.currentTarget.files;
-  if (!files || files.length === 0) {
-    setter({ ok: false, error: "No file was selected." });
-    return;
-  }
-  if (files.length > 1) {
-    setter({ ok: false, error: "Multiple file upload is not allowed." });
-    return;
-  }
-  const file = files[0];
-  const name = file.name;
-  const reader = new FileReader();
-  reader.onerror = () => {
-    setter({ ok: false, error: `File ${file.name} could not be read.` });
-  };
-  reader.onload = (loaded) => {
-    const array = new Uint8Array(loaded.target?.result as ArrayBuffer);
-    const headerView = array.slice(0, header.length);
-    const headerText = new TextDecoder().decode(headerView) ?? "";
-    if (!headerText.startsWith(header)) {
-      setter({
-        ok: false,
-        error: `File ${file.name} is not a valid certificate.`,
-      });
-      return;
-    }
-    setter({ ok: true, value: { array, name } });
-  };
-  reader.readAsArrayBuffer(file);
-}
+import {
+  AuthFeedback,
+  type AuthFileResult,
+  Card,
+  FileUpload,
+  Input,
+} from "@securedna/frontend_common";
+import { type ReactNode, useCallback, useState } from "react";
+import { useId } from "react";
+import type { BundleCheckResult, CertCheckResult } from "../util/checkCert";
+import { type CheckSubject, checkCert } from "../util/checkCert";
 
 interface AuthCardProps {
+  /**
+   * Additional classes for the card.
+   */
   className?: string;
+  /**
+   * A number to show on the upload card.
+   */
   number: number | undefined;
+  /**
+   * The title of the card, naming the auth file it manages.
+   */
   title: string;
+  /**
+   * A noun phrase describing the kind of cert being managed, e.g. "synthesizer token"
+   */
+  noun: string;
+  /**
+   * A description of the purpose of the auth file.
+   */
   description: string;
+  /**
+   * A string the uploaded file is expected to start with. e.g.
+   * `-----BEGIN SECUREDNA ENCRYPTED PRIVATE KEY-----`
+   */
   header: string;
+  /**
+   * The extension of the file expected to be uploaded, e.g. `.st`
+   */
   acceptExtension: string;
-  setPem: (array: AuthFileResult) => void;
+  /**
+   * Set the current uploaded file.
+   */
+  setPem?: (pem: AuthFileResult) => void;
+  /**
+   * The current uploaded file.
+   */
   pem: AuthFileResult | undefined;
+  /**
+   * Set the corresponding private key file.
+   */
+  setPrivPem?: (pem: AuthFileResult) => void;
+  /**
+   * The current uploaded private key file.
+   */
+  privPem?: AuthFileResult | undefined;
+  /**
+   * A passphrase that decodes the private key file.
+   */
+  passphrase?: string;
+  /**
+   * Set the passphrase.
+   */
+  setPassphrase?: (passphrase: string) => void;
+  /**
+   * Additional contents to show at the bottom of the card.
+   */
   children?: ReactNode;
+  /**
+   * Callback used to report a validation state after checking the passphrase.
+   */
+  setValidationState?: (state: "unfilled" | "error" | "ok") => void;
+  /**
+   * The kind of cert or token to check the contents as.
+   */
+  checkSubject: CheckSubject;
 }
 
 /**
- * A card that invites the user to upload a cert or private key and describes
+ * A card that invites the user to select a cert or private key and describes
  * what it will be used for.
  */
 export const AuthCard = (props: AuthCardProps) => {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const pem = props.pem;
+  const passphraseId = `passphrase-input-${useId()}`;
+  const { passphrase, pem, privPem } = props;
+  const [feedback, setFeedback] = useState<
+    BundleCheckResult | CertCheckResult | undefined | "loading"
+  >();
+  const [passphraseNeedsCheck, setPassphraseNeedsCheck] = useState(true);
+
+  const checkPassphrase = useCallback(() => {
+    if (!passphraseNeedsCheck) {
+      return;
+    }
+    props.setValidationState?.("unfilled");
+    if (passphrase && pem?.ok && privPem?.ok) {
+      setFeedback("loading");
+      window.setTimeout(() => {
+        const result = checkCert(
+          pem.value.array,
+          privPem.value.array,
+          passphrase,
+          props.checkSubject,
+        );
+        setFeedback(result);
+        props.setValidationState?.("Ok" in result ? "ok" : "error");
+        setPassphraseNeedsCheck(false);
+      }, 50);
+    }
+  }, [
+    passphrase,
+    pem,
+    privPem,
+    props.setValidationState,
+    props.checkSubject,
+    passphraseNeedsCheck,
+  ]);
   return (
-    <div
-      className={`flex flex-col items-center bg-gray-200 px-6 py-5 ${props.className}`}
+    <Card
+      flavor="primary"
+      className={`flex flex-col items-center ${props.className}`}
     >
       <div className="flex justify-center">
         {props.number !== undefined && (
@@ -86,38 +136,58 @@ export const AuthCard = (props: AuthCardProps) => {
         <span className="font-bold">{props.title}</span>
       </div>
       <div className="text-sm my-4 text-center">{props.description}</div>
-      <PrimaryButton
-        type="button"
-        className="w-full"
-        onClick={() => inputRef.current?.click()}
-      >
-        Select {props.acceptExtension}
-      </PrimaryButton>
-      <input
-        ref={inputRef}
-        hidden
-        type="file"
-        accept={props.acceptExtension}
-        onChange={loadFromFile.bind(this, props.header, props.setPem)}
-      />
-      <div className="mt-2 select-none w-full">
-        {pem?.ok === false ? (
-          <p className="text-red-500 overflow-hidden text-ellipsis text-sm">
-            <FontAwesomeIcon icon={faCancel} className="mr-2" />
-            {pem.error}
-          </p>
-        ) : pem?.ok === true ? (
-          <p className="text-green-500 overflow-hidden text-ellipsis text-sm">
-            <FontAwesomeIcon icon={faCheck} className="mr-2" />
-            Selected {pem.value.name}
-          </p>
-        ) : (
-          <p className="opacity-50 overflow-hidden text-ellipsis text-sm">
-            No file selected
-          </p>
+
+      <div className="flex gap-2 w-full">
+        {props.setPem && (
+          <FileUpload
+            header={props.header}
+            pem={pem}
+            setPem={props.setPem}
+            label={`Select ${props.noun} (${props.acceptExtension})`}
+            noun={props.noun}
+            acceptExtension={props.acceptExtension}
+          />
+        )}
+        {props.setPrivPem && (
+          <FileUpload
+            header="-----BEGIN SECUREDNA ENCRYPTED PRIVATE KEY-----"
+            pem={privPem}
+            setPem={props.setPrivPem}
+            label={"Select private key (.priv)"}
+            noun={"private key"}
+            acceptExtension=".priv"
+          />
         )}
       </div>
+
+      {props.setPassphrase && (
+        <div className="w-full flex flex-col">
+          <label htmlFor={passphraseId} className="mt-4 text-sm">
+            Private key (.priv) passphrase
+          </label>
+          <Input
+            id={passphraseId}
+            type="password"
+            value={props.passphrase ?? ""}
+            onChange={(e) => {
+              props.setPassphrase?.(e.target.value);
+              setPassphraseNeedsCheck(true);
+            }}
+            onBlur={checkPassphrase}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                checkPassphrase();
+              }
+            }}
+          />
+          {feedback && (
+            <div data-testid="auth-feedback">
+              <AuthFeedback noun={props.noun} feedback={feedback} />
+            </div>
+          )}
+        </div>
+      )}
       {props.children}
-    </div>
+    </Card>
   );
 };

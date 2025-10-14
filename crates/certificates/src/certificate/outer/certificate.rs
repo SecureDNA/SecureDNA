@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module defines functionality available for issued certificates.
@@ -14,9 +14,10 @@ use crate::certificate::CertificateVersion;
 use crate::digest::Digestible;
 use crate::error::EncodeError;
 use crate::issued::Issued;
+use crate::key::error::SignatureVerificationError;
+use crate::key::signing::{PublicKey, Signature};
 use crate::key_state::{KeyAvailable, KeyMismatchError, KeyUnavailable};
-use crate::key_traits::HasAssociatedKey;
-use crate::keypair::{PublicKey, Signature};
+use crate::key_traits::HasAssociatedSigningKey;
 use crate::pem::PemTaggable;
 use crate::shared_components::common::{Expiration, Id};
 use crate::shared_components::role::{Exemption, Infrastructure, Role};
@@ -25,8 +26,8 @@ use crate::tokens::exemption::et::{ExemptionToken, ExemptionTokenRequest};
 use crate::tokens::infrastructure::keyserver::{KeyserverToken, KeyserverTokenRequest};
 use crate::{
     CertificateRequest, DatabaseToken, DatabaseTokenRequest, Description, HierarchyKind, HltToken,
-    HltTokenRequest, IssuerAdditionalFields, KeyPair, Manufacturer, SignatureVerificationError,
-    SynthesizerToken, SynthesizerTokenRequest,
+    HltTokenRequest, IssuerAdditionalFields, Manufacturer, SigningKeyPair, SynthesizerToken,
+    SynthesizerTokenRequest, VerifierToken, VerifierTokenRequest,
 };
 
 use super::{CertificateDigest, IssuanceError};
@@ -55,6 +56,14 @@ where
     /// Identifies the certificate request that was used to create the certificate.
     pub fn request_id(&self) -> &Id {
         self.version.request_id()
+    }
+
+    pub fn all_emails_to_notify(&self) -> Vec<String> {
+        self.version.all_emails_to_notify()
+    }
+
+    pub fn email_addresses(&self) -> Vec<String> {
+        self.version.email_addresses()
     }
 
     /// Whether the certificate's type is root, intermediate or leaf.
@@ -190,7 +199,7 @@ where
 
     pub fn load_key(
         self,
-        keypair: KeyPair,
+        keypair: SigningKeyPair,
     ) -> Result<Certificate<R, KeyAvailable>, KeyMismatchError> {
         let public_key = self.public_key();
         let key_state = KeyUnavailable::load_key(keypair, public_key)?;
@@ -200,7 +209,7 @@ where
         })
     }
 }
-impl<R: Role, K> HasAssociatedKey for Certificate<R, K> {
+impl<R: Role, K> HasAssociatedSigningKey for Certificate<R, K> {
     fn public_key(&self) -> &PublicKey {
         self.public_key()
     }
@@ -287,6 +296,10 @@ impl<K> Certificate<Exemption, K> {
     pub fn blinding_allowed(&self) -> bool {
         self.version.blinding_allowed()
     }
+
+    pub fn totp_token_name(&self) -> Option<String> {
+        self.version.totp_token_name()
+    }
 }
 
 impl Certificate<Exemption, KeyAvailable> {
@@ -315,13 +328,22 @@ impl Certificate<Infrastructure, KeyAvailable> {
             .issue_keyserver_token(token_request, expiration, self.key_state.kp())
     }
 
-    pub(crate) fn issue_database_token(
+    pub fn issue_database_token(
         &self,
         token_request: DatabaseTokenRequest,
         expiration: Expiration,
     ) -> Result<DatabaseToken<KeyUnavailable>, IssuanceError> {
         self.version
             .issue_database_token(token_request, expiration, self.key_state.kp())
+    }
+
+    pub fn issue_verifier_token(
+        &self,
+        token_request: VerifierTokenRequest,
+        expiration: Expiration,
+    ) -> Result<VerifierToken<KeyUnavailable>, IssuanceError> {
+        self.version
+            .issue_verifier_token(token_request, expiration, self.key_state.kp())
     }
 
     pub(crate) fn issue_hlt_token(
@@ -345,26 +367,28 @@ impl Certificate<Manufacturer, KeyAvailable> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
+    use crate::key::EncryptableKeypair;
     use crate::test_helpers::create_intermediate_bundle;
+    use crate::SystemClock;
     use crate::{
         asn::{FromASN1DerBytes, ToASN1DerBytes},
         error::DecodeError,
         pem::{PemDecodable, PemEncodable},
         shared_components::role::{Exemption, Manufacturer},
         test_helpers::create_leaf_bundle,
-        Builder, Certificate, Description, Infrastructure, IssuerAdditionalFields, KeyPair,
-        RequestBuilder,
+        Builder, Certificate, Description, Infrastructure, IssuerAdditionalFields, RequestBuilder,
+        SigningKeyPair,
     };
 
     #[test]
     fn can_load_private_key_on_root_cert() {
         let mut private_key_backup = Vec::new();
-        KeyPair::new_random()
+        SigningKeyPair::new_random()
             .write_key(&mut private_key_backup, "1234")
             .unwrap();
-        let kp = KeyPair::load_key(&private_key_backup, "1234").unwrap();
+        let kp = SigningKeyPair::load_key(&private_key_backup, "1234").unwrap();
         let cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -373,13 +397,13 @@ mod tests {
             .unwrap()
             .into_key_unavailable();
 
-        let kp = KeyPair::load_key(&private_key_backup, "1234").unwrap();
+        let kp = SigningKeyPair::load_key(&private_key_backup, "1234").unwrap();
         cert.load_key(kp).unwrap();
     }
 
     #[test]
     fn cannot_load_incorrect_private_key_on_root_cert() {
-        let kp_1 = KeyPair::new_random();
+        let kp_1 = SigningKeyPair::new_random();
         let root_req = RequestBuilder::<Exemption>::root_v1_builder(kp_1.public_key())
             .build()
             .load_key(kp_1)
@@ -390,7 +414,7 @@ mod tests {
             .expect("couln't self sign")
             .into_key_unavailable();
 
-        let kp_2 = KeyPair::new_random();
+        let kp_2 = SigningKeyPair::new_random();
         cert.load_key(kp_2).expect_err(
             "attempting to load public key which does not match certificate request should fail",
         );
@@ -398,7 +422,7 @@ mod tests {
 
     #[test]
     fn can_serialise_root_cert_to_pem() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -412,7 +436,7 @@ mod tests {
 
     #[test]
     fn root_cert_can_sign_intermediate_req() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -420,7 +444,7 @@ mod tests {
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let intermediate_req =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
@@ -437,7 +461,7 @@ mod tests {
 
     #[test]
     fn root_cert_can_not_sign_leaf_req() {
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_req = RequestBuilder::<Exemption>::root_v1_builder(root_kp.public_key())
             .build()
             .load_key(root_kp)
@@ -447,7 +471,7 @@ mod tests {
             .self_sign(IssuerAdditionalFields::default())
             .expect("Couldn't sign");
 
-        let leaf_kp = KeyPair::new_random();
+        let leaf_kp = SigningKeyPair::new_random();
         let leaf_req = RequestBuilder::<Exemption>::leaf_v1_builder(leaf_kp.public_key()).build();
 
         let leaf_cert = root_cert.issue_cert(leaf_req, IssuerAdditionalFields::default());
@@ -457,7 +481,7 @@ mod tests {
 
     #[test]
     fn can_encode_and_decode_exemption_cert() {
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(root_kp.public_key())
             .build()
             .load_key(root_kp)
@@ -476,7 +500,7 @@ mod tests {
 
     #[test]
     fn can_encode_and_decode_manufacturer_cert() {
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Manufacturer>::root_v1_builder(root_kp.public_key())
             .build()
             .load_key(root_kp)
@@ -495,7 +519,7 @@ mod tests {
 
     #[test]
     fn cannot_decode_cert_with_mismatching_pem_role_tag() {
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Manufacturer>::root_v1_builder(root_kp.public_key())
             .build()
             .load_key(root_kp)
@@ -512,7 +536,7 @@ mod tests {
 
     #[test]
     fn cannot_der_decode_cert_from_incorrect_role() {
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(root_kp.public_key())
             .build()
             .load_key(root_kp)
@@ -529,7 +553,7 @@ mod tests {
 
     #[test]
     fn can_retrieve_exemption_root_request() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .with_description(
                 Description::default()
@@ -555,7 +579,7 @@ mod tests {
 
     #[test]
     fn can_retrieve_infrastructure_intermediate_request() {
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root = RequestBuilder::<Infrastructure>::root_v1_builder(root_kp.public_key())
             .build()
             .load_key(root_kp)
@@ -563,7 +587,7 @@ mod tests {
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_req =
             RequestBuilder::<Infrastructure>::intermediate_v1_builder(int_kp.public_key())
                 .with_description(
@@ -586,7 +610,7 @@ mod tests {
     fn can_retrieve_manufacturer_leaf_request() {
         let (int_bundle, kp, _) = create_intermediate_bundle::<Manufacturer>();
 
-        let leaf_kp = KeyPair::new_random();
+        let leaf_kp = SigningKeyPair::new_random();
         let leaf_req = RequestBuilder::<Manufacturer>::leaf_v1_builder(leaf_kp.public_key())
             .with_description(
                 Description::default()
@@ -597,7 +621,7 @@ mod tests {
             .build();
 
         let leaf_cert = int_bundle
-            .get_lead_cert()
+            .get_lead_cert(&SystemClock)
             .unwrap()
             .clone()
             .load_key(kp)

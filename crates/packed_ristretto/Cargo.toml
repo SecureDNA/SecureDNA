@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 crc32fast = "1.4.0"
 serde = { workspace = true }
-thiserror = "1.0.47"
+thiserror = "2.0.3"
 
 doprf = { path = "../doprf" }
 

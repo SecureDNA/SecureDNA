@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for using a certificate to sign another certificate, or self-signing a root certificate request
@@ -17,7 +17,7 @@ use certificates::{
     CertificateBundle, Exemption, HierarchyKind, Infrastructure, IssuerAdditionalFields,
     Manufacturer, Role, RoleKind,
 };
-use clap::{crate_version, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 
 use super::error::CertCliError;
 
@@ -25,7 +25,7 @@ use super::error::CertCliError;
 #[clap(
     name = "sdna-sign-cert",
     about = "Signs a SecureDNA certificate request",
-    version = crate_version!()
+    version = crate::certificate_client_version!()
 )]
 pub struct SignCertOpts {
     #[clap(
@@ -211,12 +211,12 @@ fn sign_cert<R: Role, P: PassphraseReader>(
     Ok((cert_path, passphrase_source))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
 
     use certificates::{
         file::{save_cert_request_to_file, save_keypair_to_file, FileError},
-        Builder, ChainTraversal, KeyPair, RequestBuilder,
+        Builder, ChainTraversal, RequestBuilder, SigningKeyPair, SystemClock,
     };
     use tempfile::TempDir;
 
@@ -261,7 +261,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path).unwrap();
@@ -297,7 +297,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path).unwrap();
@@ -330,7 +330,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path).unwrap();
@@ -363,7 +363,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path).unwrap();
@@ -396,7 +396,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path).unwrap();
@@ -429,7 +429,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path).unwrap();
@@ -466,7 +466,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path).unwrap();
@@ -503,12 +503,12 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path).unwrap();
         save_keypair_to_file(
-            KeyPair::new_random(),
+            SigningKeyPair::new_random(),
             &passphrase_reader.passphrase,
             &key_path,
         )
@@ -543,7 +543,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path).unwrap();
@@ -579,7 +579,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req =
             RequestBuilder::<Infrastructure>::intermediate_v1_builder(kp.public_key()).build();
 
@@ -619,7 +619,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Manufacturer>::leaf_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path).unwrap();
@@ -660,7 +660,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         save_keypair_to_file(root_kp, &passphrase_reader.passphrase, &root_key_path).unwrap();
         let root_kp =
             load_keypair_from_file(&root_key_path, &passphrase_reader.passphrase).unwrap();
@@ -676,7 +676,7 @@ mod tests {
         save_certificate_bundle_to_file(root_cert_bundle, &root_cert_path).unwrap();
 
         let int_req = RequestBuilder::<Manufacturer>::intermediate_v1_builder(
-            KeyPair::new_random().public_key(),
+            SigningKeyPair::new_random().public_key(),
         )
         .build();
 
@@ -714,7 +714,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         save_keypair_to_file(root_kp, &passphrase_reader.passphrase, &root_key_path).unwrap();
         let root_kp =
             load_keypair_from_file(&root_key_path, &passphrase_reader.passphrase).unwrap();
@@ -730,7 +730,7 @@ mod tests {
         save_certificate_bundle_to_file(root_cert_bundle, &root_cert_path).unwrap();
 
         let int_req = RequestBuilder::<Exemption>::intermediate_v1_builder(
-            KeyPair::new_random().public_key(),
+            SigningKeyPair::new_random().public_key(),
         )
         .build();
 
@@ -772,7 +772,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_public_key = root_kp.public_key();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(root_public_key)
             .build()
@@ -783,7 +783,7 @@ mod tests {
 
         let root_bundle = CertificateBundle::new(root_cert, None);
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
 
         let int_req =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
@@ -795,7 +795,7 @@ mod tests {
 
         save_certificate_bundle_to_file(int_bundle, &int_cert_path).unwrap();
         let leaf_req =
-            RequestBuilder::<Exemption>::leaf_v1_builder(KeyPair::new_random().public_key())
+            RequestBuilder::<Exemption>::leaf_v1_builder(SigningKeyPair::new_random().public_key())
                 .build();
         save_cert_request_to_file(leaf_req, &leaf_req_path).unwrap();
 
@@ -817,7 +817,7 @@ mod tests {
         assert!(leaf_cert_path.exists());
         let leaf_cert = load_certificate_bundle_from_file::<Exemption>(&leaf_cert_path).unwrap();
         leaf_cert
-            .validate_path_to_issuers(&[root_public_key], None)
+            .validate_path_to_issuers(&[root_public_key], None, &SystemClock)
             .expect("should find path to root")
     }
 
@@ -833,7 +833,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Infrastructure>::root_v1_builder(root_kp.public_key())
             .build()
             .load_key(root_kp.clone())
@@ -843,7 +843,7 @@ mod tests {
 
         let root_bundle = CertificateBundle::new(root_cert, None);
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
 
         let int_req =
             RequestBuilder::<Infrastructure>::intermediate_v1_builder(int_kp.public_key()).build();
@@ -854,7 +854,7 @@ mod tests {
             .unwrap();
         save_certificate_bundle_to_file(int_bundle, &int_cert_path).unwrap();
         let int2_req = RequestBuilder::<Infrastructure>::intermediate_v1_builder(
-            KeyPair::new_random().public_key(),
+            SigningKeyPair::new_random().public_key(),
         )
         .build();
         save_cert_request_to_file(int2_req, &int2_req_path).unwrap();
@@ -891,7 +891,7 @@ mod tests {
 
         let test_passphrase = "12345678";
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
 
         save_keypair_to_file(kp.clone(), test_passphrase, &key_path).unwrap();
 
@@ -906,7 +906,7 @@ mod tests {
 
         save_certificate_bundle_to_file(cert_bundle, &cert_path).unwrap();
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_req =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
@@ -963,7 +963,7 @@ mod tests {
 
         let test_passphrase = "12345678";
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
 
         save_keypair_to_file(kp.clone(), test_passphrase, &key_path).unwrap();
 
@@ -978,7 +978,7 @@ mod tests {
 
         save_certificate_bundle_to_file(cert_bundle, &cert_path).unwrap();
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_req =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
@@ -1023,7 +1023,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         save_cert_request_to_file(req, &request_path.with_extension(CERT_REQUEST_EXT)).unwrap();
@@ -1056,7 +1056,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         save_keypair_to_file(root_kp, &passphrase_reader.passphrase, &root_key_path).unwrap();
         let root_kp =
             load_keypair_from_file(&root_key_path, &passphrase_reader.passphrase).unwrap();
@@ -1072,7 +1072,7 @@ mod tests {
         save_certificate_bundle_to_file(root_cert_bundle, &root_cert_path).unwrap();
 
         let int_req = RequestBuilder::<Manufacturer>::intermediate_v1_builder(
-            KeyPair::new_random().public_key(),
+            SigningKeyPair::new_random().public_key(),
         )
         .build();
 
@@ -1106,7 +1106,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         save_keypair_to_file(root_kp, &passphrase_reader.passphrase, &root_key_path).unwrap();
         let root_kp =
             load_keypair_from_file(&root_key_path, &passphrase_reader.passphrase).unwrap();
@@ -1122,7 +1122,7 @@ mod tests {
         save_certificate_bundle_to_file(root_cert_bundle, &root_cert_path).unwrap();
 
         let int_req = RequestBuilder::<Manufacturer>::intermediate_v1_builder(
-            KeyPair::new_random().public_key(),
+            SigningKeyPair::new_random().public_key(),
         )
         .build();
 
@@ -1156,7 +1156,7 @@ mod tests {
 
         let passphrase_reader = MemoryPassphraseReader::default();
 
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
 
         let root_cert = RequestBuilder::<Manufacturer>::root_v1_builder(root_kp.public_key())
             .build()
@@ -1175,7 +1175,7 @@ mod tests {
         .unwrap();
 
         let int_req = RequestBuilder::<Manufacturer>::intermediate_v1_builder(
-            KeyPair::new_random().public_key(),
+            SigningKeyPair::new_random().public_key(),
         )
         .build();
 

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Structs used to define the type of a `Certificate`
@@ -152,7 +152,7 @@ impl FromStr for HierarchyKind {
     }
 }
 
-/// Example for updated Leaf certificate version
+// /// Example for updated Leaf certificate version
 // #[derive(AsnType, Decode, Encode, Debug, Clone, PartialEq, Eq)]
 // #[rasn(automatic_tags)]
 // pub struct Leaf2 {
@@ -173,7 +173,7 @@ impl FromStr for HierarchyKind {
 // impl Leaf for Leaf2 {}
 // impl HierarchyLevel for Leaf2 {}
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod test {
     use crate::asn::{FromASN1DerBytes, ToASN1DerBytes};
     use crate::certificate::inner::HierarchyLevel;

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fs::File;
@@ -69,7 +69,7 @@ impl DataSource for File {
 
 /// A hash in the HDB. Its 32 bytes are derived from `CompletedHashValue` in
 /// `doprf`, which is internally a
-/// [curve25519_dalek::ristretto::CompressedRistrettoPoint].
+/// `curve25519_dalek::ristretto::CompressedRistrettoPoint`.
 ///
 /// The first byte is used as a "prefix byte", and is used to split the HDB into
 /// files: `hdb/00`, `hdb/02` ... `hdb/fe`. The remaining bytes are used as a
@@ -205,6 +205,7 @@ impl DatabaseIndex {
     /// * lower_index/upper_index are inclusive lower/upper bounds for the range of Entry indices that could hold query
     /// * lower_hash is guaranteed <= the lower bound Entry hash
     /// * upper_hash is guaranteed >= the upper bound Entry hash
+    ///
     /// If the query falls outside the file, None is returned
     fn position_range(&self, query: &EntryHash) -> Option<(u64, u64, EntryHash, EntryHash)> {
         let (start_sample_index, end_sample_index) = match self.samples.binary_search(query) {

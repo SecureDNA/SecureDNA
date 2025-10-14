@@ -1,15 +1,15 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
 import type {
+  AuthFileResult,
   Authenticator,
   ExemptionTokenRequest,
   GenbankId,
   Result,
 } from "@securedna/frontend_common";
-import type { AuthFileResult } from "src/components";
 import { needsScreening } from "src/util/etr";
 import { create } from "zustand";
 
@@ -22,22 +22,28 @@ export enum PageNumber {
 
 interface ApprovalState {
   etrPem?: Result<Uint8Array, string>;
-  certPem?: AuthFileResult;
   additionalAuthenticators: Authenticator[];
   etr?: ExemptionTokenRequest;
   screenedExemptions?: Map<string, Set<GenbankId>>;
   pageIndex: PageNumber;
   direction: number;
 
+  // For wasm screening:
+  synthTokenPem?: AuthFileResult;
+  privPem?: AuthFileResult;
+  privPassphrase?: string;
+
   setEtr: (etr: ExemptionTokenRequest | undefined) => void;
   setEtrPem: (etrPem: Result<Uint8Array, string> | undefined) => void;
-  setCertPem: (certPem: AuthFileResult | undefined) => void;
   setScreenedExemptions: (
     screenedExemptions: Map<string, Set<GenbankId>> | undefined,
   ) => void;
   setAdditionalAuthenticators: (
     additionalAuthenticators: Authenticator[],
   ) => void;
+  setSynthTokenPem: (synthTokenPem: AuthFileResult | undefined) => void;
+  setPrivPem: (privPem: AuthFileResult | undefined) => void;
+  setPrivPassphrase: (privPassphrase: string | undefined) => void;
 
   back: () => void;
   advance: () => void;
@@ -50,10 +56,12 @@ export const useApprovalStore = create<ApprovalState>()((set) => ({
 
   setEtr: (etr) => set({ etr }),
   setEtrPem: (etrPem) => set({ etrPem }),
-  setCertPem: (certPem) => set({ certPem }),
   setScreenedExemptions: (screenedExemptions) => set({ screenedExemptions }),
   setAdditionalAuthenticators: (additionalAuthenticators) =>
     set({ additionalAuthenticators }),
+  setSynthTokenPem: (synthTokenPem) => set({ synthTokenPem }),
+  setPrivPem: (privPem) => set({ privPem }),
+  setPrivPassphrase: (privPassphrase) => set({ privPassphrase }),
 
   back: () =>
     set((state) => {

@@ -1,7 +1,9 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::prf::CompletedHashValue;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
+
+use crate::prf::CompressedCompletedHashValue;
 
 /// A 4-byte header prepended to each Ristretto hash in a tagged hash stream. It
 /// describes whether the hash starts a new record, its index in the record, and
@@ -18,7 +20,20 @@ use crate::prf::CompletedHashValue;
 /// 0        1        2        3
 /// ```
 
-#[derive(Default, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(
+    Default,
+    Copy,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    FromBytes,
+    Immutable,
+    IntoBytes,
+    KnownLayout,
+    Unaligned,
+)]
+#[repr(C)]
 pub struct HashTag([u8; 4]);
 
 impl HashTag {
@@ -31,10 +46,18 @@ impl HashTag {
     ///
     pub fn new(starts_new_record: bool, hash_type_index: u8, index_in_record: usize) -> Self {
         Self(u32::to_be_bytes(
-            (starts_new_record as u32) << 28
-                | ((hash_type_index & 0xf) as u32) << 24
+            ((starts_new_record as u32) << 28)
+                | (((hash_type_index & 0xf) as u32) << 24)
                 | (index_in_record & 0xffffff) as u32,
         ))
+    }
+
+    /// Create a hash header for a "dummy" TaggedHash. This is created when the
+    /// input is too short to create any windows. We send a fictitious hash with
+    /// the `starts_new_record` bit set so that the HDB can reconstruct correct
+    /// record indices.
+    pub fn dummy() -> Self {
+        Self::new(true, 0, 0)
     }
 
     /// Does this hash mark the start of a new record?
@@ -74,24 +97,25 @@ impl std::fmt::Debug for HashTag {
 }
 
 /// A completed Ristretto hash tagged with a 4-byte header.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
+#[repr(C)]
 pub struct TaggedHash {
     pub tag: HashTag,
-    pub hash: CompletedHashValue,
+    pub hash: CompressedCompletedHashValue,
 }
 
 impl TaggedHash {
     pub const SIZE: usize = 36;
 }
 
-impl TryFrom<[u8; 36]> for TaggedHash {
-    type Error = ();
-
-    fn try_from(value: [u8; 36]) -> Result<Self, Self::Error> {
-        let tag = HashTag(value[..4].try_into().unwrap());
-        let hash: &[u8; 32] = value[4..].try_into().unwrap();
-        let hash: CompletedHashValue = hash.try_into().unwrap();
-        Ok(Self { tag, hash })
+impl From<[u8; 36]> for TaggedHash {
+    fn from(value: [u8; 36]) -> Self {
+        let (tag, etc) = value.split_first_chunk().unwrap();
+        let hash = etc.try_into().unwrap();
+        Self {
+            tag: HashTag(*tag),
+            hash: CompressedCompletedHashValue::from(&hash),
+        }
     }
 }
 
@@ -99,12 +123,12 @@ impl From<TaggedHash> for [u8; 36] {
     fn from(value: TaggedHash) -> Self {
         let mut buf = [0; 36];
         buf[..4].copy_from_slice(value.tag.0.as_slice());
-        buf[4..].copy_from_slice(value.hash.to_rp().compress().as_bytes());
+        buf[4..].copy_from_slice(value.hash.as_bytes());
         buf
     }
 }
 
-impl From<TaggedHash> for CompletedHashValue {
+impl From<TaggedHash> for CompressedCompletedHashValue {
     fn from(value: TaggedHash) -> Self {
         value.hash
     }

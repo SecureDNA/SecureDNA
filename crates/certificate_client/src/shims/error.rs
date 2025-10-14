@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::PathBuf;
@@ -8,6 +8,7 @@ use certificates::{
     KeyMismatchError, KeyWriteError,
 };
 
+use crate::shims::audit::ENCRYPTED_SCREENING_RESPONSE_TAG;
 use crate::{inspect::FormatError, passphrase_reader::PassphraseReaderError};
 
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -56,6 +57,28 @@ pub enum CertCliError {
     EmailsToNotifyNotAllowed,
     #[error("The use of the --allow-blinding option is only valid for exemption certificates.")]
     AllowBlindingNotAllowed,
+    #[error(
+        "The use of the --totp-token-name option is only valid for exemption leaf certificates."
+    )]
+    TOTPTokenNameNotAllowed,
+    #[error("Data encryption failed.")]
+    DataEncryptionFailed,
+    #[error("Data decryption failed. Perhaps you used the wrong key.")]
+    DataDecryptionFailed,
+    #[error("Could not read data to be encrypted from {0} due to {1}.")]
+    PlaintextFileRead(PathBuf, String),
+    #[error("Could not read encrypted data from {0} due to {1}.")]
+    EncryptedDataFileRead(PathBuf, String),
+    #[error("Decrypted successfully, but failed to write decrypted data to {0} due to {1}.")]
+    DecryptionOutputFileWrite(PathBuf, String),
+    #[error("Encrypted successfully, but failed to write encrypted data to {0} due to {1}.")]
+    EncryptionOutputFileWrite(PathBuf, String),
+    #[error("Attachments are not supported on this file type.")]
+    AttachmentsNotSupported,
+    #[error("Unexpected file contents. Check that the file contains the tag '{ENCRYPTED_SCREENING_RESPONSE_TAG}'.")]
+    UnexpectedAuditFileContents,
+    #[error("The domain name provided is not valid")]
+    InvalidDomain,
 }
 
 impl From<FileError> for CertCliError {

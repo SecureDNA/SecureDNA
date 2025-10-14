@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module contains functionality for creating `DatabaseTokenRequest` and `DatabaseToken`.
@@ -16,14 +16,15 @@ use crate::{
     impl_encoding_boilerplate, impl_key_boilerplate_for_token,
     impl_key_boilerplate_for_token_request, impl_key_boilerplate_for_token_request_version,
     issued::Issued,
-    key_traits::HasAssociatedKey,
-    keypair::{PublicKey, Signature},
+    key::signing::{PublicKey, Signature},
+    key_traits::HasAssociatedSigningKey,
     pem::PemTaggable,
     shared_components::common::{
         CompatibleIdentity, ComponentVersionGuard, Expiration, Id, Signed, VersionedComponent,
     },
     tokens::{TokenData, TokenGroup},
-    CertificateChain, Digestible, Infrastructure, KeyAvailable, KeyPair, KeyUnavailable, TokenKind,
+    CertificateChain, Digestible, Infrastructure, KeyAvailable, KeyUnavailable, SigningKeyPair,
+    TokenKind,
 };
 
 use super::digest::{DatabaseTokenDigest, DatabaseTokenRequestDigest};
@@ -253,17 +254,18 @@ impl_boilerplate_for_token! {DatabaseToken<K>}
 impl_encoding_boilerplate! {DatabaseToken<K>}
 impl_key_boilerplate_for_token! {DatabaseToken}
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod test {
-    use crate::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
+    use crate::key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded};
     use crate::{
-        test_helpers::create_leaf_cert, DatabaseTokenRequest, Expiration, Infrastructure, KeyPair,
+        test_helpers::create_leaf_cert, DatabaseTokenRequest, Expiration, Infrastructure,
+        SigningKeyPair,
     };
 
     #[test]
     fn can_issue_database_token() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = DatabaseTokenRequest::v1_token_request(kp.public_key());
 
         cert.issue_database_token(req, Expiration::default())
@@ -273,7 +275,7 @@ mod test {
     #[test]
     fn database_token_has_expected_public_key() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = DatabaseTokenRequest::v1_token_request(kp.public_key());
 
         let token = cert
@@ -286,7 +288,7 @@ mod test {
     #[test]
     fn database_token_can_sign_with_associated_keypair() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = DatabaseTokenRequest::v1_token_request(kp.public_key());
 
         let token = cert

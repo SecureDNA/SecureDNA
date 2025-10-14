@@ -1,20 +1,22 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::borrow::Cow;
 
-use certificates::{Exemption, Role, TokenBundleError};
+use quickdna::{FastaParseError::ParseError, TranslationError::BadNucleotide};
 use serde::{Deserialize, Serialize};
+
+use certificates::{ChainItem, Exemption, Role, TokenBundleError};
+use doprf_client::error::DoprfError;
+use http_client::{HttpError, UnusableRequestId};
 use shared_types::error::InvalidClientTokenBundle;
 
 use crate::{ncbi::NcbiError, parsefasta::CheckFastaError, rate_limiter::RateLimitExceeded};
-use doprf_client::error::DoprfError;
-use http_client::HttpError;
 
 /// Error type that will be serialized as API response, as opposed to logged.
 /// Internal errors should be transformed to this type with that in mind
 /// (sticking to standard formatting, etc.)
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "diagnostic", rename_all = "snake_case")]
 // tsgen = { diagnostic: string, additional_info: string, line_number_range?: [number, number] | null }
 pub enum ApiError {
@@ -83,10 +85,8 @@ impl Fields {
 }
 
 impl ApiWarning {
-    pub fn exemption_certificate_expiring_soon(expiring: impl std::fmt::Display) -> Self {
-        Self::CertificateExpiringSoon(Fields::new(format!(
-            "The provided exemption certificate is expiring soon, at {expiring}."
-        )))
+    pub fn certificate_expiring_soon<R: Role>(item: ChainItem<R>) -> Self {
+        Self::CertificateExpiringSoon(Fields::new(format!("{}.", item.expiring_soon_text())))
     }
 
     pub fn too_short() -> Self {
@@ -107,6 +107,10 @@ impl ApiError {
         Self::NotFound(Fields::new(format!("{uri} was not found.")))
     }
 
+    pub fn root_not_found(uri: impl std::fmt::Display) -> Self {
+        Self::NotFound(Fields::new(format!("Failed to load the web interface from {uri}. If that page is otherwise reachable, your network configuration may be preventing synthclient from accessing the internet.")))
+    }
+
     pub fn generic_internal_server_error() -> Self {
         Self::InternalServerError(Fields::new("Unexpected internal error."))
     }
@@ -124,13 +128,25 @@ impl ApiError {
     }
 }
 
+pub(crate) const BAD_NUCLEOTIDE_HINT: &str = "If this is a modified base, please see \
+    https://github.com/SecureDNA/tools where you can find a selection of filters to transform \
+    particular vendors' proprietary formats into the generic format which synthclient handles.";
+
 impl From<CheckFastaError> for ApiError {
     fn from(err: CheckFastaError) -> Self {
         match err {
-            CheckFastaError::InvalidInput(err) => ApiError::InvalidInput(Fields {
-                additional_info: format!("Error parsing FASTA: {}", err.error).into(),
-                line_number_range: Some((err.line_number as u64, err.line_number as u64)),
-            }),
+            CheckFastaError::InvalidInput(err) => {
+                let error = &err.error;
+                let additional_info = if let ParseError(BadNucleotide(_)) = error {
+                    format!("Error parsing FASTA: {error}\n\n{BAD_NUCLEOTIDE_HINT}")
+                } else {
+                    format!("Error parsing FASTA: {error}")
+                }.into();
+                ApiError::InvalidInput(Fields {
+                    additional_info,
+                    line_number_range: Some((err.line_number as u64, err.line_number as u64)),
+                })
+            },
             CheckFastaError::EmptyFastaSequence(id) => ApiError::InvalidInput(Fields::new(format!("No sequences were specified in record {id}."))),
             CheckFastaError::WindowError(err) => ApiError::InternalServerError(Fields::new(format!("Unexpected response from internal server (hdb): {err}"))),
             CheckFastaError::DoprfError(err) => match err {
@@ -169,9 +185,9 @@ impl From<NcbiError> for ApiError {
 }
 
 #[cfg(feature = "native")]
-impl From<crate::shims::recaptcha::RecaptchaError> for ApiError {
-    fn from(value: crate::shims::recaptcha::RecaptchaError) -> Self {
-        use crate::shims::recaptcha::RecaptchaError;
+impl From<crate::recaptcha::RecaptchaError> for ApiError {
+    fn from(value: crate::recaptcha::RecaptchaError) -> Self {
+        use crate::recaptcha::RecaptchaError;
         match value {
             RecaptchaError::DemoDisabled => {
                 Self::Unauthorized(Fields::new("Demo is disabled for this server."))
@@ -213,5 +229,11 @@ impl<R: Role> From<TokenBundleError<R>> for ApiError {
 impl From<InvalidClientTokenBundle<Exemption>> for ApiError {
     fn from(error: InvalidClientTokenBundle<Exemption>) -> Self {
         ApiError::InvalidInput(Fields::new(error.to_string()))
+    }
+}
+
+impl From<UnusableRequestId> for ApiError {
+    fn from(error: UnusableRequestId) -> Self {
+        ApiError::InternalServerError(Fields::new(error.to_string()))
     }
 }

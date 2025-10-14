@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt::Debug;
@@ -13,40 +13,43 @@ use futures::{StreamExt, TryStream, TryStreamExt};
 use hdb::Exemptions;
 use http_body_util::{BodyExt, StreamBody};
 use hyper::body::{Body, Frame, Incoming};
-use hyper::header::{HeaderValue, CONTENT_TYPE, SET_COOKIE};
+use hyper::header::{HeaderValue, CONTENT_TYPE};
 use hyper::{Method, Request, Response, StatusCode};
-use scep::steps::{server_et_client, server_et_seq_hashes_client};
-use scep::types::ScreenWithExemptionParams;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
 use certificates::revocation::RevocationList;
-use certificates::{key_traits::CanLoadKey, KeyPair, PublicKey, TokenBundle, TokenGroup};
-use doprf::prf::{CompletedHashValue, HashPart, Query};
+use certificates::{
+    key_traits::CanLoadSigningKey, PublicKey, SigningKeyPair, TokenBundle, TokenGroup,
+};
+use doprf::prf::{
+    CompressedCompletedHashValue, CompressedHashPart, CompressedQuery, DecodeError, HashPart, Query,
+};
 use doprf::tagged::TaggedHash;
 use minhttp::nursery::Nursery;
 use minhttp::response::{self, GenericResponse};
 use minhttp::server::Server;
 use minhttp::signal::{fast_shutdown_requested, graceful_shutdown_requested};
+use scep::cookie::SessionCookie;
 use scep::states::{ServerSessions, ServerStateForClient};
+use scep::steps::{server_et_client, server_et_seq_hashes_client};
+use scep::types::ScreenWithExemptionParams;
 use shared_types::hash::HashSpec;
 use shared_types::requests::RequestId;
 use streamed_ristretto::hyper::{check_content_length, from_request, BodyStream};
-use streamed_ristretto::stream::{
-    check_content_type, ConversionError, HasShortErrorMsg, RistrettoError, HASH_SIZE,
-};
+use streamed_ristretto::stream::{check_content_type, HasShortErrorMsg, RistrettoError, HASH_SIZE};
 use streamed_ristretto::util::chunked;
 use streamed_ristretto::HasContentType;
 
 use crate::mock_screening::mock_screen;
 
-const SERVER_VERSION: u64 = 1;
+const SERVER_VERSION: u64 = 2;
 
 pub struct Opts<T: TokenGroup> {
     pub issuer_pks: Vec<PublicKey>,
     pub revocation_list: RevocationList,
     pub server_cert_chain: TokenBundle<T>,
-    pub server_keypair: KeyPair,
+    pub server_keypair: SigningKeyPair,
     pub keyserve_fn: Arc<dyn Fn(Query) -> HashPart + Send + Sync + 'static>,
     pub hash_spec: HashSpec,
 }
@@ -71,7 +74,7 @@ impl TestServer {
     ) -> Self
     where
         T: TokenGroup + Clone + Debug + Send + Sync + 'static,
-        T::Token: CanLoadKey + Clone + Debug + Send + Sync,
+        T::Token: CanLoadSigningKey + Clone + Debug + Send + Sync,
         T::AssociatedRole: Debug + Send + Sync,
         T::ChainType: Debug + Send + Sync,
     {
@@ -143,7 +146,7 @@ async fn run_server<T>(
 ) -> std::io::Result<()>
 where
     T: TokenGroup + Clone + Debug + Send + Sync + 'static,
-    T::Token: CanLoadKey + Clone + Debug + Send + Sync,
+    T::Token: CanLoadSigningKey + Clone + Debug + Send + Sync,
     T::AssociatedRole: Debug + Send + Sync,
     T::ChainType: Debug + Send + Sync,
 {
@@ -197,13 +200,13 @@ async fn respond<T>(
 ) -> GenericResponse
 where
     T: TokenGroup + Clone + Debug,
-    T::Token: CanLoadKey + Clone + Debug,
+    T::Token: CanLoadSigningKey + Clone + Debug,
     T::AssociatedRole: Debug,
     T::ChainType: Debug,
 {
     info!("{request_id}: got request");
 
-    fn ok_or_err<I: std::error::Error>(
+    fn ok_or_err<I: std::error::Error + 'static>(
         r: Result<GenericResponse, scep::error::ScepError<I>>,
         request_id: &RequestId,
         peer: SocketAddr,
@@ -274,7 +277,7 @@ async fn endpoint_open<T>(
 ) -> Result<GenericResponse, scep::error::ScepError<scep::error::ServerPrevalidation>>
 where
     T: TokenGroup + Clone + Debug,
-    T::Token: CanLoadKey + Clone + Debug,
+    T::Token: CanLoadSigningKey + Clone + Debug,
     T::AssociatedRole: Clone + Debug,
     T::ChainType: Clone + Debug,
 {
@@ -305,16 +308,10 @@ where
             ))
         })?;
 
-    let mut response = response::json(StatusCode::OK, serde_json::to_string(&response).unwrap());
-    response.headers_mut().append(
-        SET_COOKIE,
-        session_cookie
-            .to_http_cookie(true)
-            .to_string()
-            .parse()
-            .unwrap(),
-    );
-    Ok(response)
+    Ok(response::json(
+        StatusCode::OK,
+        serde_json::to_string(&response).unwrap(),
+    ))
 }
 
 async fn endpoint_authenticate<T: TokenGroup>(
@@ -324,7 +321,7 @@ async fn endpoint_authenticate<T: TokenGroup>(
 ) -> Result<GenericResponse, scep::error::ScepError<scep::error::ServerAuthentication>> {
     // delay warning about the cookie until we know the client is even speaking the right protocol
     // (we don't want logspam from bots)
-    let cookie = scep_server_helpers::request::get_session_cookie(request.headers());
+    let cookie = SessionCookie::from_request_http_headers(request.headers());
     let body = scep_server_helpers::request::check_and_extract_json_body(100_000, request).await?;
     let cookie = cookie?;
 
@@ -339,16 +336,20 @@ async fn endpoint_authenticate<T: TokenGroup>(
             scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
         })?;
 
-    let client_state = scep::steps::server_authenticate_client(
-        authenticate_request,
-        client_state,
-        SERVER_VERSION,
-        &server_state.opts.issuer_pks,
-        &server_state.opts.revocation_list,
-        |_| async { Ok(0) },
-        |_, _| async {},
-    )
-    .await?;
+    let request_hash_limit = 1_000_000;
+    let client_state =
+        scep::steps::server_authenticate_client(scep::steps::ServerAuthenticateClientParams {
+            authenticate_request,
+            client_state,
+            server_version: SERVER_VERSION,
+            server_cert_chain: &server_state.opts.server_cert_chain,
+            issuer_pks: &server_state.opts.issuer_pks,
+            revocation_list: &server_state.opts.revocation_list,
+            request_hash_limit,
+            get_client_screened_last_day: |_| async { Ok(0) },
+            record_rate_limit_exceedance: |_, _| async {},
+        })
+        .await?;
 
     let session_cookie = client_state.cookie();
 
@@ -371,11 +372,11 @@ async fn endpoint_keyserve<T: TokenGroup>(
     server_state: &ServerState<T>,
     request: Request<Incoming>,
 ) -> Result<GenericResponse, scep::error::ScepError<scep::error::Keyserve>> {
-    check_content_type(request.headers(), Query::CONTENT_TYPE)
+    check_content_type(request.headers(), CompressedQuery::CONTENT_TYPE)
         .context("in keyserve")
         .map_err(scep::error::ScepError::InvalidMessage)?;
 
-    let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
+    let cookie = SessionCookie::from_request_http_headers(request.headers())?;
 
     let client_state = server_state
         .clients
@@ -403,7 +404,7 @@ async fn endpoint_keyserve<T: TokenGroup>(
     let mut response = Response::new(body);
     response.headers_mut().insert(
         CONTENT_TYPE,
-        HeaderValue::from_static(HashPart::CONTENT_TYPE),
+        HeaderValue::from_static(CompressedHashPart::CONTENT_TYPE),
     );
     let response = response.map(|body| BodyExt::map_err(body, anyhow::Error::from).boxed());
     Ok(response)
@@ -418,7 +419,7 @@ async fn endpoint_screen<T: TokenGroup>(
         .context("in screen")
         .map_err(scep::error::ScepError::InvalidMessage)?;
 
-    let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
+    let cookie = SessionCookie::from_request_http_headers(request.headers())?;
 
     let client_state = server_state
         .clients
@@ -461,7 +462,7 @@ async fn endpoint_screen_with_exemption<T: TokenGroup>(
     server_state: &ServerState<T>,
     request: Request<Incoming>,
 ) -> Result<GenericResponse, scep::error::ScepError<scep::error::ScreenWithEL>> {
-    let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
+    let cookie = SessionCookie::from_request_http_headers(request.headers())?;
 
     let client_state = server_state
         .clients
@@ -508,7 +509,7 @@ async fn endpoint_exemption<T: TokenGroup>(
     server_state: &ServerState<T>,
     request: Request<Incoming>,
 ) -> Result<GenericResponse, scep::error::ScepError<scep::error::ET>> {
-    let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
+    let cookie = SessionCookie::from_request_http_headers(request.headers())?;
 
     let client_state = server_state
         .clients
@@ -555,7 +556,7 @@ async fn endpoint_exemption_seq_hashes<T: TokenGroup>(
     server_state: &ServerState<T>,
     request: Request<Incoming>,
 ) -> Result<GenericResponse, scep::error::ScepError<scep::error::EtSeqHashes>> {
-    let cookie = scep_server_helpers::request::get_session_cookie(request.headers())?;
+    let cookie = SessionCookie::from_request_http_headers(request.headers())?;
 
     let client_state = server_state
         .clients
@@ -566,7 +567,7 @@ async fn endpoint_exemption_seq_hashes<T: TokenGroup>(
             scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
         })?;
 
-    let hashes: Vec<_> = from_request::<_, CompletedHashValue>(request)
+    let hashes: Vec<_> = from_request::<_, CompressedCompletedHashValue>(request)
         .context("in exemption-seq-hashes")
         .map_err(scep::error::ScepError::InvalidMessage)?
         .try_collect()
@@ -601,7 +602,7 @@ async fn endpoint_exemption_seq_hashes<T: TokenGroup>(
 fn map_ristretto_stream<I>(
     input: I,
     f: Arc<dyn Fn(Query) -> HashPart + Send + Sync + 'static>,
-) -> impl TryStream<Ok = Bytes, Error = RistrettoError<I::Error, ConversionError<Query>>>
+) -> impl TryStream<Ok = Bytes, Error = RistrettoError<I::Error, DecodeError>>
 where
     I: TryStream,
     I::Ok: Buf,
@@ -651,7 +652,7 @@ fn map_ristretto_chunk<SE>(
     mut input: Bytes,
     mut output_buf: BytesMut,
     f: Arc<dyn Fn(Query) -> HashPart>,
-) -> impl TryStream<Ok = Bytes, Error = RistrettoError<SE, ConversionError<Query>>> {
+) -> impl TryStream<Ok = Bytes, Error = RistrettoError<SE, DecodeError>> {
     while !input.is_empty() {
         let data = input.split_to(HASH_SIZE);
         let data_ref: &[u8; HASH_SIZE] = data.as_ref().try_into().unwrap();

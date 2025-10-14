@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt::Display;
@@ -9,7 +9,8 @@ use serde::Serialize;
 use thiserror::Error;
 
 use certificates::{
-    ChainItem, ChainItemDigest, ChainTraversal, Digestible, PublicKey, Role, ValidationError,
+    ChainItem, ChainItemDigest, ChainTraversal, Clock, Digestible, PublicKey, Role, SystemClock,
+    ValidationError,
 };
 
 use crate::shims::error::CertCliError;
@@ -22,7 +23,7 @@ pub const NO_PATH_FOUND_TEXT: &str =
 pub const NO_EXCLUDED_CERTS_TEXT: &str = "No certificates found that were not part of a valid path";
 
 /// View of the certificates in the chain
-#[derive(Debug, Subcommand)]
+#[derive(Debug, Subcommand, Clone)]
 pub enum ChainViewMode {
     /// View all certificates in the supplied chain, regardless of whether they are valid.
     AllCerts,
@@ -46,19 +47,21 @@ impl ChainViewMode {
         bundle: impl ChainTraversal,
         method: &FormatMethod,
     ) -> Result<String, CertCliError> {
+        let clock = SystemClock;
+
         match self {
             ChainViewMode::AllCerts => display_all_items_in_chain(bundle, method),
             ChainViewMode::AllPaths { public_keys } => {
                 if public_keys.is_empty() {
                     return Err(CertCliError::IssuerPublicKeyRequired);
                 }
-                display_all_valid_paths(bundle, method, public_keys)
+                display_all_valid_paths(bundle, method, public_keys, &clock)
             }
             ChainViewMode::NotPartOfPath { public_keys } => {
                 if public_keys.is_empty() {
                     return Err(CertCliError::IssuerPublicKeyRequired);
                 }
-                display_certs_not_part_of_valid_path(bundle, method, public_keys)
+                display_certs_not_part_of_valid_path(bundle, method, public_keys, &clock)
             }
         }
     }
@@ -81,21 +84,24 @@ pub fn display_all_valid_paths<B: ChainTraversal>(
     bundle: B,
     format_method: &FormatMethod,
     public_keys: &[PublicKey],
+    clock: &impl Clock,
 ) -> Result<String, CertCliError> {
-    let all_paths = bundle.find_all_paths_to_issuers(public_keys, None);
-    if all_paths.is_empty() {
-        return Ok(NO_PATH_FOUND_TEXT.to_string());
+    match bundle.find_all_paths_to_issuers(public_keys, None, clock) {
+        Ok(all_paths) if !all_paths.is_empty() => {
+            let display_text = display_paths(all_paths, format_method)?;
+            Ok(display_text)
+        }
+        _ => Ok(NO_PATH_FOUND_TEXT.to_string()),
     }
-    let display_text = display_paths(all_paths, format_method)?;
-    Ok(display_text)
 }
 
 fn display_certs_not_part_of_valid_path<B: ChainTraversal>(
     bundle: B,
     format_method: &FormatMethod,
     public_keys: &[PublicKey],
+    clock: &impl Clock,
 ) -> Result<String, CertCliError> {
-    let excluded_certs = bundle.find_items_not_part_of_valid_path(public_keys, None);
+    let excluded_certs = bundle.find_items_not_part_of_valid_path(public_keys, None, clock);
     if excluded_certs.is_empty() {
         return Ok(NO_EXCLUDED_CERTS_TEXT.to_string());
     }
@@ -218,7 +224,7 @@ impl<R: Role> MultiItemOutput<R> {
             .into_iter()
             .map(|item| item.into())
             .map(|item| {
-                let error = item.validate(None).err();
+                let error = item.validate(None, &SystemClock).err();
                 ItemWithError { item, error }
             })
             .collect();
@@ -269,7 +275,7 @@ impl Display for MultiItemDigestOutput {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use certificates::test_helpers::{create_keyserver_token_bundle, BreakableSignature};
     use certificates::{ChainItem, ChainTraversal, Digestible, Infrastructure};

@@ -1,39 +1,44 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
 import { faCheck, faWarning } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
+  type ApiError,
   type ApiResponse,
+  Card,
+  CopyFastaButton,
   type HitOrganism,
+  ProgressBar,
   ScreeningVisualization,
   type Sequence,
+  unparseSequence,
 } from "@securedna/frontend_common";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   type ScreeningProgress,
   performScreening,
 } from "src/screening/screening";
 import { sha256 } from "src/util/hash";
 
-import { unparse } from "src/util/sequence";
-import { CopyFastaButton } from "./CopyFastaButton";
-import { ProgressBar } from "./ProgressBar";
+import type { ScreeningWorkerParams } from "src/screening/types";
 
 async function cachedScreening(
-  sequence: string | Sequence,
+  params: ScreeningWorkerParams,
   callback: (progress: ScreeningProgress) => void,
 ): Promise<void> {
-  const fasta = typeof sequence === "string" ? sequence : unparse(sequence);
+  const sequence = params.sequence;
+  const fasta =
+    typeof sequence === "string" ? sequence : unparseSequence(sequence);
   const key = `sdna-screening-${await sha256(fasta)}`;
   const cached = sessionStorage.getItem(key);
   if (cached) {
     const result: ApiResponse = JSON.parse(cached);
     callback({ done: true, result });
   } else {
-    performScreening({ sequence }, (p) => {
+    performScreening(params, (p) => {
       // if (p.done) {
       //   try {
       //     sessionStorage.setItem(key, JSON.stringify(shrinkResult(p.result)));
@@ -46,51 +51,15 @@ async function cachedScreening(
   }
 }
 
-export const ScreeningCard = (props: {
+export const ScreeningResult = ({
+  name,
+  sequence,
+  result,
+}: {
   name: string;
-  sequence: Sequence;
-  complete: (organisms: HitOrganism[]) => void;
+  sequence: string | Sequence;
+  result?: ApiResponse | { progress: number };
 }) => {
-  const [result, setResult] = useState<ApiResponse | { progress: number }>();
-  const { sequence, complete } = props;
-
-  useEffect(() => {
-    const go = async () => {
-      cachedScreening(sequence, (progress) => {
-        if (progress.done) {
-          setResult(progress.result);
-          if (progress.result.synthesis_permission === "granted") {
-            complete([]);
-          } else {
-            const organisms =
-              progress.result.hits_by_record?.flatMap((record) =>
-                record.hits_by_hazard.flatMap((hazard) => hazard.organisms),
-              ) ?? [];
-            complete(organisms);
-          }
-        } else {
-          setResult((old) => ({
-            progress:
-              (old && "progress" in old ? old.progress : 0) + progress.progress,
-          }));
-        }
-      });
-    };
-
-    if (result === undefined) {
-      go().catch((e) => {
-        console.error(e);
-        setResult({
-          synthesis_permission: "denied",
-          hits_by_record: [],
-          warnings: [],
-          errors: [{ diagnostic: String(e), additional_info: "" }],
-        });
-        complete([]);
-      });
-    }
-  }, [complete, result, sequence]);
-
   let contents: ReactNode;
   if (!result) {
     contents = (
@@ -109,7 +78,7 @@ export const ScreeningCard = (props: {
     );
   } else if (result.synthesis_permission === "granted") {
     contents = (
-      <div className="py-2 text-green-500">
+      <div className="py-2 text-success">
         <FontAwesomeIcon icon={faCheck} className="mr-2" />
         No hazards detected.
       </div>
@@ -119,9 +88,9 @@ export const ScreeningCard = (props: {
       <div className="py-2">
         {result.errors?.length ? (
           <>
-            <span className="text-red-500">
+            <span className="text-error">
               <FontAwesomeIcon icon={faWarning} className="mr-2" />
-              Error:{" "}
+              An error occurred:{" "}
             </span>
             {result.errors?.map((err, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: the array won't change.
@@ -133,9 +102,11 @@ export const ScreeningCard = (props: {
           </>
         ) : (
           <>
-            <span className="text-red-500">
+            <span className="text-error">
               <FontAwesomeIcon icon={faWarning} className="mr-2" />
-              Hazards detected
+              {result.hits_by_record?.length
+                ? "Hazards detected"
+                : "An error occurred"}
             </span>
             <ScreeningVisualization result={result} compact={true} />
           </>
@@ -146,14 +117,76 @@ export const ScreeningCard = (props: {
     contents = <div>Invalid state.</div>;
   }
   return (
-    <div className="my-2 border bg-white rounded-xl py-4 px-8 min-h-[6.2em]">
+    <Card className="min-h-[6.2em]">
       <h2>
-        <span>{props.name || "(no name)"}</span>{" "}
+        <span>{name || "(no name)"}</span>{" "}
         <span className="float-right text-xs font-normal">
-          <CopyFastaButton sequence={props.sequence} />
+          <CopyFastaButton sequence={sequence} />
         </span>
       </h2>
       {contents}
-    </div>
+    </Card>
+  );
+};
+
+export const ScreeningCard = (props: {
+  name: string;
+  params: ScreeningWorkerParams;
+  complete: (organisms: HitOrganism[], errors: ApiError[]) => void;
+}) => {
+  const [result, setResult] = useState<ApiResponse | { progress: number }>();
+  const { params, complete } = props;
+
+  const initialized = useRef(false);
+
+  useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+    const go = async () => {
+      cachedScreening(params, (progress) => {
+        if (progress.done) {
+          const errors = progress.result.errors ?? [];
+          setResult(progress.result);
+          if (progress.result.synthesis_permission === "granted") {
+            complete([], errors);
+          } else {
+            const organisms =
+              progress.result.hits_by_record?.flatMap((record) =>
+                record.hits_by_hazard.flatMap((hazard) => hazard.organisms),
+              ) ?? [];
+            complete(organisms, errors);
+          }
+        } else {
+          setResult((old) => ({
+            progress:
+              (old && "progress" in old ? old.progress : 0) + progress.progress,
+          }));
+        }
+      });
+    };
+
+    if (result === undefined) {
+      go().catch((e) => {
+        console.error(e);
+        const error: ApiError = {
+          diagnostic: String(e),
+          additional_info: "",
+        };
+        setResult({
+          synthesis_permission: "denied",
+          hits_by_record: [],
+          warnings: [],
+          errors: [error],
+        });
+        complete([], [error]);
+      });
+    }
+  }, [complete, result, params]);
+  return (
+    <ScreeningResult
+      name={props.name}
+      sequence={props.params.sequence}
+      result={result}
+    />
   );
 };

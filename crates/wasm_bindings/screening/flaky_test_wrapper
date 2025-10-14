@@ -1,0 +1,43 @@
+#!/bin/bash
+# Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+# Sometimes, CI gets stuck forever running these tests in Firefox, or they time
+# out after 300 seconds in Chrome. But they're just flaky: re-running them seems
+# to fix the issue. The cause isn't clear, but for now we can run the tests a
+# few times until they pass.
+
+# If the timeout happens, say, 75% of the time (the actual number seems to vary
+# with server load?), then it has only a 1% chance of happening 16 times in a
+# row. So if 16 attempts time out, we can feel 99% confident that something
+# weird is going on and just bail.
+attempts=16
+
+# The first time, it might take a while to build. In practice this seems to take
+# about 200 seconds, so 900 is very generous.
+timeout_seconds=900
+
+for ((i = 1; i <= attempts; i++)); do
+    echo "Attempt $i of $attempts..."
+
+    # Exit with success if the tests pass:
+    WASM_BINDGEN_TEST_ADDRESS=http://localhost.securedna.org \
+        timeout -k 10 "$timeout_seconds" \
+        wasm-pack test --release --chrome --firefox --headless && exit 0
+
+    # Timeout exits with code 124 on timeout. If we see some non-timeout
+    # failure, there's no point retrying more.
+    if [ $? -ne 124 ]; then
+        echo "WebAssembly tests failed without timing out."
+        exit 1
+    fi
+
+    echo "Attempt $i timed out. Retrying..."
+
+    # Subsequent tries get a lower timeout. It really shouldn't take long once everything is built.
+    # In practice it takes about 20 seconds, so 60 is generous.
+    timeout_seconds=60
+done
+
+echo "All attempts failed. Exiting with failure."
+exit 1

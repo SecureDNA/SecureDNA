@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use itertools::Itertools;
@@ -9,6 +9,7 @@ use crate::asn::{FromASN1DerBytes, ToASN1DerBytes};
 use crate::error::EncodeError;
 use crate::issued::Issued;
 use crate::pem::MultiItemPemBuilder;
+use crate::shared_components::common::Clock;
 use crate::validation_error::ValidationError;
 use crate::{
     error::DecodeError, shared_components::role::Role, CertificateChain, ChainItem, ChainTraversal,
@@ -16,9 +17,10 @@ use crate::{
 use crate::{
     Authenticator, CertificateRequest, DatabaseTokenGroup, DatabaseTokenRequest, Exemption,
     ExemptionTokenGroup, ExemptionTokenRequest, Expiration, HierarchyKind, HltTokenGroup,
-    HltTokenRequest, Infrastructure, IssuanceError, IssuerAdditionalFields, KeyMismatchError,
-    KeyPair, KeyserverTokenGroup, KeyserverTokenRequest, Manufacturer, SynthesizerTokenGroup,
-    SynthesizerTokenRequest, TokenBundle,
+    HltTokenRequest, Infrastructure, IssuanceError, IssuerAdditionalFields, KeyAvailable,
+    KeyMismatchError, KeyserverTokenGroup, KeyserverTokenRequest, Manufacturer, SigningKeyPair,
+    SynthesizerTokenGroup, SynthesizerTokenRequest, SystemClock, TokenBundle, VerifierTokenGroup,
+    VerifierTokenRequest,
 };
 
 use crate::certificate::outer::Certificate;
@@ -44,6 +46,10 @@ pub enum CertificateBundleError {
     InvalidCertificate(ValidationError),
     #[error("did not find a certificate when parsing contents")]
     NoCertificateFound,
+    #[error("the certificate is missing a chain")]
+    LeafWithoutChain,
+    #[error("one or more certificates in the chain are not valid: {0}")]
+    NoValidChainToInt(String),
     #[error(transparent)]
     Decode(#[from] DecodeError),
     #[error(transparent)]
@@ -88,7 +94,10 @@ where
     /// representing the same certificate request, but issued by different parties.
     // We can use any of these to issue a new certificate because they all have the same public key.
     // However we choose the certificate with the longest validity period in order to avoid unneccessary CLI warnings.
-    pub fn get_lead_cert(&self) -> Result<&Certificate<R, KeyUnavailable>, CertificateError<R>> {
+    pub fn get_lead_cert(
+        &self,
+        clock: &impl Clock,
+    ) -> Result<&Certificate<R, KeyUnavailable>, CertificateError<R>> {
         let mut first_error: Option<(Certificate<R, KeyUnavailable>, ValidationError)> = None;
 
         for cert in self
@@ -96,7 +105,7 @@ where
             .iter()
             .sorted_by_key(|c| -c.expiration().not_valid_after)
         {
-            match cert.check_signature_and_expiry() {
+            match cert.check_signature_and_expiry(clock) {
                 Ok(_) => return Ok(cert),
                 Err(e) => {
                     first_error.get_or_insert((cert.clone(), e));
@@ -109,13 +118,25 @@ where
             .unwrap_or(Err(CertificateError::NotFound))
     }
 
+    /// Checks there is a valid chain up to an intermediate cert, and returns the cert with the private key loaded
+    pub fn prep_cert_for_token_issuance(
+        &self,
+        keypair: SigningKeyPair,
+        clock: &impl Clock,
+    ) -> Result<Certificate<R, KeyAvailable>, CertificateBundleError> {
+        self.path_to_cert_with_hierarchy_level(&HierarchyKind::Intermediate, clock)
+            .map_err(|err| CertificateBundleError::NoValidChainToInt(err.to_string()))?;
+        let cert = self.get_lead_cert(clock)?.clone().load_key(keypair)?;
+        Ok(cert)
+    }
+
     pub fn issue_cert_bundle(
         &self,
         request: CertificateRequest<R, KeyUnavailable>,
         additional_fields: IssuerAdditionalFields,
-        key: KeyPair,
+        key: SigningKeyPair,
     ) -> Result<CertificateBundle<R>, CertificateBundleError> {
-        let cert = self.get_lead_cert()?.clone().load_key(key)?;
+        let cert = self.get_lead_cert(&SystemClock)?.clone().load_key(key)?;
         let new_cert = cert.issue_cert(request, additional_fields)?;
         let chain = match cert.hierarchy_level() {
             // Root certs don't need to provide a certificate chain for the certificates they issue, because the root public keys will be known.
@@ -163,6 +184,10 @@ where
             .next()
             .unwrap_or_default();
 
+        if certs[0].hierarchy_level() == HierarchyKind::Leaf && chain.is_empty() {
+            return Err(CertificateBundleError::LeafWithoutChain);
+        }
+
         Ok(Self { certs, chain })
     }
 
@@ -205,13 +230,11 @@ impl CertificateBundle<Exemption> {
         token_request: ExemptionTokenRequest,
         expiration: Expiration,
         issuer_auth_devices: Vec<Authenticator>,
-        keypair: KeyPair,
+        keypair: SigningKeyPair,
     ) -> Result<TokenBundle<ExemptionTokenGroup>, CertificateBundleError> {
-        let token = self
-            .get_lead_cert()?
-            .clone()
-            .load_key(keypair)?
-            .issue_exemption_token(token_request, expiration, issuer_auth_devices)?;
+        let cert = self.prep_cert_for_token_issuance(keypair, &SystemClock)?;
+        let token = cert.issue_exemption_token(token_request, expiration, issuer_auth_devices)?;
+
         let chain = self.issue_chain();
         Ok(TokenBundle::new(token, chain))
     }
@@ -222,13 +245,10 @@ impl CertificateBundle<Infrastructure> {
         &self,
         token_request: KeyserverTokenRequest,
         expiration: Expiration,
-        keypair: KeyPair,
+        keypair: SigningKeyPair,
     ) -> Result<TokenBundle<KeyserverTokenGroup>, CertificateBundleError> {
-        let token = self
-            .get_lead_cert()?
-            .clone()
-            .load_key(keypair)?
-            .issue_keyserver_token(token_request, expiration)?;
+        let cert = self.prep_cert_for_token_issuance(keypair, &SystemClock)?;
+        let token = cert.issue_keyserver_token(token_request, expiration)?;
         let chain = self.issue_chain();
         Ok(TokenBundle::new(token, chain))
     }
@@ -237,13 +257,22 @@ impl CertificateBundle<Infrastructure> {
         &self,
         token_request: DatabaseTokenRequest,
         expiration: Expiration,
-        keypair: KeyPair,
+        keypair: SigningKeyPair,
     ) -> Result<TokenBundle<DatabaseTokenGroup>, CertificateBundleError> {
-        let token = self
-            .get_lead_cert()?
-            .clone()
-            .load_key(keypair)?
-            .issue_database_token(token_request, expiration)?;
+        let cert = self.prep_cert_for_token_issuance(keypair, &SystemClock)?;
+        let token = cert.issue_database_token(token_request, expiration)?;
+        let chain = self.issue_chain();
+        Ok(TokenBundle::new(token, chain))
+    }
+
+    pub fn issue_verifier_token_bundle(
+        &self,
+        token_request: VerifierTokenRequest,
+        expiration: Expiration,
+        keypair: SigningKeyPair,
+    ) -> Result<TokenBundle<VerifierTokenGroup>, CertificateBundleError> {
+        let cert = self.prep_cert_for_token_issuance(keypair, &SystemClock)?;
+        let token = cert.issue_verifier_token(token_request, expiration)?;
         let chain = self.issue_chain();
         Ok(TokenBundle::new(token, chain))
     }
@@ -252,13 +281,10 @@ impl CertificateBundle<Infrastructure> {
         &self,
         token_request: HltTokenRequest,
         expiration: Expiration,
-        keypair: KeyPair,
+        keypair: SigningKeyPair,
     ) -> Result<TokenBundle<HltTokenGroup>, CertificateBundleError> {
-        let token = self
-            .get_lead_cert()?
-            .clone()
-            .load_key(keypair)?
-            .issue_hlt_token(token_request, expiration)?;
+        let cert = self.prep_cert_for_token_issuance(keypair, &SystemClock)?;
+        let token = cert.issue_hlt_token(token_request, expiration)?;
         let chain = self.issue_chain();
         Ok(TokenBundle::new(token, chain))
     }
@@ -269,13 +295,10 @@ impl CertificateBundle<Manufacturer> {
         &self,
         token_request: SynthesizerTokenRequest,
         expiration: Expiration,
-        keypair: KeyPair,
+        keypair: SigningKeyPair,
     ) -> Result<TokenBundle<SynthesizerTokenGroup>, CertificateBundleError> {
-        let token = self
-            .get_lead_cert()?
-            .clone()
-            .load_key(keypair)?
-            .issue_synthesizer_token(token_request, expiration)?;
+        let cert = self.prep_cert_for_token_issuance(keypair, &SystemClock)?;
+        let token = cert.issue_synthesizer_token(token_request, expiration)?;
         let chain = self.issue_chain();
         Ok(TokenBundle::new(token, chain))
     }
@@ -293,21 +316,21 @@ impl<R: Role> ChainTraversal for CertificateBundle<R> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use crate::certificate::inner::IssuerAdditionalFields;
     use crate::certificate::RequestBuilder;
-    use crate::keypair::KeyPair;
+    use crate::key::signing::SigningKeyPair;
     use crate::shared_components::role::Exemption;
-    use crate::Infrastructure;
     use crate::{Builder, CertificateChain};
+    use crate::{Infrastructure, SystemClock};
 
     use crate::test_helpers::create_leaf_bundle;
     use crate::CertificateBundle;
 
     #[test]
     fn can_pem_encode_cert_bundle_with_empty_chain() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -327,7 +350,7 @@ mod tests {
 
     #[test]
     fn can_pem_encode_cert_bundle_with_chain() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -335,7 +358,7 @@ mod tests {
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_req =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
@@ -371,7 +394,7 @@ mod tests {
 
     #[test]
     fn get_lead_cert_selects_cert_with_longest_validity() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -379,7 +402,7 @@ mod tests {
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_req =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
@@ -403,7 +426,7 @@ mod tests {
 
         let cert_bundle = cert_bundle_a.merge(cert_bundle_b).unwrap();
 
-        let lead_cert = cert_bundle.get_lead_cert().unwrap();
+        let lead_cert = cert_bundle.get_lead_cert(&SystemClock).unwrap();
         assert_eq!(*lead_cert, int_cert_b);
     }
 }

@@ -1,11 +1,11 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+import { PrimaryButton } from "@securedna/frontend_common";
 import { useRef, useState } from "react";
 import { Setting } from "./Setting";
-import { SubmitButton } from "./SubmitButton";
 
 export interface FastaInputProps {
   disableReason?: string;
@@ -34,50 +34,56 @@ export function FastaInput(props: FastaInputProps) {
             placeholder="> Paste FASTA here or upload a file below"
             style={{ fontFamily: "monospace" }}
           />
-          <input
-            type="file"
-            ref={fileInput}
-            onChange={(e) => {
-              const files = e.currentTarget.files;
-              if (files && files.length > 0) {
-                const reader = new FileReader();
-                const file = files[0];
-                reader.onload = (loaded) => {
-                  const result = loaded.target?.result;
-                  if (typeof result === "string") {
-                    setFasta(result);
-                    setPickedFile(file);
-                  }
-                };
-                reader.readAsText(file);
-              } else {
+          <div className="flex flex-row mb-8">
+            <input
+              className="flex-1 file:bg-secondary file:text-white file:rounded-lg file:px-4 file:py-2 file:me-3 enabled:file:cursor-pointer disabled:file:opacity-50"
+              type="file"
+              ref={fileInput}
+              onChange={(e) => {
+                const files = e.currentTarget.files;
+                if (files && files.length > 0) {
+                  const reader = new FileReader();
+                  const file = files[0];
+                  reader.onload = (loaded) => {
+                    const result = loaded.target?.result;
+                    if (typeof result === "string") {
+                      setFasta(result);
+                      setPickedFile(file);
+                    }
+                  };
+                  reader.readAsText(file);
+                } else {
+                  setFasta("");
+                  setPickedFile(undefined);
+                }
+              }}
+            />
+            <PrimaryButton
+              type="button"
+              onClick={() => {
                 setFasta("");
                 setPickedFile(undefined);
-              }
-            }}
-          />
-          <button
-            type="button"
-            className="float-right border enabled:border-primary/50 disabled:bg-black/10 enabled:text-primary enabled:hover:bg-primary/20 enabled:cursor-pointer rounded px-2 flex-none disabled:opacity-50"
-            onClick={() => {
-              setFasta("");
-              setPickedFile(undefined);
-              if (fileInput.current) fileInput.current.value = "";
-            }}
-            disabled={fasta === "" && pickedFile === undefined}
-          >
-            Clear
-          </button>
+                if (fileInput.current) fileInput.current.value = "";
+              }}
+              disabled={fasta === "" && pickedFile === undefined}
+            >
+              Clear
+            </PrimaryButton>
+          </div>
         </div>
       )}
     >
-      <SubmitButton
+      <PrimaryButton
+        type="button"
+        className="py-3 text-lg"
         disabled={!fasta || !!props.disableReason}
         onClick={() => {
           props.getApi(fasta);
         }}
         title={!fasta ? "No FASTA entered" : props.disableReason}
-      />
+      >
+        Submit
+      </PrimaryButton>
     </Setting>
   );
 }

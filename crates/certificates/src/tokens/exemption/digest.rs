@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt::Display;
@@ -9,8 +9,8 @@ use crate::display::{MultiItemDisplay, TruncatedMultiItemDisplay};
 use crate::shared_components::common::CompatibleIdentity;
 use crate::shared_components::digest::{INDENT, INDENT2};
 use crate::{
-    Authenticator, Description, ExemptionToken, ExemptionTokenRequest, Expiration, Id, Organism,
-    PublicKey, Signature,
+    Attachment, Authenticator, Description, ExemptionToken, ExemptionTokenRequest, Expiration, Id,
+    Organism, PublicKey, Signature,
 };
 
 use super::et::{ExemptionTokenRequestVersion, ExemptionTokenVersion, ShippingAddress};
@@ -23,6 +23,7 @@ pub struct ExemptionTokenRequestDigest {
     public_key: Option<PublicKey>,
     requestor_auth_devices: Vec<Authenticator>,
     shipping_addresses: Vec<ShippingAddress>,
+    attachments: Vec<Attachment>,
     exemptions: Vec<Organism>,
 }
 
@@ -60,7 +61,7 @@ impl Display for ExemptionTokenRequestDigest {
             }
         )?;
         writeln!(f, "{:INDENT$}Authentication Devices:", "")?;
-        write!(
+        writeln!(
             f,
             "{}",
             TruncatedMultiItemDisplay {
@@ -70,6 +71,19 @@ impl Display for ExemptionTokenRequestDigest {
                 max_items: 5,
             }
         )?;
+        if !self.attachments.is_empty() {
+            writeln!(f, "{:INDENT$}Attachments:", "")?;
+            writeln!(
+                f,
+                "{}",
+                TruncatedMultiItemDisplay {
+                    items: &self.attachments,
+                    indent: INDENT2,
+                    separator: "\n",
+                    max_items: 5,
+                }
+            )?;
+        }
         Ok(())
     }
 }
@@ -84,6 +98,7 @@ impl From<ExemptionTokenRequest> for ExemptionTokenRequestDigest {
                 let requestor = r.requestor;
                 let requestor_auth_devices = r.requestor_auth_devices;
                 let shipping_addresses = r.shipping_addresses;
+                let attachments = r.attachments;
                 let public_key = r.public_key;
                 ExemptionTokenRequestDigest {
                     version,
@@ -93,6 +108,7 @@ impl From<ExemptionTokenRequest> for ExemptionTokenRequestDigest {
                     requestor,
                     requestor_auth_devices,
                     shipping_addresses,
+                    attachments,
                 }
             }
         }
@@ -108,6 +124,7 @@ pub struct ExemptionTokenDigest {
     requestor: Description,
     public_key: Option<PublicKey>,
     shipping_addresses: Vec<ShippingAddress>,
+    attachments: Vec<Attachment>,
     exemptions: Vec<Organism>,
     requestor_auth_devices: Vec<Authenticator>,
     issuer_auth_devices: Vec<Authenticator>,
@@ -126,6 +143,7 @@ impl<K> From<ExemptionToken<K>> for ExemptionTokenDigest {
                 let requestor = t.data.request.requestor;
                 let requestor_auth_devices = t.data.request.requestor_auth_devices;
                 let shipping_addresses = t.data.request.shipping_addresses;
+                let attachments = t.data.request.attachments;
                 let exemptions = t.data.request.exemptions;
                 let issuance_id = t.data.issuer_fields.issuance_id;
                 let issued_by = t.data.issuer_fields.identity;
@@ -143,6 +161,7 @@ impl<K> From<ExemptionToken<K>> for ExemptionTokenDigest {
                     requestor,
                     requestor_auth_devices,
                     shipping_addresses,
+                    attachments,
                     issuance_id,
                     issued_by,
                     expiration,
@@ -214,6 +233,19 @@ impl Display for ExemptionTokenDigest {
                 }
             )?;
         }
+        if !self.attachments.is_empty() {
+            writeln!(f, "{:INDENT$}Attachments:", "")?;
+            writeln!(
+                f,
+                "{}",
+                TruncatedMultiItemDisplay {
+                    items: &self.attachments,
+                    indent: INDENT2,
+                    separator: "\n",
+                    max_items: 5,
+                }
+            )?;
+        }
         if !self.emails_to_notify.is_empty() {
             writeln!(f, "{:INDENT$}Emails to notify:", "")?;
             for email in &self.emails_to_notify {
@@ -236,7 +268,7 @@ struct MultiShippingAddressDisplay<'a> {
     max_items: usize,
 }
 
-impl<'a> Display for MultiShippingAddressDisplay<'a> {
+impl Display for MultiShippingAddressDisplay<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let addresses: Vec<_> = self
             .items

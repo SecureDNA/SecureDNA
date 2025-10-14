@@ -1,11 +1,16 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import type { HitOrganism, Sequence } from "@securedna/frontend_common";
+import type {
+  ApiError,
+  HitOrganism,
+  Sequence,
+} from "@securedna/frontend_common";
+import { Button, PrimaryButton } from "@securedna/frontend_common";
 import { useCallback, useEffect, useState } from "react";
-import { Button, PrimaryButton, ScreeningCard } from "src/components";
+import { ScreeningCard } from "src/components/ScreeningCard";
 import { useApprovalStore } from "./store";
 
 interface NamedSequence {
@@ -14,8 +19,10 @@ interface NamedSequence {
 }
 
 const ScreeningPage = () => {
-  const sequences: NamedSequence[] = [];
   const etr = useApprovalStore((state) => state.etr)!;
+  const synthTokenPem = useApprovalStore((state) => state.synthTokenPem)!;
+  const privPem = useApprovalStore((state) => state.privPem)!;
+  const privPassphrase = useApprovalStore((state) => state.privPassphrase)!;
   const screenedExemptions = useApprovalStore(
     (state) => state.screenedExemptions,
   );
@@ -25,22 +32,15 @@ const ScreeningPage = () => {
   const back = useApprovalStore((state) => state.back);
   const advance = useApprovalStore((state) => state.advance);
 
-  for (const organism of etr.V1.exemptions) {
-    for (const sequenceIdentifier of organism.sequences) {
-      if ("Dna" in sequenceIdentifier) {
-        sequences.push({
-          organismName: organism.name,
-          sequence: sequenceIdentifier.Dna,
-        });
-      }
-    }
-  }
   const [completeCount, setCompleteCount] = useState(0);
+  const [errors, setErrors] = useState<ApiError[]>([]);
+
   const beforeUnloadHandler = useCallback((e: BeforeUnloadEvent) => {
     const message = "If you leave the page, screening progress will be lost.";
     (e || window.event).returnValue = message;
     return message;
   }, []);
+
   useEffect(() => {
     window.addEventListener("beforeunload", beforeUnloadHandler);
     return () => {
@@ -48,13 +48,27 @@ const ScreeningPage = () => {
     };
   }, [beforeUnloadHandler]);
 
-  const onComplete = (organisms: HitOrganism[]): void => {
+  const sequences: NamedSequence[] = etr.V1.exemptions.flatMap((organism) =>
+    organism.sequences
+      .filter(
+        (sequenceIdentifier): sequenceIdentifier is { Dna: Sequence } =>
+          "Dna" in sequenceIdentifier,
+      )
+      .map((sequenceIdentifier) => ({
+        organismName: organism.name,
+        sequence: sequenceIdentifier.Dna,
+      })),
+  );
+
+  const onComplete = (organisms: HitOrganism[], errors: ApiError[]): void => {
     setCompleteCount((n) => {
       if (n + 1 === sequences.length) {
         window.removeEventListener("beforeunload", beforeUnloadHandler);
       }
       return n + 1;
     });
+
+    setErrors((e) => [...e, ...errors]);
 
     const updated = new Map(screenedExemptions);
     for (const organism of organisms) {
@@ -64,6 +78,9 @@ const ScreeningPage = () => {
     }
     setScreenedExemptions(updated);
   };
+
+  if (!synthTokenPem.ok) return "ScreeningPage without ok synthTokenPem";
+  if (!privPem.ok) return "ScreeningPage without ok privPem";
 
   return (
     <div>
@@ -80,12 +97,17 @@ const ScreeningPage = () => {
             previous page, in addition to any detected in screening below.
           </p>
           <div className="my-4">
-            {sequences.map((x, i) => (
+            {sequences.map((seq, i) => (
               <ScreeningCard
-                name={x.organismName}
+                name={seq.organismName}
                 // biome-ignore lint/suspicious/noArrayIndexKey: the array won't change.
                 key={i}
-                sequence={x.sequence}
+                params={{
+                  sequence: seq.sequence,
+                  synthTokenContents: synthTokenPem.value.array,
+                  privContents: privPem.value.array,
+                  privPassphrase,
+                }}
                 complete={onComplete}
               />
             ))}
@@ -113,8 +135,8 @@ const ScreeningPage = () => {
         </Button>
         <PrimaryButton
           type="button"
-          disabled={completeCount < sequences.length}
-          className="flex-[2] my-2 py-3"
+          disabled={completeCount < sequences.length || errors.length > 0}
+          className="flex-2 my-2 py-3"
           onClick={advance}
         >
           Sign token

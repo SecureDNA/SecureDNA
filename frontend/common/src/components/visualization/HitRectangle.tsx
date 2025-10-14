@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -40,7 +40,7 @@ export const HitRectangle = (props: HitRectangleProps) => {
         bottom: props.bottom,
         background,
         border,
-        borderRadius: "2px",
+        borderRadius: "0.5rem",
         zIndex,
         minWidth: "8px",
       }}

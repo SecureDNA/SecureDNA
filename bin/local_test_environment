@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+### Spins up an "uncontainerized" local test environment that parallels docker-compose.yml:
+### - HDB server at localhost:5300
+### - Keyservers at localhost:5301-5303
+### - Synthclient API at localhost:80
+###   (but optional $1 means use that port instead, so you don't have to be root)
+###
+### Note that this expects to be run from the repo root, not from inside bin/.
+###
+### If optional $2 is supplied, use some build profile other than release-with-debug.
+###
+### If env var LTE_SKIP_BUILD is non-null, skips building and assumes the binaries
+### in the repo's target/$profile are what we want.
+###
+### If env var LTE_LOG is defined at all, set RUST_LOG to that, instead of "info".
+### [Note that "defined as the empty string" will still set RUST_LOG to empty.]
+
+sc_port="${1:-80}"
+profile="${2:-release-with-debug}"
+# shellcheck disable=SC2054  # The commas below are very intentional, thank you.
+sc_args=( \
+    --port "$sc_port" \
+    --hdb-domains db1.localhost.securedna.org:5300 \
+    --keyserver-domains ks1.localhost.securedna.org:5301,ks2.localhost.securedna.org:5302,ks3.localhost.securedna.org:5303 \
+    --use-http \
+    --use-test-roots-do-not-use-this-in-prod \
+    --token-file test/certs/synthesizer-token.st \
+    --keypair-file test/certs/synthesizer-token.priv \
+    --keypair-passphrase-file test/certs/synthesizer-token.passphrase \
+)
+
+## On WSL, use `cargo.exe` if `cargo` does not exist.
+cargo=cargo
+if [ -f /proc/sys/fs/binfmt_misc/WSLInterop ] && ! command -v cargo; then
+    cargo=cargo.exe
+fi
+
+## Terminate child processes when this one is terminated.
+trap 'kill 0' EXIT
+
+## Conditionalize everything.
+prefix()          { sed -e "s@^@$1\t@"; }
+cargo-profile()   { RUST_LOG="${LTE_LOG-info}" "$cargo" "$1" --profile "$profile" "${@:2}"; }
+cargo-build()     { cargo-profile build --bin hdbserver --bin keyserver --bin synthclient; }
+cargo-run-fg()    { cargo-profile run --bin                    "$2" -- "${@:3}" 2>&1 | prefix "$1"; }
+uncargo-run-fg()  { RUST_LOG="${LTE_LOG-info}" "target/$profile/$2"    "${@:3}" 2>&1 | prefix "$1"; }
+maybe-cargo-run() { if [[ -z "$LTE_SKIP_BUILD" ]]; then cargo-run-fg "$@" & else uncargo-run-fg "$@" & fi; }
+run()             { maybe-cargo-run "$@" & }
+run-cfg()         { maybe-cargo-run "$1" "$2" --cfg-path "test/cfg/$3.toml"; }
+
+## Maybe build everything in advance.
+if [[ -z "$LTE_SKIP_BUILD" ]]; then cargo-build; fi
+
+## Actually run the servers.
+                    run-cfg "HDB"  hdbserver   "database"
+for x in {1..3}; do run-cfg "KS$x" keyserver   "03.keyserver-0$x"; done
+                    run     "SC "  synthclient "${sc_args[@]}"
+
+## Wait for everyone to die before returning.
+wait
+
+exit 0
+
+# End of file.

@@ -1,0 +1,856 @@
+
+*** ./infrastructure-root.certr ***
+
+{
+  "RootV1": {
+    "hierarchy_level": {
+      "guard": "ROOT1"
+    },
+    "role": "INFRASTRUCTURE",
+    "subject": {
+      "guard": "SUBJECT1",
+      "request_id": "c57515337eaa15931897e79e714d7852",
+      "pk": "09173efa69e8a4548db9781c623b3b75d32e02c15bc727e5e7abf11334f965e9",
+      "requestor_desc": {
+        "name": "SecureDNA-infrastructure-root",
+        "email": "ca-infrastructure-root@securedna.org",
+        "phone_number": null,
+        "orcid": null
+      },
+      "emails_to_notify": []
+    }
+  }
+}
+
+*** ./infrastructure-root.cert ***
+
+[
+  {
+    "item": {
+      "Certificate": {
+        "RootV1": {
+          "data": {
+            "hierarchy_level": {
+              "guard": "ROOT1"
+            },
+            "role": "INFRASTRUCTURE",
+            "common": {
+              "subject": {
+                "guard": "SUBJECT1",
+                "request_id": "c57515337eaa15931897e79e714d7852",
+                "pk": "09173efa69e8a4548db9781c623b3b75d32e02c15bc727e5e7abf11334f965e9",
+                "requestor_desc": {
+                  "name": "SecureDNA-infrastructure-root",
+                  "email": "ca-infrastructure-root@securedna.org",
+                  "phone_number": null,
+                  "orcid": null
+                },
+                "emails_to_notify": []
+              },
+              "issuer": {
+                "guard": "ISSUER1",
+                "issuance_id": "78609dfa41368a59e5fe827853fee6f2",
+                "identity": {
+                  "pk": "09173efa69e8a4548db9781c623b3b75d32e02c15bc727e5e7abf11334f965e9",
+                  "desc": "SecureDNA-infrastructure-root, ca-infrastructure-root@securedna.org"
+                },
+                "expiration": {
+                  "not_valid_before": 1707431568,
+                  "not_valid_after": 2338497168
+                },
+                "additional_emails_to_notify": []
+              }
+            }
+          },
+          "signature": "64d7951010ea38e0a4403a21d8f6032890f761b236e30f2d1239d7f0dfcecbe0875220ddb3650f586c2c12fe15ea63c714e5d26cc597ac26e7a53e99b27d420a"
+        }
+      }
+    }
+  }
+]
+
+*** ./infrastructure-intermediate.certr ***
+
+{
+  "IntermediateV1": {
+    "hierarchy_level": {
+      "guard": "INT1"
+    },
+    "role": "INFRASTRUCTURE",
+    "subject": {
+      "guard": "SUBJECT1",
+      "request_id": "cd96c1305a38bdf47df3072c9da96c45",
+      "pk": "1ad33daeef8f6eb407a34dea64a71be0a5041a669f527287173e1daaf73026f2",
+      "requestor_desc": {
+        "name": "SecureDNA-infrastructure-intermediate",
+        "email": "ca-infrastructure-intermediate@securedna.org",
+        "phone_number": null,
+        "orcid": null
+      },
+      "emails_to_notify": []
+    }
+  }
+}
+
+*** ./infrastructure-intermediate.cert ***
+
+[
+  {
+    "item": {
+      "Certificate": {
+        "IntermediateV1": {
+          "data": {
+            "hierarchy_level": {
+              "guard": "INT1"
+            },
+            "role": "INFRASTRUCTURE",
+            "common": {
+              "subject": {
+                "guard": "SUBJECT1",
+                "request_id": "cd96c1305a38bdf47df3072c9da96c45",
+                "pk": "1ad33daeef8f6eb407a34dea64a71be0a5041a669f527287173e1daaf73026f2",
+                "requestor_desc": {
+                  "name": "SecureDNA-infrastructure-intermediate",
+                  "email": "ca-infrastructure-intermediate@securedna.org",
+                  "phone_number": null,
+                  "orcid": null
+                },
+                "emails_to_notify": []
+              },
+              "issuer": {
+                "guard": "ISSUER1",
+                "issuance_id": "d8bbe2debe51147cf642441e2cfead3e",
+                "identity": {
+                  "pk": "09173efa69e8a4548db9781c623b3b75d32e02c15bc727e5e7abf11334f965e9",
+                  "desc": "SecureDNA-infrastructure-root, ca-infrastructure-root@securedna.org"
+                },
+                "expiration": {
+                  "not_valid_before": 1707431568,
+                  "not_valid_after": 2338497168
+                },
+                "additional_emails_to_notify": []
+              }
+            }
+          },
+          "signature": "6e01135a25805c1553250b7bf96860c7c312dbd8b9b7fd7a87494a99f7d3248952abda3ea599082bd276c8487bc74adc2024e11b0abd57e428339baacb349406"
+        }
+      }
+    }
+  }
+]
+
+*** ./infrastructure-int-int.certr ***
+
+{
+  "IntermediateV1": {
+    "hierarchy_level": {
+      "guard": "INT1"
+    },
+    "role": "INFRASTRUCTURE",
+    "subject": {
+      "guard": "SUBJECT1",
+      "request_id": "9944e06a2ec68785e2582b92c4e49cbe",
+      "pk": "436f906976dafc6b66b847d70b30a7d795d1bd59c164a1af0dca6a16f5b3ce41",
+      "requestor_desc": {
+        "name": "SecureDNA-infrastructure-int-int",
+        "email": "ca-infrastructure-intermediate@securedna.org",
+        "phone_number": null,
+        "orcid": null
+      },
+      "emails_to_notify": []
+    }
+  }
+}
+
+*** ./infrastructure-int-int.cert ***
+
+[
+  {
+    "item": {
+      "Certificate": {
+        "IntermediateV1": {
+          "data": {
+            "hierarchy_level": {
+              "guard": "INT1"
+            },
+            "role": "INFRASTRUCTURE",
+            "common": {
+              "subject": {
+                "guard": "SUBJECT1",
+                "request_id": "9944e06a2ec68785e2582b92c4e49cbe",
+                "pk": "436f906976dafc6b66b847d70b30a7d795d1bd59c164a1af0dca6a16f5b3ce41",
+                "requestor_desc": {
+                  "name": "SecureDNA-infrastructure-int-int",
+                  "email": "ca-infrastructure-intermediate@securedna.org",
+                  "phone_number": null,
+                  "orcid": null
+                },
+                "emails_to_notify": []
+              },
+              "issuer": {
+                "guard": "ISSUER1",
+                "issuance_id": "9950c158b78cc96a0535418b73a3b297",
+                "identity": {
+                  "pk": "1ad33daeef8f6eb407a34dea64a71be0a5041a669f527287173e1daaf73026f2",
+                  "desc": "SecureDNA-infrastructure-intermediate, ca-infrastructure-intermediate@securedna.org"
+                },
+                "expiration": {
+                  "not_valid_before": 1707679558,
+                  "not_valid_after": 2338745158
+                },
+                "additional_emails_to_notify": []
+              }
+            }
+          },
+          "signature": "943101fa12e0a9255603cd021d3b5dbd6aa2e06ab3d44d3765ba676b315b76c638450fabb115ee1e5ecc808e503fa71170918c42ce4788c1e9c16a1579ab8b0b"
+        }
+      }
+    }
+  }
+]
+
+*** ./infrastructure-leaf.certr ***
+
+{
+  "LeafV1": {
+    "hierarchy_level": {
+      "guard": "LEAF1"
+    },
+    "role": "INFRASTRUCTURE",
+    "subject": {
+      "guard": "SUBJECT1",
+      "request_id": "6de9b3239274d56a63d9c5ffd7e4a736",
+      "pk": "180614b6e50b1c571edb0c8a2a7fd1ab5074965ecbde3ad1f062379a2c9f2647",
+      "requestor_desc": {
+        "name": "SecureDNA-infrastructure-leaf",
+        "email": "ca-infrastructure-leaf@securedna.org",
+        "phone_number": null,
+        "orcid": null
+      },
+      "emails_to_notify": []
+    }
+  }
+}
+
+*** ./infrastructure-leaf.cert ***
+
+[
+  {
+    "item": {
+      "Certificate": {
+        "LeafV1": {
+          "data": {
+            "hierarchy_level": {
+              "guard": "LEAF1"
+            },
+            "role": "INFRASTRUCTURE",
+            "common": {
+              "subject": {
+                "guard": "SUBJECT1",
+                "request_id": "6de9b3239274d56a63d9c5ffd7e4a736",
+                "pk": "180614b6e50b1c571edb0c8a2a7fd1ab5074965ecbde3ad1f062379a2c9f2647",
+                "requestor_desc": {
+                  "name": "SecureDNA-infrastructure-leaf",
+                  "email": "ca-infrastructure-leaf@securedna.org",
+                  "phone_number": null,
+                  "orcid": null
+                },
+                "emails_to_notify": []
+              },
+              "issuer": {
+                "guard": "ISSUER1",
+                "issuance_id": "4e0b8027f1e0f8fe4951ef918a6cc29d",
+                "identity": {
+                  "pk": "436f906976dafc6b66b847d70b30a7d795d1bd59c164a1af0dca6a16f5b3ce41",
+                  "desc": "SecureDNA-infrastructure-int-int, ca-infrastructure-intermediate@securedna.org"
+                },
+                "expiration": {
+                  "not_valid_before": 1722214887,
+                  "not_valid_after": 2353280487
+                },
+                "additional_emails_to_notify": []
+              }
+            }
+          },
+          "signature": "b5b446dd304fc72b5439cfe8c098461ee38848f84a09d3543caba8a216b73a279ca9d5c30a1cb71602ba15188aa85777b0c29f52741512c5dee60c341a1ebb08"
+        }
+      }
+    }
+  }
+]
+
+*** ./manufacturer-root.certr ***
+
+{
+  "RootV1": {
+    "hierarchy_level": {
+      "guard": "ROOT1"
+    },
+    "role": "MANUFACTURER",
+    "subject": {
+      "guard": "SUBJECT1",
+      "request_id": "bb6a7015c3b31939703db329d3af9c61",
+      "pk": "6215f16da2292f79683e10f2ec2d10b975d1325bdf3ecf40aee27d0c2b8b649b",
+      "requestor_desc": {
+        "name": "SecureDNA-manufacturer-root",
+        "email": "ca-manufacturer-root@securedna.org",
+        "phone_number": null,
+        "orcid": null
+      },
+      "emails_to_notify": []
+    }
+  }
+}
+
+*** ./manufacturer-root.cert ***
+
+[
+  {
+    "item": {
+      "Certificate": {
+        "RootV1": {
+          "data": {
+            "hierarchy_level": {
+              "guard": "ROOT1"
+            },
+            "role": "MANUFACTURER",
+            "common": {
+              "subject": {
+                "guard": "SUBJECT1",
+                "request_id": "bb6a7015c3b31939703db329d3af9c61",
+                "pk": "6215f16da2292f79683e10f2ec2d10b975d1325bdf3ecf40aee27d0c2b8b649b",
+                "requestor_desc": {
+                  "name": "SecureDNA-manufacturer-root",
+                  "email": "ca-manufacturer-root@securedna.org",
+                  "phone_number": null,
+                  "orcid": null
+                },
+                "emails_to_notify": []
+              },
+              "issuer": {
+                "guard": "ISSUER1",
+                "issuance_id": "889566e75c9495538aa739ab0068c7ce",
+                "identity": {
+                  "pk": "6215f16da2292f79683e10f2ec2d10b975d1325bdf3ecf40aee27d0c2b8b649b",
+                  "desc": "SecureDNA-manufacturer-root, ca-manufacturer-root@securedna.org"
+                },
+                "expiration": {
+                  "not_valid_before": 1707431567,
+                  "not_valid_after": 2338497167
+                },
+                "additional_emails_to_notify": []
+              }
+            }
+          },
+          "signature": "27e5a28db314ef760f650abd6472eb7f38a0dbcd2a60e148f2f3378b7a39579eb92fafc336d174a75567890121dff6c89f9490bba76863b7f58c0689b59fbb03"
+        }
+      }
+    }
+  }
+]
+
+*** ./manufacturer-intermediate.certr ***
+
+{
+  "IntermediateV1": {
+    "hierarchy_level": {
+      "guard": "INT1"
+    },
+    "role": "MANUFACTURER",
+    "subject": {
+      "guard": "SUBJECT1",
+      "request_id": "b2d4ac0372c91103316de67cca6515e1",
+      "pk": "e6e79e479bb6f1b315e384218612d2cb8884b5480fffe04640011ec28ba1cbbd",
+      "requestor_desc": {
+        "name": "SecureDNA-manufacturer-intermediate",
+        "email": "ca-manufacturer-intermediate@securedna.org",
+        "phone_number": null,
+        "orcid": null
+      },
+      "emails_to_notify": []
+    }
+  }
+}
+
+*** ./manufacturer-intermediate.cert ***
+
+[
+  {
+    "item": {
+      "Certificate": {
+        "IntermediateV1": {
+          "data": {
+            "hierarchy_level": {
+              "guard": "INT1"
+            },
+            "role": "MANUFACTURER",
+            "common": {
+              "subject": {
+                "guard": "SUBJECT1",
+                "request_id": "b2d4ac0372c91103316de67cca6515e1",
+                "pk": "e6e79e479bb6f1b315e384218612d2cb8884b5480fffe04640011ec28ba1cbbd",
+                "requestor_desc": {
+                  "name": "SecureDNA-manufacturer-intermediate",
+                  "email": "ca-manufacturer-intermediate@securedna.org",
+                  "phone_number": null,
+                  "orcid": null
+                },
+                "emails_to_notify": []
+              },
+              "issuer": {
+                "guard": "ISSUER1",
+                "issuance_id": "ea2e7253021c582357e6edb64912cd1a",
+                "identity": {
+                  "pk": "6215f16da2292f79683e10f2ec2d10b975d1325bdf3ecf40aee27d0c2b8b649b",
+                  "desc": "SecureDNA-manufacturer-root, ca-manufacturer-root@securedna.org"
+                },
+                "expiration": {
+                  "not_valid_before": 1707431567,
+                  "not_valid_after": 2338497167
+                },
+                "additional_emails_to_notify": []
+              }
+            }
+          },
+          "signature": "92812ef5c48ec355350f582381ab301997fd5deb5c55d1e4bc309f69b6d630cf5632763c3939cb388b40803c204e01a307475a19dce98c3dc0b475efa0c04e0c"
+        }
+      }
+    }
+  }
+]
+
+*** ./manufacturer-int-int.certr ***
+
+{
+  "IntermediateV1": {
+    "hierarchy_level": {
+      "guard": "INT1"
+    },
+    "role": "MANUFACTURER",
+    "subject": {
+      "guard": "SUBJECT1",
+      "request_id": "bc8c214101b290047732183d231b8b5b",
+      "pk": "8048b0b07d92ce3e5c3d75e293b516f9482655f8839f980931bc41680382e4f9",
+      "requestor_desc": {
+        "name": "SecureDNA-manufacturer-int-int",
+        "email": "ca-manufacturer-intermediate@securedna.org",
+        "phone_number": null,
+        "orcid": null
+      },
+      "emails_to_notify": []
+    }
+  }
+}
+
+*** ./manufacturer-int-int.cert ***
+
+[
+  {
+    "item": {
+      "Certificate": {
+        "IntermediateV1": {
+          "data": {
+            "hierarchy_level": {
+              "guard": "INT1"
+            },
+            "role": "MANUFACTURER",
+            "common": {
+              "subject": {
+                "guard": "SUBJECT1",
+                "request_id": "bc8c214101b290047732183d231b8b5b",
+                "pk": "8048b0b07d92ce3e5c3d75e293b516f9482655f8839f980931bc41680382e4f9",
+                "requestor_desc": {
+                  "name": "SecureDNA-manufacturer-int-int",
+                  "email": "ca-manufacturer-intermediate@securedna.org",
+                  "phone_number": null,
+                  "orcid": null
+                },
+                "emails_to_notify": []
+              },
+              "issuer": {
+                "guard": "ISSUER1",
+                "issuance_id": "2a9a032da25bd7e1a2053f08a85fb448",
+                "identity": {
+                  "pk": "e6e79e479bb6f1b315e384218612d2cb8884b5480fffe04640011ec28ba1cbbd",
+                  "desc": "SecureDNA-manufacturer-intermediate, ca-manufacturer-intermediate@securedna.org"
+                },
+                "expiration": {
+                  "not_valid_before": 1707679558,
+                  "not_valid_after": 2338745158
+                },
+                "additional_emails_to_notify": []
+              }
+            }
+          },
+          "signature": "b4a1c6bf911d08aa42704f0fdb3df8a8f024b5a9575c450227f71f7b98f51c4ba7d6721a67a3cf5a010147fd215aa5d6863052cc999807938e7077f9c7573b0d"
+        }
+      }
+    }
+  }
+]
+
+*** ./manufacturer-leaf.certr ***
+
+{
+  "LeafV1": {
+    "hierarchy_level": {
+      "guard": "LEAF1"
+    },
+    "role": "MANUFACTURER",
+    "subject": {
+      "guard": "SUBJECT1",
+      "request_id": "a0ff52838be66d42fb43b28dca5adfc1",
+      "pk": "0c76a624e41dd1f12a63a60e229434d8826a5be6a704440a18106558a1d11647",
+      "requestor_desc": {
+        "name": "SecureDNA-manufacturer-leaf",
+        "email": "ca-manufacturer-leaf@securedna.org",
+        "phone_number": null,
+        "orcid": null
+      },
+      "emails_to_notify": []
+    }
+  }
+}
+
+*** ./manufacturer-leaf.cert ***
+
+[
+  {
+    "item": {
+      "Certificate": {
+        "LeafV1": {
+          "data": {
+            "hierarchy_level": {
+              "guard": "LEAF1"
+            },
+            "role": "MANUFACTURER",
+            "common": {
+              "subject": {
+                "guard": "SUBJECT1",
+                "request_id": "a0ff52838be66d42fb43b28dca5adfc1",
+                "pk": "0c76a624e41dd1f12a63a60e229434d8826a5be6a704440a18106558a1d11647",
+                "requestor_desc": {
+                  "name": "SecureDNA-manufacturer-leaf",
+                  "email": "ca-manufacturer-leaf@securedna.org",
+                  "phone_number": null,
+                  "orcid": null
+                },
+                "emails_to_notify": []
+              },
+              "issuer": {
+                "guard": "ISSUER1",
+                "issuance_id": "cbc27284e7bd64b616c04882328f9cee",
+                "identity": {
+                  "pk": "8048b0b07d92ce3e5c3d75e293b516f9482655f8839f980931bc41680382e4f9",
+                  "desc": "SecureDNA-manufacturer-int-int, ca-manufacturer-intermediate@securedna.org"
+                },
+                "expiration": {
+                  "not_valid_before": 1722214885,
+                  "not_valid_after": 2353280485
+                },
+                "additional_emails_to_notify": []
+              }
+            }
+          },
+          "signature": "75a735cd1c50b84c4496f2b8d94d640df27f66e3d85bd49563730672cfc4e39e4b2b1f1477fd7db6c84f63cd40664df964e474990f0fa795aa1ea43031acd40b"
+        }
+      }
+    }
+  }
+]
+
+*** ./exemption-root.certr ***
+
+{
+  "RootV1": {
+    "hierarchy_level": {
+      "guard": "ROOT1"
+    },
+    "role": "EXEMPTION",
+    "subject": {
+      "guard": "EXEMPTIONSUBJECT1",
+      "request_id": "33799d56ffa22549cee9ce2e019c1283",
+      "pk": "d3f373b82755f03b41b620492e05a9e62c80d4669a990925310041dcd662cabc",
+      "requestor_desc": {
+        "name": "SecureDNA-exemption-root",
+        "email": "ca-exemption-root@securedna.org",
+        "phone_number": null,
+        "orcid": null
+      },
+      "emails_to_notify": [],
+      "allow_blinding": true,
+      "attachments": []
+    }
+  }
+}
+
+*** ./exemption-root.cert ***
+
+[
+  {
+    "item": {
+      "Certificate": {
+        "RootV1": {
+          "data": {
+            "hierarchy_level": {
+              "guard": "ROOT1"
+            },
+            "role": "EXEMPTION",
+            "common": {
+              "subject": {
+                "guard": "EXEMPTIONSUBJECT1",
+                "request_id": "33799d56ffa22549cee9ce2e019c1283",
+                "pk": "d3f373b82755f03b41b620492e05a9e62c80d4669a990925310041dcd662cabc",
+                "requestor_desc": {
+                  "name": "SecureDNA-exemption-root",
+                  "email": "ca-exemption-root@securedna.org",
+                  "phone_number": null,
+                  "orcid": null
+                },
+                "emails_to_notify": [],
+                "allow_blinding": true,
+                "attachments": []
+              },
+              "issuer": {
+                "guard": "ISSUER1",
+                "issuance_id": "9d6fb2f70855749acf2d1325955559cc",
+                "identity": {
+                  "pk": "d3f373b82755f03b41b620492e05a9e62c80d4669a990925310041dcd662cabc",
+                  "desc": "SecureDNA-exemption-root, ca-exemption-root@securedna.org"
+                },
+                "expiration": {
+                  "not_valid_before": 1727912614,
+                  "not_valid_after": 2358978214
+                },
+                "additional_emails_to_notify": []
+              }
+            }
+          },
+          "signature": "17a914092de53cf654c120dda2f844389c653c106fbc784edb4450a6ab363d6dce41741d650812e4dc8fbdecf9cbefed9a39aa50ea7d3aeed2f6e039f074bb0b"
+        }
+      }
+    }
+  }
+]
+
+*** ./exemption-intermediate.certr ***
+
+{
+  "IntermediateV1": {
+    "hierarchy_level": {
+      "guard": "INT1"
+    },
+    "role": "EXEMPTION",
+    "subject": {
+      "guard": "EXEMPTIONSUBJECT1",
+      "request_id": "cb001d0a9d41f7679803f2d702717756",
+      "pk": "a4a9cb58ba3cac312976b32e22cf0b5a6f8200e84be70243dc67053c4d49cafd",
+      "requestor_desc": {
+        "name": "SecureDNA-exemption-intermediate",
+        "email": "ca-exemption-intermediate@securedna.org",
+        "phone_number": null,
+        "orcid": null
+      },
+      "emails_to_notify": [],
+      "allow_blinding": true,
+      "attachments": []
+    }
+  }
+}
+
+*** ./exemption-intermediate.cert ***
+
+[
+  {
+    "item": {
+      "Certificate": {
+        "IntermediateV1": {
+          "data": {
+            "hierarchy_level": {
+              "guard": "INT1"
+            },
+            "role": "EXEMPTION",
+            "common": {
+              "subject": {
+                "guard": "EXEMPTIONSUBJECT1",
+                "request_id": "cb001d0a9d41f7679803f2d702717756",
+                "pk": "a4a9cb58ba3cac312976b32e22cf0b5a6f8200e84be70243dc67053c4d49cafd",
+                "requestor_desc": {
+                  "name": "SecureDNA-exemption-intermediate",
+                  "email": "ca-exemption-intermediate@securedna.org",
+                  "phone_number": null,
+                  "orcid": null
+                },
+                "emails_to_notify": [],
+                "allow_blinding": true,
+                "attachments": []
+              },
+              "issuer": {
+                "guard": "ISSUER1",
+                "issuance_id": "3eb36d2c969440b14255a1ce1ccb3d25",
+                "identity": {
+                  "pk": "d3f373b82755f03b41b620492e05a9e62c80d4669a990925310041dcd662cabc",
+                  "desc": "SecureDNA-exemption-root, ca-exemption-root@securedna.org"
+                },
+                "expiration": {
+                  "not_valid_before": 1727912616,
+                  "not_valid_after": 2358978216
+                },
+                "additional_emails_to_notify": []
+              }
+            }
+          },
+          "signature": "af1dfd3a7dcc87ab8b2ba80a1a0b63c610430bd133018d8299889098387b2cddc9e4fda2f22478492dba48ff1b46bc0b9b112891ac66a5f4518b077524606b02"
+        }
+      }
+    }
+  }
+]
+
+*** ./exemption-int-int.certr ***
+
+{
+  "IntermediateV1": {
+    "hierarchy_level": {
+      "guard": "INT1"
+    },
+    "role": "EXEMPTION",
+    "subject": {
+      "guard": "EXEMPTIONSUBJECT1",
+      "request_id": "70afcb9b5065f4c127b806bc6a98852c",
+      "pk": "d56d9fcef5c6f226b1116f98dbbd744c9fb8bfa5f104e9dd5d004a86c07825a4",
+      "requestor_desc": {
+        "name": "SecureDNA-exemption-int-int",
+        "email": "ca-exemption-int-int@securedna.org",
+        "phone_number": null,
+        "orcid": null
+      },
+      "emails_to_notify": [],
+      "allow_blinding": true,
+      "attachments": []
+    }
+  }
+}
+
+*** ./exemption-int-int.cert ***
+
+[
+  {
+    "item": {
+      "Certificate": {
+        "IntermediateV1": {
+          "data": {
+            "hierarchy_level": {
+              "guard": "INT1"
+            },
+            "role": "EXEMPTION",
+            "common": {
+              "subject": {
+                "guard": "EXEMPTIONSUBJECT1",
+                "request_id": "70afcb9b5065f4c127b806bc6a98852c",
+                "pk": "d56d9fcef5c6f226b1116f98dbbd744c9fb8bfa5f104e9dd5d004a86c07825a4",
+                "requestor_desc": {
+                  "name": "SecureDNA-exemption-int-int",
+                  "email": "ca-exemption-int-int@securedna.org",
+                  "phone_number": null,
+                  "orcid": null
+                },
+                "emails_to_notify": [],
+                "allow_blinding": true,
+                "attachments": []
+              },
+              "issuer": {
+                "guard": "ISSUER1",
+                "issuance_id": "47e36e8197c40dab3de0c1e3f2f46bed",
+                "identity": {
+                  "pk": "a4a9cb58ba3cac312976b32e22cf0b5a6f8200e84be70243dc67053c4d49cafd",
+                  "desc": "SecureDNA-exemption-intermediate, ca-exemption-intermediate@securedna.org"
+                },
+                "expiration": {
+                  "not_valid_before": 1727912617,
+                  "not_valid_after": 2358978217
+                },
+                "additional_emails_to_notify": []
+              }
+            }
+          },
+          "signature": "34b5d85db4efab87704daf97905a756e61d1daa16a0a5307b2a5c077726492c5161f93850ea7c7920227fcc19dbf4009a0d8f49c73980a62e9e3b39e34f7c909"
+        }
+      }
+    }
+  }
+]
+
+*** ./exemption-leaf.certr ***
+
+{
+  "LeafV1": {
+    "hierarchy_level": {
+      "guard": "LEAF1"
+    },
+    "role": "EXEMPTION",
+    "subject": {
+      "guard": "EXEMPTIONSUBJECT1",
+      "request_id": "6d31592c66e60dace2e2efceae5d3160",
+      "pk": "f78619d0a8aef622c2e514bbe95554404d496f8ad0927f0e706294f4f6196401",
+      "requestor_desc": {
+        "name": "SecureDNA-exemption-leaf",
+        "email": "ca-exemption-leaf@securedna.org",
+        "phone_number": null,
+        "orcid": null
+      },
+      "emails_to_notify": [],
+      "allow_blinding": true,
+      "attachments": []
+    }
+  }
+}
+
+*** ./exemption-leaf.cert ***
+
+[
+  {
+    "item": {
+      "Certificate": {
+        "LeafV1": {
+          "data": {
+            "hierarchy_level": {
+              "guard": "LEAF1"
+            },
+            "role": "EXEMPTION",
+            "common": {
+              "subject": {
+                "guard": "EXEMPTIONSUBJECT1",
+                "request_id": "6d31592c66e60dace2e2efceae5d3160",
+                "pk": "f78619d0a8aef622c2e514bbe95554404d496f8ad0927f0e706294f4f6196401",
+                "requestor_desc": {
+                  "name": "SecureDNA-exemption-leaf",
+                  "email": "ca-exemption-leaf@securedna.org",
+                  "phone_number": null,
+                  "orcid": null
+                },
+                "emails_to_notify": [],
+                "allow_blinding": true,
+                "attachments": []
+              },
+              "issuer": {
+                "guard": "ISSUER1",
+                "issuance_id": "c9f6792c842e9a690dc0118bc5d65fc9",
+                "identity": {
+                  "pk": "d56d9fcef5c6f226b1116f98dbbd744c9fb8bfa5f104e9dd5d004a86c07825a4",
+                  "desc": "SecureDNA-exemption-int-int, ca-exemption-int-int@securedna.org"
+                },
+                "expiration": {
+                  "not_valid_before": 1727912619,
+                  "not_valid_after": 2358978219
+                },
+                "additional_emails_to_notify": []
+              }
+            }
+          },
+          "signature": "e2926dfbd2dbec0d01f29487e4447ca47b977c4f7806402d358bf56decc0baf0397daab1df7997abd95d591a96c9db5e6882f58f66ac8f8b697296428684e80d"
+        }
+      }
+    }
+  }
+]

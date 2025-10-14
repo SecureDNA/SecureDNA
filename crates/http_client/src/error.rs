@@ -1,5 +1,7 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
+
+use shared_types::requests::RequestId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum HttpError {
@@ -59,4 +61,11 @@ impl std::fmt::Display for RetriableWrapper {
             true => f.write_str("retriable"),
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("could not send request ID {request_id:?} as header: {source}")]
+pub struct UnusableRequestId {
+    pub(crate) source: http::header::InvalidHeaderValue,
+    pub(crate) request_id: RequestId,
 }

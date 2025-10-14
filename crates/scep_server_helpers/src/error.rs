@@ -1,12 +1,13 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::any::Any;
 use std::net::SocketAddr;
 
 use tracing::error;
 
 use minhttp::response::{self, StatusCode};
-use scep::error::ScepError;
+use scep::error::{ScepError, ServerAuthentication};
 use shared_types::requests::RequestId;
 
 pub fn log_and_convert_scep_error_to_response<Inner>(
@@ -15,7 +16,7 @@ pub fn log_and_convert_scep_error_to_response<Inner>(
     peer: SocketAddr,
 ) -> minhttp::response::ErrResponse
 where
-    Inner: std::error::Error,
+    Inner: std::error::Error + 'static,
 {
     response::ErrResponse(match err {
         ScepError::BadProtocol => {
@@ -39,6 +40,11 @@ where
             StatusCode::PAYLOAD_TOO_LARGE,
             format!("client exceeded daily limit of {limit_bp}bp"),
         ),
-        ScepError::Inner(e) => response::text(StatusCode::BAD_REQUEST, e.to_string()),
+        ScepError::Inner(e) => {
+            if let Some(ServerAuthentication::RevokedCert(e)) = (e as &(dyn Any)).downcast_ref() {
+                error!("{request_id}: revoked cert: {e}");
+            }
+            response::text(StatusCode::BAD_REQUEST, e.to_string())
+        }
     })
 }

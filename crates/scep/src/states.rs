@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::collections::{HashMap, HashSet};
@@ -19,6 +19,7 @@ pub struct InitializedClientState {
 
 #[derive(Debug, Clone)]
 pub struct OpenedClientState {
+    pub session_id: SessionCookie,
     pub client_mutual_auth_sig: Signature,
     pub hash_spec: HashSpec,
     pub server_version: u64,
@@ -74,6 +75,7 @@ pub struct ServerStateForOpenedClient {
     pub cookie: SessionCookie,
     pub open_request: OpenRequest,
     pub server_nonce: ServerNonce,
+    pub server_mutual_auth_signature: Signature,
 }
 
 #[derive(Debug)]
@@ -105,6 +107,7 @@ pub struct ServerStateForAuthenticatedClient {
     pub cookie: SessionCookie,
     pub open_request: OpenRequest,
     pub server_nonce: ServerNonce,
+    pub server_mutual_auth_signature: Signature,
     pub hash_total_count: u64,
     pub et_state: EtState,
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -9,9 +9,9 @@ import { useRef, useState } from "react";
 import type { OrganismWithSource } from "src/types";
 import { parseExemptionsFromSpreadsheetData } from "src/util/spreadsheet";
 
-import { Button } from "./Button";
+import { Button } from "@securedna/frontend_common";
+import { RemoveButton } from "@securedna/frontend_common";
 import { OrganismForm } from "./OrganismForm";
-import { RemoveButton } from "./RemoveButton";
 
 export interface ExemptionTableProps {
   /**

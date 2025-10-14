@@ -1,29 +1,32 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::net::{IpAddr, SocketAddr};
+use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Weak};
 
 use anyhow::Context;
 use bytes::Bytes;
-use certificates::{ChainTraversal, ExemptionTokenGroup, TokenBundle};
+use certificates::{ChainTraversal, ExemptionTokenGroup, HierarchyKind, SystemClock, TokenBundle};
+use doprf_client::ScreeningParams;
 use futures::future::join_all;
 use futures::FutureExt;
 use http_body_util::BodyExt;
+use http_client::BaseApiClient;
 use hyper::body::{Body, Incoming};
-use hyper::{HeaderMap, Method, Request, StatusCode, Uri};
-use once_cell::sync::Lazy;
-use regex::bytes::Regex as BytesRegex;
+use hyper::{Method, Request, StatusCode, Uri};
 use serde::de::DeserializeOwned;
+use sha3::{Digest, Sha3_256};
 use shared_types::error::InvalidClientTokenBundle;
 use shared_types::et::WithOtps;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tracing::{error, info};
 
 use doprf::party::KeyserverId;
 use doprf_client::server_selection::ServerSelector;
 use doprf_client::server_version_handler::LastServerVersionHandler;
+use http_client::service::util::force_http_if;
 use minhttp::error::ErrWrapper;
 use minhttp::mpserver::traits::ValidServerSetup;
 use minhttp::mpserver::{MultiplaneServer, ServerConfig};
@@ -39,12 +42,14 @@ use crate::api::{
     ApiError, ApiResponse, CheckFastaRequest, CheckNcbiRequest, RequestCommon, SynthesisPermission,
     VersionInfo,
 };
+use crate::api_version;
 use crate::ncbi::download_fasta_by_acc_number;
 use crate::parsefasta::{check_fasta, CheckerConfiguration, CurrentSystemLoadTracker};
 use crate::rate_limiter::{RateLimiter, SystemTimeHourProvider};
+use crate::recaptcha::validate_recaptcha;
+use crate::server_selection::initialize_server_selector;
+use crate::web_cache::WebCache;
 
-use crate::shims::recaptcha::validate_recaptcha;
-use crate::shims::server_selection::initialize_server_selector;
 use crate::shims::types::{Config, SynthClientState};
 
 use super::types::ScreeningType;
@@ -63,6 +68,8 @@ async fn reconfigure(
     let app_cfg = server_cfg.main.custom;
     let prev_state = Weak::upgrade(&prev_state);
 
+    info!("Attempting load of synthclient version {}", get_version());
+
     if let Some(limit) = app_cfg.memorylimit {
         info!("Running with memory limit: {limit}B");
     }
@@ -70,8 +77,21 @@ async fn reconfigure(
     let certs = Arc::new(app_cfg.certs.validate_and_build()?);
 
     info!("Initializing server selector...");
-    let server_selector = initialize_server_selector(&app_cfg).await.unwrap();
+    let request_id = RequestId::new_unique_with_prefix("server-selection");
+    let (service, worker) = http_client::securedna_service_and_worker(request_id)
+        .context("Couldn't generate valid request ID for server selection")?;
+    // Not a fan of tasks outliving parents, but this requires the least architectural change.
+    // On the bright side, `worker` will automatically terminate when `service` is dropped,
+    // such as when there's a config reload and all old requests finish.
+    // Also, assuming this code is only ever run outside of WASM, `service` won't actually
+    // outsource its requests to `worker`, so `worker` will be a no-op.
+    tokio::spawn(worker);
+    let service = force_http_if(service, app_cfg.use_http);
+    let server_selector = initialize_server_selector(service.into(), &app_cfg)
+        .await
+        .context("Unable to initialize server selector")?;
     info!("Finished initializing server selector");
+
     // Once metrics are enabled, they can't be disabled.
     // (at least, I don't yet know enough about our metrics code to be sure that's sensible)
     let metrics = if let Some(prev_metrics) = prev_state.as_ref().map(|s| &s.metrics) {
@@ -113,6 +133,44 @@ async fn reconfigure(
         Arc::new(connection)
     };
 
+    let web_cache = Arc::new(WebCache::new(
+        BaseApiClient::new_external(),
+        app_cfg.frontend_url.clone(),
+    ));
+
+    if let Some(path) = &app_cfg.store_verifiable_results {
+        // Actually try writing to it:
+        let test_dir = path.join("test");
+        if let Err(e) = tokio::fs::create_dir_all(&test_dir).await {
+            return Err(anyhow::anyhow!(
+                "Couldn't create a test directory to {}: {e}. Try adjusting store_verifiable_results to a writable directory (currently {})", test_dir.to_string_lossy(), path.to_string_lossy()
+            ).into());
+        }
+        let test_path = test_dir.join("example.json");
+        if let Err(e) = tokio::fs::write(&test_path, "{}").await {
+            return Err(anyhow::anyhow!(
+                "Couldn't write a test file to {}: {e}. Try adjusting store_verifiable_results to a writable directory (currently {})", test_path.to_string_lossy(), path.to_string_lossy()
+            ).into());
+        }
+
+        // Try cleaning up our test file, but don't care too much if this fails. The important part is that we can write files.
+        let _ = tokio::fs::remove_file(&test_path).await;
+        let _ = tokio::fs::remove_dir(&test_dir).await;
+    }
+
+    let available_parallelism = std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
+    info!("Available parallelism: {available_parallelism}");
+    let default_parallelism = available_parallelism.saturating_add(available_parallelism.get());
+    let parallelism_per_request = app_cfg
+        .crypto_parallelism_per_request
+        .unwrap_or(default_parallelism);
+    info!("Per-request parallelism: {parallelism_per_request}");
+    let server_parallelism = app_cfg
+        .crypto_parallelism_per_server
+        .unwrap_or(default_parallelism);
+    info!("Server-wide parallelism: {server_parallelism}");
+    let server_parallelism_limit = Arc::new(Semaphore::new(server_parallelism.get()));
+
     Ok(Arc::new(SynthClientState {
         app_cfg,
         is_serving_https: server_cfg.main.tls_config.is_some(),
@@ -123,6 +181,9 @@ async fn reconfigure(
         certs,
         synthclient_version,
         persistence_connection,
+        web_cache,
+        parallelism_per_request,
+        server_parallelism_limit,
     }))
 }
 
@@ -142,11 +203,11 @@ impl ScreenSource {
         }
     }
 
-    fn parse(path: &str) -> Option<Self> {
-        match path {
-            "/v1/screen" => Some(Self::Fasta),
-            "/v1/demo" => Some(Self::FastaDemo),
-            "/v1/ncbi" => Some(Self::Ncbi),
+    fn new(path: &str, require_captcha: bool) -> Option<Self> {
+        match (path, require_captcha) {
+            (concat!("/v", api_version!(), "/screen"), false) => Some(Self::Fasta),
+            (concat!("/v", api_version!(), "/screen"), true) => Some(Self::FastaDemo),
+            (concat!("/v", api_version!(), "/ncbi"), _) => Some(Self::Ncbi),
             _ => None,
         }
     }
@@ -160,19 +221,15 @@ async fn respond(
     let method = request.method().clone();
     let headers = request.headers().clone();
     let path = request.uri().path();
-    let real_ip = headers
-        .get("X-Real-Ip")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<IpAddr>().ok())
-        .unwrap_or(peer.ip());
+    let screen_source = ScreenSource::new(path, sc_state.app_cfg.require_captcha);
 
-    let mut response = match (method, ScreenSource::parse(path), path) {
+    let mut response = match (method, screen_source, path) {
         (Method::OPTIONS, _, _) => response::empty(),
         (Method::GET, _, "/version") => query_server_version(&sc_state).await,
-        (Method::GET, _, "/") => index(&sc_state, request),
+        (Method::GET, _, _path) => proxy_web_interface(&sc_state, request).await,
         (Method::POST, Some(source), _) => {
             let mut provider_reference: Option<String> = None;
-            match screen(source, &sc_state, real_ip, request, &mut provider_reference).await {
+            match screen(source, &sc_state, peer, request, &mut provider_reference).await {
                 Ok(api_response) => json_api_response(StatusCode::OK, api_response),
                 Err(api_error) => json_api_error(api_error, provider_reference),
             }
@@ -252,32 +309,31 @@ async fn check_and_extract_json_body(body: Incoming, size_limit: u64) -> Result<
     Ok(bytes)
 }
 
-fn index(state: &SynthClientState, request: Request<Incoming>) -> GenericResponse {
-    let host = request
-        .headers()
-        .get(hyper::header::HOST)
-        .and_then(|hv| std::str::from_utf8(hv.as_bytes()).ok())
-        .map(|host| {
-            if state.is_serving_https || forwarded_from_https(request.headers()) {
-                format!("https://{host}")
-            } else {
-                format!("http://{host}")
-            }
-        });
-
-    if let Some(host) = host {
-        let mut url = state.app_cfg.frontend_url.clone();
-        url.query_pairs_mut().append_pair("api", host.as_str());
-        response::see_other(url.as_str())
-    } else {
-        response::see_other(state.app_cfg.frontend_url.as_str())
-    }
+async fn proxy_web_interface(
+    state: &SynthClientState,
+    request: Request<Incoming>,
+) -> GenericResponse {
+    state
+        .web_cache
+        .get(request.uri().path())
+        .await
+        .unwrap_or_else(|_| {
+            json_api_error(
+                match request.uri().path() {
+                    "" | "/" | "/index.html" => {
+                        ApiError::root_not_found(&state.app_cfg.frontend_url)
+                    }
+                    _ => ApiError::not_found(request.uri()),
+                },
+                None,
+            )
+        })
 }
 
 async fn screen(
     source: ScreenSource,
     state: &SynthClientState,
-    real_ip: IpAddr,
+    peer: SocketAddr,
     request: Request<Incoming>,
     out_provider_reference: &mut Option<String>,
 ) -> Result<ApiResponse, ApiError> {
@@ -289,20 +345,20 @@ async fn screen(
         m.requests.inc();
     }
 
-    let (sequence, common, request_id) = match source {
+    let (fasta, common, request_id) = match source {
         ScreenSource::Ncbi => {
             let CheckNcbiRequest { id, common } = serde_json::from_slice(&body)?;
             out_provider_reference.clone_from(&common.provider_reference);
             let request_id = init_request(&common).await;
 
             info!("{request_id}: begin fetching {id} from NCBI");
-            let sequence = download_fasta_by_acc_number(&request_id, id).await?;
+            let fasta = download_fasta_by_acc_number(&request_id, id).await?;
             info!(
                 "{}: begin checking NCBI FASTA (length {})",
                 request_id,
-                sequence.len()
+                fasta.len()
             );
-            (sequence, common, request_id)
+            (fasta, common, request_id)
         }
         ScreenSource::Fasta | ScreenSource::FastaDemo => {
             let CheckFastaRequest { fasta, common } = serde_json::from_slice(&body)?;
@@ -310,7 +366,7 @@ async fn screen(
             let request_id = init_request(&common).await;
 
             if source == ScreenSource::FastaDemo {
-                let client_ip = real_ip;
+                let client_ip = peer.ip();
                 let recaptcha_token = str_param(&parts.uri, "recaptcha_token").unwrap_or_default();
 
                 info!(
@@ -325,6 +381,10 @@ async fn screen(
             (fasta, common, request_id)
         }
     };
+
+    let (service, worker) = http_client::securedna_service_and_worker(request_id.clone())?;
+    let service = force_http_if(service, state.app_cfg.use_http);
+    let api_client = service.into();
 
     let debug_info = bool_param(&parts.uri, "debug_info");
 
@@ -362,32 +422,71 @@ async fn screen(
         .collect::<Result<Vec<_>, _>>()?;
 
     for WithOtps { et, .. } in &ets {
-        et.path_to_leaf().map_err(|err| InvalidClientTokenBundle {
-            error: err,
-            token_kind: certificates::TokenKind::Exemption,
-        })?;
+        et.path_to_cert_with_hierarchy_level(&HierarchyKind::Intermediate, &SystemClock)
+            .map_err(|err| InvalidClientTokenBundle {
+                error: err,
+                token_kind: certificates::TokenKind::Exemption,
+            })?;
     }
 
+    let fasta_sha3_256_hex = hex::encode(Sha3_256::new().chain_update(&body).finalize());
+
     let config = CheckerConfiguration {
+        api_client,
         server_selector: Arc::clone(&state.server_selector),
-        certs: Arc::clone(&state.certs),
-        include_debug_info: debug_info,
         metrics: state.metrics.as_ref().map(Arc::clone),
-        region: common.region,
         limit_config: state.limit_config(source.screening_type()),
-        use_http: state.app_cfg.use_http,
-        provider_reference: common.provider_reference,
         synthclient_version_hint: &state.synthclient_version,
-        ets,
         server_version_handler,
+        params: ScreeningParams {
+            certs: Arc::clone(&state.certs),
+            include_debug_info: debug_info,
+            region: common.region.into(),
+            verifiable_screening: common.verifiable_screening,
+            ets,
+            fasta_sha3_256_hex,
+            synthclient_version: state.synthclient_version.clone(),
+        },
+        provider_reference: common.provider_reference,
+        parallelism_per_request: state.parallelism_per_request,
+        server_parallelism_limit: state.server_parallelism_limit.clone(),
     };
 
-    let api_response = check_fasta::<NucleotideAmbiguous>(&request_id, sequence, &config).await?;
+    let check_fasta = check_fasta::<NucleotideAmbiguous>(&request_id, fasta, &config);
+    let api_response = tokio::join!(check_fasta, worker).0?;
 
     info!(
         "{}: finished, status = {:?}",
         request_id, api_response.synthesis_permission
     );
+
+    if let Some(path) = &state.app_cfg.store_verifiable_results {
+        let time = time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .map_err(|e| {
+                info!("{request_id}: can't format timestamp: {e}");
+                ApiError::generic_internal_server_error()
+            })?
+            .replace(':', "_");
+        let subpath = path.join(time);
+        let _ = tokio::fs::create_dir_all(&subpath).await;
+        tokio::fs::write(subpath.join("request.json"), body)
+            .await
+            .map_err(|e| {
+                info!("{request_id}: can't write request to disk: {e}");
+                ApiError::generic_internal_server_error()
+            })?;
+        let response = serde_json::to_string(&api_response).map_err(|e| {
+            info!("{request_id}: can't convert response to JSON: {e}");
+            ApiError::generic_internal_server_error()
+        })?;
+        tokio::fs::write(subpath.join("response.json"), response)
+            .await
+            .map_err(|e| {
+                info!("{request_id}: can't write response to disk: {e}");
+                ApiError::generic_internal_server_error()
+            })?;
+    }
 
     Ok(api_response)
 }
@@ -481,35 +580,11 @@ fn json_api_error(api_error: ApiError, provider_reference: Option<String>) -> Ge
         synthesis_permission: SynthesisPermission::Denied,
         provider_reference,
         hits_by_record: vec![],
+        verifiable: None,
         warnings: vec![],
         errors: vec![api_error],
         debug_info: None,
     };
 
     json_api_response(status_code, api_response)
-}
-
-/// Try to discern whether the user is accessing us from an https url, using the
-/// Forwarded, X-Forwarded-Proto(col), and X-Forwarded-SSL headers
-fn forwarded_from_https(headers: &HeaderMap) -> bool {
-    if let Some(fwd) = headers.get(hyper::header::FORWARDED) {
-        static PROTO_HTTPS: Lazy<BytesRegex> =
-            Lazy::new(|| BytesRegex::new(r"(?i)proto=https").unwrap());
-        PROTO_HTTPS.is_match(fwd.as_bytes())
-    } else if let Some(x_fwd_proto) = headers
-        .get("x-forwarded-proto")
-        .or_else(|| headers.get("x-forwarded-protocol"))
-        .or_else(|| headers.get("x-url-scheme"))
-    {
-        static HTTPS: Lazy<BytesRegex> = Lazy::new(|| BytesRegex::new(r"(?i)https").unwrap());
-        HTTPS.is_match(x_fwd_proto.as_bytes())
-    } else if let Some(x_fwd_ssl) = headers
-        .get("x-forwarded-ssl")
-        .or_else(|| headers.get("front-end-https"))
-    {
-        static ON: Lazy<BytesRegex> = Lazy::new(|| BytesRegex::new(r"(?i)on").unwrap());
-        ON.is_match(x_fwd_ssl.as_bytes())
-    } else {
-        false
-    }
 }

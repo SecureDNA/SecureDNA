@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -51,4 +51,14 @@ for (const dir of outDirs) {
   } else {
     console.warn(`outDir ${dir} missing!`);
   }
+}
+
+// XXX: Remove when wasm-bindgen merges https://github.com/rustwasm/wasm-bindgen/pull/4488
+const dtsPath = "crates/wasm_bindings/screening/pkg/screening_wasm.d.ts";
+if (fs.existsSync(dtsPath)) {
+  const dts = fs.readFileSync(dtsPath, "utf-8");
+  fs.writeFileSync(
+    dtsPath,
+    dts.replaceAll(/readonly (\w+::\w+)/g, (_, name) => `readonly "${name}"`),
+  );
 }

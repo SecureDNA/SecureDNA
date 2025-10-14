@@ -1,16 +1,16 @@
 [main]
 address = "127.0.0.1:8080"
 # IPv6 addresses are supported
-#address = "[::1]:8080"
+# address = "[::1]:8080"
 
 # (optional) Address to listen on for incoming TLS connections.
-#tls_address = "127.0.0.1:8090"
+# tls_address = "127.0.0.1:8090"
 
 # (optional) Path to TLS certificate in PEM format.
-#tls_certificate = "tls/cert.pem"
+# tls_certificate = "tls/cert.pem"
 
 # (optional) Path to TLS private key in PEM format.
-#tls_private_key = "tls/key.pem"
+# tls_private_key = "tls/key.pem"
 
 # Maximum number of simultaneous HTTP connections
 # max_connections = 16384
@@ -19,40 +19,43 @@ address = "127.0.0.1:8080"
 database = "data/hdb"
 
 # (optional) Maximum simultaneous hashing/encryption requests before 503 unavailable is returned
-#max_heavy_clients = 512
+# max_heavy_clients = 512
 
 # (optional) Maximum parallel HDB queries
-#disk_parallelism_per_server = 4096
+# disk_parallelism_per_server = 4096
 
 # (optional) Size of query queue per request
-#disk_parallelism_per_request = 256
+# disk_parallelism_per_request = 256
 
 # (optional) Path to a JSON file describing a hash spec
-#hash_spec_path = "hash_spec.json"
+# hash_spec_path = "hash_spec.json"
 
 # (optional) Yubico API client ID. This is a short digit string, used to verify YubiKey OTPs
 # when handling an order with a 2FA-enabled exemption. If set to the string 'allow_all',
 # all YubiKey OTPs are treated as valid.
-#yubico_api_client_id = ""
+# yubico_api_client_id = ""
 
 # (optional) Yubico API secret key. This is a base-64 string,
 # used to verify YubiKey OTPs when handling an order with a 2FA-enabled exemption.
-#yubico_api_secret_key = ""
+# yubico_api_secret_key = ""
 
 # (optional) Size limit for JSON request bodies in SCEP
-#scep_json_size_limit = 100000
+# scep_json_size_limit = 100_000
+
+# (optional) Size limit for window/hash bodies in SCEP.
+# scep_hash_limit = 1_000_000
 
 # (optional) Size limit for exemption tokens
-#et_size_limit = 100000
+# et_size_limit = 100_000
 
-# Directory containing exemption root certs for SCEP exemption token chain verification
+# Directory containing exemption root certs for SCEP exemption token verification
 exemption_roots = "certs/exemption-roots/"
 
 # Directory containing manufacturer root certs for SCEP client cert verification
 manufacturer_roots = "certs/manufacturer-roots/"
 
 # (optional) Path to certificate revocation list TOML file
-#revocation_list = "revocation_list.toml"
+# revocation_list = "revocation_list.toml"
 
 # Path to the database's token and certificate chain bundle file, used for SCEP
 token_file = "database-token.dt"
@@ -60,47 +63,74 @@ token_file = "database-token.dt"
 # Path to the database's .priv keypair file, used for SCEP
 keypair_file = "database-token.priv"
 
-# The file containing the passphrase to decrypt the database's .priv keypair file
+# Path to the file containing the passphrase to decrypt the database's .priv keypair file
 # (keypair_file setting)
 keypair_passphrase_file = "database-token.passphrase"
 
+# (optional) Path to the verifier token and cert chain file, used for verifiable screening
+# verifier_token_file = "verifier-token.vt"
+
+# (optional) Path to the verifier keypair file, used for verifiable screening
+# verifier_keypair_file = "verifier-token.priv"
+
+# (optional) Path to the verifier passphrase file, used for verifiable screening
+# verifier_keypair_passphrase_file = "verifier-token.passphrase"
+
+# Path to TOTP.cert, the certificate of the TOTP server
+totp_cert_file = "certs/TOTP.cert"
+
+# Path to a file containing the access password to talk to the PI token server
+totp_access_passphrase_file = "totp-access.passphrase"
+
+# (optional) URL to the verifiable screening public key history that will be signed into verifiable screening responses
+# verifier_history_url = "https://github.com/SecureDNA/verifiable-screening"
+
+# (optional) URL to the verifiable screening public key history that will be signed into verifiable screening responses
+# verifier_history_url = "https://github.com/SecureDNA/verifiable-screening"
+
+# (optional) Sendgrid API, for sending audit emails.
+# audit_sendgrid_api_key_file = ""
+
+# (optional) Template for auditing emails.
+# audit_template_file = "audit-email-template.toml"
+
 # (optional) Do not set the `secure` flag on session cookies, allowing them to be transported
 # over http://. This is useful for local testing.
-#allow_insecure_cookie = false
+# allow_insecure_cookie = false
 
 # (optional) Writable path where the server can persist event store data (ratelimits, client
 # versions, etc). The default is :memory:, which is an in-memory store that will be erased on
 # shutdown.
-#event_store_path = ":memory:"
+# event_store_path = ":memory:"
 
 
-#[monitoring]
-#address = "127.0.0.1:8081"
+# [monitoring]
+# address = "127.0.0.1:8081"
 
 # (optional) Address to listen on for incoming TLS connections.
-#tls_address = "127.0.0.1:8091"
+# tls_address = "127.0.0.1:8091"
 
 # (optional) Path to TLS certificate in PEM format.
-#tls_certificate = "tls/cert.pem"
+# tls_certificate = "tls/cert.pem"
 
 # (optional) Path to TLS private key in PEM format.
-#tls_private_key = "tls/key.pem"
+# tls_private_key = "tls/key.pem"
 
 # Maximum number of simultaneous HTTP connections
 # max_connections = 16384
 
 
-#[control]
-#address = "127.0.0.1:8082"
+# [control]
+# address = "127.0.0.1:8082"
 
 # (optional) Address to listen on for incoming TLS connections.
-#tls_address = "127.0.0.1:8092"
+# tls_address = "127.0.0.1:8092"
 
 # (optional) Path to TLS certificate in PEM format.
-#tls_certificate = "tls/cert.pem"
+# tls_certificate = "tls/cert.pem"
 
 # (optional) Path to TLS private key in PEM format.
-#tls_private_key = "tls/key.pem"
+# tls_private_key = "tls/key.pem"
 
 # Maximum number of simultaneous HTTP connections
 # max_connections = 16384

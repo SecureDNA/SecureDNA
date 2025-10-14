@@ -1,11 +1,12 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::future::Future;
 
 use certificates::revocation::RevocationList;
 use certificates::{
-    key_traits::CanLoadKey, KeyPair, PublicKey, SynthesizerTokenGroup, TokenBundle, TokenGroup,
+    key_traits::CanLoadSigningKey, PublicKey, SigningKeyPair, SynthesizerTokenGroup, TokenBundle,
+    TokenGroup,
 };
 use hyper::{body::Incoming, Request, StatusCode};
 use minhttp::response::GenericResponse;
@@ -13,15 +14,18 @@ use shared_types::hash::HashSpec;
 use tokio::sync::RwLock;
 use tracing::info;
 
+use scep::cookie::SessionCookie;
 use scep::states::{ServerSessions, ServerStateForClient};
+use scep::version::ClientVersion;
 
 pub struct ServerState<T: TokenGroup> {
     pub clients: RwLock<ServerSessions<ServerStateForClient>>,
     pub json_size_limit: u64,
+    pub request_hash_limit: u64,
     pub manufacturer_roots: Vec<PublicKey>,
     pub revocation_list: RevocationList,
     pub token_bundle: TokenBundle<T>,
-    pub keypair: KeyPair,
+    pub keypair: SigningKeyPair,
     /// Do not set the `secure` flag on session cookies, so they can be transported over http://
     /// Useful for local testing.
     pub allow_insecure_cookie: bool,
@@ -43,7 +47,7 @@ pub async fn scep_endpoint_open<
 ) -> Result<GenericResponse, scep::error::ScepError<scep::error::ServerPrevalidation>>
 where
     T: TokenGroup + Clone + std::fmt::Debug,
-    T::Token: CanLoadKey + Clone + std::fmt::Debug,
+    T::Token: CanLoadSigningKey + Clone + std::fmt::Debug,
     T::AssociatedRole: std::fmt::Debug,
     T::ChainType: std::fmt::Debug,
     GetClientVersion: FnOnce(certificates::Id) -> GetClientVersionFut,
@@ -86,18 +90,20 @@ where
             ))
         })?;
 
-    record_open_event(token_bundle, protocol_version).await;
+    record_open_event(token_bundle, protocol_version.into()).await;
 
     let mut response =
         minhttp::response::json(StatusCode::OK, serde_json::to_string(&response).unwrap());
-    response.headers_mut().append(
-        hyper::header::SET_COOKIE,
-        session_cookie
-            .to_http_cookie(server_state.allow_insecure_cookie)
-            .to_string()
-            .parse()
-            .unwrap(),
-    );
+    if protocol_version == ClientVersion::V1 {
+        response.headers_mut().append(
+            hyper::header::SET_COOKIE,
+            session_cookie
+                .to_http_cookie(server_state.allow_insecure_cookie)
+                .to_string()
+                .parse()
+                .unwrap(),
+        );
+    }
     Ok(response)
 }
 
@@ -123,7 +129,7 @@ where
 {
     // delay warning about the cookie until we know the client is even speaking the right protocol
     // (we don't want logspam from bots)
-    let cookie = crate::request::get_session_cookie(request.headers());
+    let cookie = SessionCookie::from_request_http_headers(request.headers());
     let body =
         crate::request::check_and_extract_json_body(server_state.json_size_limit, request).await?;
     let cookie = cookie?;
@@ -139,16 +145,19 @@ where
             scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
         })?;
 
-    let client_state = scep::steps::server_authenticate_client(
-        authenticate_request,
-        client_state,
-        server_version,
-        &server_state.manufacturer_roots,
-        &server_state.revocation_list,
-        get_client_screened_last_day,
-        record_rate_limit_exceedance,
-    )
-    .await?;
+    let client_state =
+        scep::steps::server_authenticate_client(scep::steps::ServerAuthenticateClientParams {
+            authenticate_request,
+            client_state,
+            server_version,
+            server_cert_chain: &server_state.token_bundle,
+            issuer_pks: &server_state.manufacturer_roots,
+            revocation_list: &server_state.revocation_list,
+            request_hash_limit: server_state.request_hash_limit,
+            get_client_screened_last_day,
+            record_rate_limit_exceedance,
+        })
+        .await?;
 
     let session_cookie = client_state.cookie();
 

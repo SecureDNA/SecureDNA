@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! base64-encoded client / server nonces with prefixes
@@ -62,9 +62,7 @@ impl Nonce {
 impl Distribution<Nonce> for rand::distributions::Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Nonce {
         loop {
-            let mut bytes: [u8; 32] = Default::default();
-            rng.fill_bytes(&mut bytes);
-            if let Some(nonce) = Nonce::new(bytes) {
+            if let Some(nonce) = Nonce::new(rng.gen()) {
                 return nonce;
             }
         }

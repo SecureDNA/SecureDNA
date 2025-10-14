@@ -12,27 +12,28 @@ centralized_keygen = []
 [dependencies]
 anyhow = "1.0.75"
 bitvec = "1.0.1"
-clap = { version = "4.5.0", features = ["derive", "cargo"] }
-flate2 = "1.0.27"
-half = "2.4.0"
+clap = { version = "4.5.0", features = ["derive", "cargo", "env"] }
+flate2 = "1.1.0"
+half = "2.6.0"
 hex = "0.4"
-indexmap = "2.2.0"
-itertools = "0.13.0"
-metrics = "0.23.0"
+indexmap = "2.9.0"
+itertools = "0.14.0"
+metrics = "0.24.0"
 rand = "0.8.5"
 rayon = "1.10.0"
 serde = { workspace = true }
 serde_json = "1"
-thiserror = "1.0.47"
+thiserror = "2.0.3"
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 
 certificates = { path = "../certificates" }
 doprf = { path = "../doprf" }
+hdb_api = { path = "../hdb_api" }
 pipeline_bridge = { path = "../pipeline_bridge" }
 shared_types = { path = "../shared_types" }
 
 [dev-dependencies]
-insta = { version = "1.39.0", features = ["yaml"] }
+insta = { version = "1.43.0", features = ["yaml"] }
 quickcheck = "1.0"
-tempfile = "3.6.0"
+tempfile = "3.19.0"

@@ -1,0 +1,73 @@
+#!/bin/bash
+# Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+# Packages synthclient for linux systems using .rpm
+#
+# Building an rpm: https://www.redhat.com/sysadmin/create-rpm-package
+#
+# Requires: rpmbuild (on ubuntu, apt install rpm)
+#
+# See https://stackoverflow.com/questions/59248180/how-to-install-rpmdev-tools-on-ubuntu , we're using
+# an abbreviated build style
+
+set -euo pipefail
+
+# Example usage: ./package-rpm 1.0.5 securedna/target/release arm64
+VERSION="$1"
+SYNTHCLIENT_TARGET_DIR="$2"
+ARCH="$3"
+
+# ARCH must be x86_64 or aarch64
+if ! [[ "$ARCH" == "x86_64" || "$ARCH" == "aarch64" ]]
+then
+  echo "Please specify x86_64 or aarch64"
+  exit 0
+fi
+
+# Set up deps for building .rpm
+sudo apt-get update -yqq
+sudo apt-get install -y rpm
+
+echo "Set up dirs and paths"
+INPUT_PACKAGE_ROOT=.rpmpkg
+RPMBUILD_DIR="$INPUT_PACKAGE_ROOT/rpm"
+SPEC_PATH="$INPUT_PACKAGE_ROOT/synthclient-$VERSION.spec"
+mkdir -p "$INPUT_PACKAGE_ROOT"
+mkdir -p "$RPMBUILD_DIR"
+
+# Move binaries over
+echo "Copying binaries"
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+BINARIES="$(cat "$SCRIPT_DIR/package-binaries-list")"
+for binary in $BINARIES; do cp -p "$SYNTHCLIENT_TARGET_DIR/$binary" "$RPMBUILD_DIR"; done
+
+# template for rpm SPEC file
+echo "Writing SPEC file"
+{
+    echo "Summary: Client-side part of the SecureDNA synthesis screening system and related utilities"
+    echo "Name: synthclient"
+    echo "Version: $VERSION"
+    echo "Release: 1%{?dist}"
+    echo "License: MIT"
+    echo "Packager: SecureDNA Stiftung (SecureDNA Foundation)"
+    echo "BuildArch: $ARCH"
+    echo "%description"
+    echo "Client-side part of the SecureDNA synthesis screening system and related utilities"
+    echo "%prep"
+    echo "%build"
+    echo "%install"
+    echo "mkdir -p %{buildroot}/usr/bin"
+    for binary in $BINARIES; do echo "cp -p $RPMBUILD_DIR/$binary %{buildroot}/usr/bin/"; done
+    echo "%files"
+    echo "%defattr(-, root, root)"
+    for binary in $BINARIES; do echo "/usr/bin/$binary"; done
+} > "$SPEC_PATH"
+
+cat "$SPEC_PATH"
+
+echo "Building .rpm"
+rpmbuild -bb --build-in-place --define "_topdir $(pwd)/$RPMBUILD_DIR" "$SPEC_PATH"
+cp -p "$RPMBUILD_DIR/RPMS/$(uname -m)"/*.rpm .
+
+#EOF

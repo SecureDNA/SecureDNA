@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Crate for interfacing with the output of the pipeline.
@@ -190,4 +190,45 @@ pub struct BuildTrace {
     pub hdb_git_sha: String,
     pub hlt_tags_modified_git_sha: Option<String>,
     pub previous_build_info: Option<Box<BuildTrace>>,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    /// DO NOT remove any tags from this test. This crate must be able to read all tags which have
+    /// ever appeared in an hdb, for general backwards compatibility and to be able to run analysis
+    /// on old hdb.
+    ///
+    /// If a new variant is added to Tag, the match will fail at compile-time (with a nice error
+    /// message).
+    ///
+    /// Even though the match is a compile error, it's placed in a separate test so that it's more
+    /// obvious that there's some danger. A doc comment over the Tag definition might not be
+    /// sufficient.
+    #[test]
+    fn test_tag_backwards_compatibility() {
+        // actual value of `tag` doesn't matter, we just need a variable to
+        // match on
+        let tag = Tag::ArthropodToHuman;
+        match tag {
+            Tag::ArthropodToHuman
+            | Tag::AustraliaGroupHumanAnimalPathogen
+            | Tag::AustraliaGroupPlantPathogen
+            | Tag::Common
+            | Tag::EuropeanUnion
+            | Tag::HumanToHuman
+            | Tag::PotentialPandemicPathogen
+            | Tag::PRCExportControlPart1
+            | Tag::PRCExportControlPart2
+            | Tag::RegulatedButPass
+            | Tag::SdnaLowRiskDNA
+            | Tag::SdnaLowRiskPeptide
+            | Tag::SdnaForceVirusReverseScreening
+            | Tag::SdnaNoFuncPred
+            | Tag::SelectAgentHhs
+            | Tag::SelectAgentUsda
+            | Tag::SelectAgentAphis => {}
+        }
+    }
 }

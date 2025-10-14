@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use goose::prelude::Transaction;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{header::CONTENT_TYPE, Body};
 
-use doprf::prf::{CompletedHashValue, Query};
+use doprf::prf::{CompressedCompletedHashValue, CompressedQuery};
 use packed_ristretto::datatype::HTTP_MIME_TYPE as PACKED_RISTRETTO_MIME_TYPE;
 use streamed_ristretto::HasContentType;
 
@@ -52,9 +52,8 @@ where
 
             user.config.no_metrics = true;
             let started = Instant::now();
-            let mut goose_response = user.request(goose_request).await.map_err(|e| {
+            let mut goose_response = user.request(goose_request).await.inspect_err(|_| {
                 user.config.no_metrics = false;
-                e
             })?;
 
             user.config.no_metrics = false;
@@ -129,7 +128,7 @@ pub fn ks_random_bytes_v2(hash_count: HashCount) -> Transaction {
         HeaderValue::from_static(PACKED_RISTRETTO_MIME_TYPE),
     );
     post("v2/hash", headers, move || {
-        get_random_packed_ristretto::<Query>(hash_count.0).serialize()
+        get_random_packed_ristretto::<CompressedQuery>(hash_count.0).serialize()
     })
 }
 
@@ -140,13 +139,16 @@ pub fn ks_random_bytes_v3(hash_count: HashCount) -> Transaction {
         HeaderValue::from_static(PACKED_RISTRETTO_MIME_TYPE),
     );
     post("v3/hash", headers, move || {
-        get_random_packed_ristretto::<Query>(hash_count.0).serialize()
+        get_random_packed_ristretto::<CompressedQuery>(hash_count.0).serialize()
     })
 }
 
 pub fn ks_random_bytes_v4(hash_count: HashCount) -> Transaction {
     let mut headers = HeaderMap::new();
-    headers.append(CONTENT_TYPE, HeaderValue::from_static(Query::CONTENT_TYPE));
+    headers.append(
+        CONTENT_TYPE,
+        HeaderValue::from_static(CompressedQuery::CONTENT_TYPE),
+    );
     post("v4/hash", headers, move || {
         get_flat_random_byte_array(hash_count.0)
     })
@@ -165,7 +167,7 @@ pub fn ks_repeat_bytes_v2(hash_count: HashCount) -> Transaction {
         CONTENT_TYPE,
         HeaderValue::from_static(PACKED_RISTRETTO_MIME_TYPE),
     );
-    let payload: Bytes = get_random_packed_ristretto::<Query>(hash_count.0)
+    let payload: Bytes = get_random_packed_ristretto::<CompressedQuery>(hash_count.0)
         .serialize()
         .into();
     post("v2/hash", headers, move || payload.clone())
@@ -177,7 +179,7 @@ pub fn ks_repeat_bytes_v3(hash_count: HashCount) -> Transaction {
         CONTENT_TYPE,
         HeaderValue::from_static(PACKED_RISTRETTO_MIME_TYPE),
     );
-    let payload: Bytes = get_random_packed_ristretto::<Query>(hash_count.0)
+    let payload: Bytes = get_random_packed_ristretto::<CompressedQuery>(hash_count.0)
         .serialize()
         .into();
     post("v3/hash", headers, move || payload.clone())
@@ -185,7 +187,10 @@ pub fn ks_repeat_bytes_v3(hash_count: HashCount) -> Transaction {
 
 pub fn ks_repeat_bytes_v4(hash_count: HashCount) -> Transaction {
     let mut headers = HeaderMap::new();
-    headers.append(CONTENT_TYPE, HeaderValue::from_static(Query::CONTENT_TYPE));
+    headers.append(
+        CONTENT_TYPE,
+        HeaderValue::from_static(CompressedQuery::CONTENT_TYPE),
+    );
 
     let payload: Bytes = get_flat_random_byte_array(hash_count.0).into();
     post("v4/hash", headers, move || payload.clone())
@@ -206,15 +211,18 @@ pub fn hdb_random_bytes_v2(hash_count: HashCount) -> Transaction {
         HeaderValue::from_static(PACKED_RISTRETTO_MIME_TYPE),
     );
     post("v2/q", headers, move || {
-        get_random_packed_ristretto::<CompletedHashValue>(hash_count.0).serialize()
+        get_random_packed_ristretto::<CompressedCompletedHashValue>(hash_count.0).serialize()
     })
 }
 
 pub fn hdb_random_bytes_v3(hash_count: HashCount) -> Transaction {
     let mut headers = HeaderMap::new();
-    headers.append(CONTENT_TYPE, HeaderValue::from_static(Query::CONTENT_TYPE));
+    headers.append(
+        CONTENT_TYPE,
+        HeaderValue::from_static(CompressedQuery::CONTENT_TYPE),
+    );
     post("v3/q", headers, move || {
-        get_random_packed_ristretto::<CompletedHashValue>(hash_count.0).serialize()
+        get_random_packed_ristretto::<CompressedCompletedHashValue>(hash_count.0).serialize()
     })
 }
 
@@ -242,7 +250,7 @@ pub fn hdb_repeat_bytes_v2(hash_count: HashCount) -> Transaction {
         CONTENT_TYPE,
         HeaderValue::from_static(PACKED_RISTRETTO_MIME_TYPE),
     );
-    let payload: Bytes = get_random_packed_ristretto::<CompletedHashValue>(hash_count.0)
+    let payload: Bytes = get_random_packed_ristretto::<CompressedCompletedHashValue>(hash_count.0)
         .serialize()
         .into();
     post("v2/q", headers, move || payload.clone())
@@ -254,7 +262,7 @@ pub fn hdb_repeat_bytes_v3(hash_count: HashCount) -> Transaction {
         CONTENT_TYPE,
         HeaderValue::from_static(PACKED_RISTRETTO_MIME_TYPE),
     );
-    let payload: Bytes = get_random_packed_ristretto::<CompletedHashValue>(hash_count.0)
+    let payload: Bytes = get_random_packed_ristretto::<CompressedCompletedHashValue>(hash_count.0)
         .serialize()
         .into();
     post("v3/q", headers, move || payload.clone())

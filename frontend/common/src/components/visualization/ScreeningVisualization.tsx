@@ -1,15 +1,9 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import {
-  faCheck,
-  faCopy,
-  faDownload,
-  faTimes,
-  faWarning,
-} from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faCopy, faDownload } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { ReactNode } from "react";
 import type {
@@ -17,7 +11,7 @@ import type {
   ApiError as ErrorType,
   ApiWarning as WarningType,
 } from "../..";
-import { copyToClipboard, download } from "../..";
+import { Card, copyToClipboard, download } from "../..";
 import { GroupVisualization } from "./GroupVisualization";
 import { ExampleHitRectangle } from "./HitRectangle";
 
@@ -27,15 +21,15 @@ export interface ScreeningVisualizationProps {
 }
 
 const Failure = (props: { children: ReactNode }) => (
-  <div className="bg-red-200 p-4 text-xl text-center">{props.children}</div>
+  <Card flavor="warn">{props.children}</Card>
 );
 
 const Warning = (props: { children: ReactNode }) => (
-  <div className="bg-yellow-200 p-4 text-xl text-center">{props.children}</div>
+  <Card flavor="warn">{props.children}</Card>
 );
 
 const Success = (props: { children: ReactNode }) => (
-  <div className="bg-green-200 p-4 text-xl text-center">{props.children}</div>
+  <Card flavor="primary">{props.children}</Card>
 );
 
 const Button = (props: any) => {
@@ -43,7 +37,7 @@ const Button = (props: any) => {
   return (
     <button
       type="button"
-      className="border text-white border-white hover:opacity-50 transition-opacity rounded-lg p-2"
+      className="border border-black hover:opacity-50 transition-opacity rounded-lg p-2 cursor-pointer"
       {...rest}
     >
       {children}
@@ -56,14 +50,31 @@ interface DiagnosticsProps {
 }
 
 const Diagnostics = ({ diagnostics }: DiagnosticsProps) => (
-  <pre className="whitespace-pre-wrap">
-    {diagnostics.map((x) => `${x.diagnostic}: ${x.additional_info}`).join("\n")}
-  </pre>
+  <div className="max-w-xl text-base whitespace-pre-wrap my-2 text-sm">
+    {diagnostics
+      .map((x) =>
+        x.additional_info
+          ? `${x.diagnostic}: ${x.additional_info}`
+          : x.diagnostic,
+      )
+      .join("\n")}
+  </div>
 );
 
 export const ScreeningVisualization = (props: ScreeningVisualizationProps) => {
   const { result, compact } = props;
   let warnings = undefined;
+
+  const copyJsonButton = (
+    <Button
+      onClick={() =>
+        copyToClipboard("JSON screening result", JSON.stringify(result))
+      }
+    >
+      <FontAwesomeIcon icon={faCopy} className="mx-2" />
+      Copy JSON
+    </Button>
+  );
 
   if ("error" in result) {
     const { description, reason } = result.error;
@@ -71,35 +82,37 @@ export const ScreeningVisualization = (props: ScreeningVisualizationProps) => {
       <Failure>
         An error occurred: {description}
         {reason ? ` (${reason})` : ""}.
+        <br />
+        {!compact && copyJsonButton}
       </Failure>
     );
   }
   if ("errors" in result && result.errors) {
     return (
       <Failure>
-        <FontAwesomeIcon icon={faTimes} className="mr-3" />
-        An error occurred:
-        <br />
+        <h3 className="font-bold mb-2">An error occurred</h3>
         <Diagnostics diagnostics={result.errors} />
+        {!compact && copyJsonButton}
       </Failure>
     );
   }
   if ("warnings" in result && result.warnings) {
     warnings = (
-      <Warning>
-        <FontAwesomeIcon icon={faWarning} className="mr-3" />
-        Warnings:
-        <br />
+      <div>
+        <h3 className="font-bold mb-2">Warnings</h3>
         <Diagnostics diagnostics={result.warnings} />
-      </Warning>
+      </div>
     );
   }
   if (result.synthesis_permission === "granted") {
     return (
       <Success>
         {warnings}
-        <FontAwesomeIcon icon={faCheck} className="mr-3" />
-        Permission granted
+        <p className="my-2">
+          <FontAwesomeIcon icon={faCheck} className="mr-3" />
+          Permission granted
+        </p>
+        {!compact && copyJsonButton}
       </Success>
     );
   }
@@ -107,8 +120,9 @@ export const ScreeningVisualization = (props: ScreeningVisualizationProps) => {
   if (!groupCount) {
     return (
       <Failure>
-        <FontAwesomeIcon icon={faTimes} className="mr-3" />
-        Your request was denied, but no further information is available.
+        <p className="my-2">Your request was denied.</p>
+        {warnings}
+        {!compact && copyJsonButton}
       </Failure>
     );
   }
@@ -116,25 +130,14 @@ export const ScreeningVisualization = (props: ScreeningVisualizationProps) => {
   return (
     <div className="flex flex-col">
       {!compact && (
-        <div className="bg-primary text-white rounded-lg py-4 px-8">
+        <div className="bg-primary rounded-lg py-4 px-8">
           {warnings}
-          <div className="p-4 text-white text-xl text-center">
-            <FontAwesomeIcon icon={faTimes} className="mr-3" />
+          <div className="p-4 text-xl text-center">
             Your request was denied. Detected hazards are shown below.
           </div>
           <div className="flex justify-between">
             <div className="flex space-x-2 items-end">
-              <Button
-                onClick={() =>
-                  copyToClipboard(
-                    "JSON screening result",
-                    JSON.stringify(result),
-                  )
-                }
-              >
-                <FontAwesomeIcon icon={faCopy} className="mx-2" />
-                Copy JSON
-              </Button>
+              {copyJsonButton}
               <Button
                 onClick={() =>
                   download(
@@ -148,7 +151,7 @@ export const ScreeningVisualization = (props: ScreeningVisualizationProps) => {
                 Download JSON
               </Button>
             </div>
-            <div className="rounded-lg items-center text-white px-8 flex flex-col justify-center">
+            <div className="rounded-lg items-center px-8 flex flex-col justify-center">
               <span>Hover over an organism name to inspect hits:</span>
               <div className="flex mt-2">
                 Wild-type

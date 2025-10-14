@@ -1,15 +1,13 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+import { Button, Card, RemoveButton } from "@securedna/frontend_common";
 import type { FieldArrayRenderProps } from "formik";
 import { enCountryNames } from "src/data/countries";
 import { type ShippingAddress, emptyShippingAddress } from "src/types";
-
-import { Button } from "./Button";
 import { FormInput, FormSelect, FormTextArea } from "./FormInput";
-import { RemoveButton } from "./RemoveButton";
 
 export interface ShippingAddressesProps {
   /// From Formik's FieldArray `render`: https://formik.org/docs/api/fieldarray
@@ -26,14 +24,7 @@ export const ShippingAddresses = (props: ShippingAddressesProps) => {
     <>
       <div className="my-4">
         {shippingAddresses.map((address, index) => (
-          <div
-            key={address.id}
-            className={
-              shippingAddresses.length > 0
-                ? "first:rounded-t-xl last:rounded-b-xl bg-primary/10 p-5 border border-primary"
-                : ""
-            }
-          >
+          <Card flavor="primary" key={address.id}>
             {
               <div className="flex flex-row space-x-4">
                 <h3 className="text-lg font-bold ml-1 mr-auto">
@@ -89,7 +80,7 @@ export const ShippingAddresses = (props: ShippingAddressesProps) => {
               label="Institution / Organization"
               name={`shippingAddresses.${index}.institution`}
             />
-          </div>
+          </Card>
         ))}
       </div>
       <Button

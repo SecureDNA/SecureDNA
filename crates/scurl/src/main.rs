@@ -1,31 +1,41 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{
     fmt,
+    future::Future,
     path::PathBuf,
     sync::{Arc, OnceLock},
 };
 
 use anyhow::{Context, Result};
 use clap::{ArgAction, CommandFactory, FromArgMatches, Parser};
-use scep::{error::ClientPrevalidation, states::OpenedClientState};
+use scep::{
+    error::ClientPrevalidation, states::OpenedClientState, types::VerifiableScreeningRequested,
+};
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{error, Level};
 use tracing_subscriber::FmtSubscriber;
 
-use certificates::{key_traits::CanLoadKey, DatabaseTokenGroup, KeyserverTokenGroup, TokenGroup};
+use certificates::{
+    key_traits::CanLoadSigningKey, DatabaseTokenGroup, KeyserverTokenGroup, TokenGroup,
+};
 use doprf::{
     party::KeyserverId,
     prf::{CompletedHashValue, Query},
     tagged::{HashTag, TaggedHash},
 };
-use http_client::{BaseApiClient, HttpError, HttpsToHttpRewriter};
+use hdb_api::HdbScreeningResult;
+use http_client::body::Json;
+use http_client::{service::util::force_http_if, BaseApiClient, HttpError};
 use packed_ristretto::PackedRistrettos;
-use scep_client_helpers::{ClientCerts, ScepClient};
+use scep::cookie::SessionCookie;
+use scep::version::ClientVersion;
+use scep_client_helpers::{
+    scep_client::HdbOpenParams, ClientCerts, ScepClient, ScepClientOpenCommon,
+};
 use securedna_versioning::version::get_version;
 use shared_types::{
-    hdb::HdbScreeningResult,
     requests::RequestId,
     server_selection::{
         HdbQualificationResponse, KeyserverQualificationResponse, QualificationRequest, Tier,
@@ -35,12 +45,15 @@ use shared_types::{
 
 #[derive(Debug, Parser)]
 #[command(
-    version,
+    disable_version_flag = true,
     author,
     about = "A tool for making requests against SecureDNA internal servers.",
     long_about = "scurl (/skɜːrl/) is a command-line utility that allows you to make requests against SecureDNA internal servers using the SSP and (optionally) SCEP protocols. You can specify one or more server URLs manually, or use DNS enumeration."
 )]
 struct Arguments {
+    #[arg(short = 'V', long, help = "Print version information")]
+    version: bool,
+
     #[arg(
         short,
         long,
@@ -131,6 +144,14 @@ struct Arguments {
 
     #[arg(
         long,
+        short = 'l',
+        default_value_t = false,
+        help = "Whether to request verifiable screening in hdbserver requests. This flag has no effect on enumeration or keyserver requests."
+    )]
+    verifiable_screening: bool,
+
+    #[arg(
+        long,
         short,
         action = ArgAction::SetTrue,
         help = "Use the test certificate hierarchy for SCEP, instead of the default production hierarchy.",
@@ -164,19 +185,13 @@ impl Arguments {
     async fn build_config(&self) -> anyhow::Result<Config> {
         let (keyservers, hdbservers) = if let Some(tier) = &self.enumerate {
             if let Some(provider) = &self.dns_over_https {
-                doprf_client::server_selection::enumerate(
-                    &doprf_client::server_selection::dns::DnsOverHttps::new(provider),
-                    tier,
-                    &self.enumeration_apex,
-                )
-                .await
+                let api_client = BaseApiClient::new_external();
+                let dns =
+                    doprf_client::server_selection::dns::DnsOverHttps::new(api_client, provider);
+                doprf_client::server_selection::enumerate(&dns, tier, &self.enumeration_apex).await
             } else {
-                doprf_client::server_selection::enumerate(
-                    doprf_client::server_selection::dns::NativeDns,
-                    tier,
-                    &self.enumeration_apex,
-                )
-                .await
+                let dns = doprf_client::server_selection::dns::NativeDns;
+                doprf_client::server_selection::enumerate(dns, tier, &self.enumeration_apex).await
             }
         } else {
             (self.keyserver.clone(), self.hdbserver.clone())
@@ -219,6 +234,11 @@ impl Arguments {
             request_config: RequestConfig {
                 run_scep: client_certs,
                 use_http: self.use_http,
+                verifiable_screening: if self.verifiable_screening {
+                    VerifiableScreeningRequested::Requested
+                } else {
+                    VerifiableScreeningRequested::NotRequested
+                },
                 fmt: OutputFormat {
                     quiet: self.quiet,
                     compact: self.compact,
@@ -239,6 +259,7 @@ struct RequestConfig {
     /// if Some, run SCEP with these certs. if None, don't run SCEP.
     run_scep: Option<Arc<ClientCerts>>,
     use_http: bool,
+    verifiable_screening: VerifiableScreeningRequested,
     fmt: OutputFormat,
 }
 
@@ -322,6 +343,12 @@ scurl --ssp-only --enumerate prod -z
         }
     };
 
+    if args.version {
+        println!("scurl\t{}", clap::crate_version!());
+        println!("scep protocol\tv{}", ClientVersion::LATEST);
+        std::process::exit(0);
+    }
+
     let subscriber = FmtSubscriber::builder()
         .with_writer(std::io::stderr)
         .with_max_level(match (args.quiet, args.verbose) {
@@ -353,14 +380,19 @@ async fn scurl(config: &Config) -> Result<()> {
     let mut had_error = false;
 
     for server in &config.servers {
-        let result = match server {
-            ServerDomain::Keyserver(domain) => {
-                scurl_one::<KeyserverScurlable>(domain, &config.request_config).await
-            }
-            ServerDomain::Hdbserver(domain) => {
-                scurl_one::<HdbserverScurlable>(domain, &config.request_config).await
+        let (client, worker) = make_http_client(make_request_id(), config.request_config.use_http)?;
+
+        let scurl_one = async {
+            match server {
+                ServerDomain::Keyserver(domain) => {
+                    scurl_one::<KeyserverScurlable>(client, domain, &config.request_config).await
+                }
+                ServerDomain::Hdbserver(domain) => {
+                    scurl_one::<HdbserverScurlable>(client, domain, &config.request_config).await
+                }
             }
         };
+        let (result, ()) = tokio::join!(scurl_one, worker);
         if let Err(err) = result {
             error!("scurl failed for {server}: {err:#}");
             had_error = true;
@@ -374,14 +406,16 @@ async fn scurl(config: &Config) -> Result<()> {
     }
 }
 
-async fn scurl_one<S>(domain: &str, request_config: &RequestConfig) -> Result<()>
+async fn scurl_one<S>(
+    client: BaseApiClient,
+    domain: &str,
+    request_config: &RequestConfig,
+) -> Result<()>
 where
     S: Scurlable,
-    <S::TokenGroup as TokenGroup>::Token: CanLoadKey + std::fmt::Debug,
+    <S::TokenGroup as TokenGroup>::Token: CanLoadSigningKey + std::fmt::Debug,
     S::QualificationResponse: serde::Serialize + serde::de::DeserializeOwned,
 {
-    let client = make_http_client(make_request_id(), request_config.use_http);
-
     ////////////////////////////////////////
     // qualification
     ////////////////////////////////////////
@@ -389,8 +423,8 @@ where
     let url = format!("https://{domain}/qualification");
 
     let request = QualificationRequest { client_version: 0 };
-    let response = client
-        .json_json_post::<_, serde_json::Value>(&url, &request)
+    let Json(response) = client
+        .post(&url, Json(&request))
         .await
         .with_context(|| format!("posting {url}"))?;
 
@@ -418,19 +452,21 @@ where
     );
     let (client, snoop) = ClientSnooper::new(client);
 
-    let opened = S::open(&client, qualification).await.map_err(|err| {
-        if let Some(open) = snoop.open_response() {
-            anyhow::anyhow!("{err}: {}", request_config.fmt.json_to_string(open))
-        } else {
-            anyhow::anyhow!("{err}")
-        }
-    })?;
+    let opened = S::open(&client, qualification, request_config.verifiable_screening)
+        .await
+        .map_err(|err| {
+            if let Some(open) = snoop.open_response() {
+                anyhow::anyhow!("{err}: {}", request_config.fmt.json_to_string(open))
+            } else {
+                anyhow::anyhow!("{err}")
+            }
+        })?;
 
     request_config
         .fmt
         .output("scep::open", domain, snoop.open_response().unwrap());
 
-    S::authenticate(&client, opened).await.map_err(|err| {
+    let session_id = S::authenticate(&client, opened).await.map_err(|err| {
         if let Some(auth) = snoop.auth_response() {
             anyhow::anyhow!("{err}: {}", request_config.fmt.json_to_string(auth))
         } else {
@@ -442,7 +478,7 @@ where
         .fmt
         .output("scep::authenticate", domain, snoop.auth_response().unwrap());
 
-    let out = S::scep_operation(&client).await?;
+    let out = S::scep_operation(&client, session_id).await?;
     request_config
         .fmt
         .output(&format!("scep::{}", S::OPERATION_NAME), domain, &out);
@@ -460,15 +496,17 @@ trait Scurlable {
     async fn open(
         client: &ScepClient<Self::TokenGroup>,
         qualification: Self::QualificationResponse,
+        verifiable_screening: VerifiableScreeningRequested,
     ) -> Result<OpenedClientState, scep_client_helpers::Error<ClientPrevalidation>>;
 
     async fn authenticate(
         client: &ScepClient<Self::TokenGroup>,
         opened_state: OpenedClientState,
-    ) -> Result<(), scep_client_helpers::Error<ClientPrevalidation>>;
+    ) -> Result<SessionCookie, scep_client_helpers::Error<ClientPrevalidation>>;
 
     async fn scep_operation(
         client: &ScepClient<Self::TokenGroup>,
+        session_id: SessionCookie,
     ) -> Result<Self::ScepOperationOutput, HttpError>;
 }
 
@@ -483,25 +521,34 @@ impl Scurlable for KeyserverScurlable {
     async fn open(
         client: &ScepClient<KeyserverTokenGroup>,
         qualification: KeyserverQualificationResponse,
+        _: VerifiableScreeningRequested,
     ) -> Result<OpenedClientState, scep_client_helpers::Error<ClientPrevalidation>> {
         let id = qualification.id;
-        client.open(1, None, vec![id].into(), id, false).await
+        let common = ScepClientOpenCommon {
+            nucleotide_total_count: 1,
+            last_server_version: None,
+            keyserver_id_set: vec![id].into(),
+            debug_info: false,
+        };
+        client.open(common, id).await
     }
 
     async fn authenticate(
         client: &ScepClient<KeyserverTokenGroup>,
         opened_state: OpenedClientState,
-    ) -> Result<(), scep_client_helpers::Error<ClientPrevalidation>> {
+    ) -> Result<SessionCookie, scep_client_helpers::Error<ClientPrevalidation>> {
         client.authenticate(opened_state, 1).await
     }
 
     async fn scep_operation(
         client: &ScepClient<KeyserverTokenGroup>,
+        session_id: SessionCookie,
     ) -> Result<Self::ScepOperationOutput, HttpError> {
         let resp = client
-            .keyserve(&PackedRistrettos::new(vec![
-                Query::hash_from_bytes_for_tests_only(&[1]).into(),
-            ]))
+            .keyserve(
+                session_id,
+                &PackedRistrettos::new(vec![Query::hash_from_bytes_for_tests_only(&[1]).into()]),
+            )
             .await?;
         Ok(hex::encode(resp.encoded_items()[0]))
     }
@@ -518,15 +565,23 @@ impl Scurlable for HdbserverScurlable {
     async fn open(
         client: &ScepClient<DatabaseTokenGroup>,
         _: HdbQualificationResponse,
+        verifiable_screening: VerifiableScreeningRequested,
     ) -> Result<OpenedClientState, scep_client_helpers::Error<ClientPrevalidation>> {
         client
             .open(
-                1,
-                None,
-                vec![KeyserverId::try_from(1).unwrap()].into(),
-                false,
-                Region::All,
-                false,
+                ScepClientOpenCommon {
+                    nucleotide_total_count: 1,
+                    last_server_version: None,
+                    keyserver_id_set: vec![KeyserverId::try_from(1).unwrap()].into(),
+                    debug_info: false,
+                },
+                HdbOpenParams {
+                    region: Region::All,
+                    with_exemption: false,
+                    verifiable: verifiable_screening,
+                    fasta_sha3_256_hex: hex::encode(vec![0u8; 32]),
+                    synthclient_version: "test".to_owned(),
+                },
             )
             .await
     }
@@ -534,19 +589,23 @@ impl Scurlable for HdbserverScurlable {
     async fn authenticate(
         client: &ScepClient<DatabaseTokenGroup>,
         opened_state: OpenedClientState,
-    ) -> Result<(), scep_client_helpers::Error<ClientPrevalidation>> {
+    ) -> Result<SessionCookie, scep_client_helpers::Error<ClientPrevalidation>> {
         client.authenticate(opened_state, 1).await
     }
 
     async fn scep_operation(
         client: &ScepClient<DatabaseTokenGroup>,
+        session_id: SessionCookie,
     ) -> Result<Self::ScepOperationOutput, HttpError> {
         client
-            .screen(&PackedRistrettos::new(vec![TaggedHash {
-                tag: HashTag::new(true, 0, 0),
-                hash: CompletedHashValue::hash_from_bytes_for_tests_only(&[1]),
-            }
-            .into()]))
+            .screen(
+                session_id,
+                &PackedRistrettos::new(vec![TaggedHash {
+                    tag: HashTag::new(true, 0, 0),
+                    hash: CompletedHashValue::hash_from_bytes_for_tests_only(&[1]).compress(),
+                }
+                .into()]),
+            )
             .await
     }
 }
@@ -561,7 +620,7 @@ impl ClientSnooper {
     fn new<T>(client: ScepClient<T>) -> (ScepClient<T>, Self)
     where
         T: TokenGroup + std::fmt::Debug,
-        T::Token: CanLoadKey + std::fmt::Debug,
+        T::Token: CanLoadSigningKey + std::fmt::Debug,
         T::AssociatedRole: std::fmt::Debug,
     {
         let open_response: Arc<OnceLock<serde_json::Value>> = Arc::new(OnceLock::new());
@@ -613,13 +672,13 @@ fn make_request_id() -> RequestId {
 }
 
 /// Builds a new BaseApiClient, using `HttpsToHttpRewriter` if `use_http` is `true`.
-fn make_http_client(request_id: RequestId, use_http: bool) -> BaseApiClient {
-    let api_client = BaseApiClient::new(request_id);
-    if use_http {
-        HttpsToHttpRewriter::inject(api_client)
-    } else {
-        api_client
-    }
+fn make_http_client(
+    request_id: RequestId,
+    use_http: bool,
+) -> Result<(BaseApiClient, impl Future<Output = ()>)> {
+    let (service, worker) = http_client::securedna_service_and_worker(request_id)?;
+    let service = force_http_if(service, use_http);
+    Ok((service.into(), worker))
 }
 
 fn deserialize_or_pretty_error<T: DeserializeOwned + Serialize>(

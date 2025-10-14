@@ -1,0 +1,23 @@
+[package]
+name = "hdb_api"
+edition = "2021"
+license.workspace = true
+version.workspace = true
+publish.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hex = "0.4.3"
+serde.workspace = true
+serde_json = "1.0.117"
+sha3 = "0.10.8"
+thiserror = "2"
+time = "0.3.28"
+
+certificates = { path = "../certificates" }
+pipeline_bridge = { path = "../pipeline_bridge" }
+shared_types = { path = "../shared_types" }
+
+[dev-dependencies]
+assert-json-diff = "2.0.2"

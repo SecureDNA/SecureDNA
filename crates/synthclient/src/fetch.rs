@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use thiserror::Error;
@@ -60,9 +60,9 @@ mod wasm {
     }
 
     pub async fn fetch(url: &str) -> Result<FetchResponse, FetchError> {
-        let mut opts = RequestInit::new();
-        opts.method("GET");
-        opts.mode(RequestMode::Cors);
+        let opts = RequestInit::new();
+        opts.set_method("GET");
+        opts.set_mode(RequestMode::Cors);
         let resp = do_request(url, opts).await?;
         let data = JsFuture::from(resp.text()?).await?.as_string().unwrap();
         let status = resp.status();

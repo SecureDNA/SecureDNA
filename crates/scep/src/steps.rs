@@ -1,7 +1,7 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{cmp::Ordering, collections::HashSet, future::Future};
+use std::{collections::HashSet, future::Future};
 
 use anyhow::Context;
 use rand::Rng;
@@ -15,6 +15,7 @@ use tracing::{info, trace};
 
 use super::mutual_authentication;
 use crate::{
+    cookie::SessionCookie,
     error::{self, ScepError},
     nonce::{ClientNonce, ServerNonce},
     states::{
@@ -25,19 +26,20 @@ use crate::{
         AuthenticateRequest, ClientRequestType, OpenRequest, OpenResponse, ScreenCommon,
         ScreenWithExemptionParams,
     },
+    version::ClientVersion,
 };
-use certificates::revocation::RevocationList;
 use certificates::{
-    key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded},
+    key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded},
     Infrastructure,
 };
+use certificates::{revocation::RevocationList, SystemClock};
 use certificates::{
-    ChainTraversal, DatabaseTokenGroup, ExemptionTokenGroup, Issued, KeyPair, KeyserverTokenGroup,
-    PublicKey, SynthesizerTokenGroup, TokenBundle, TokenGroup,
+    ChainTraversal, DatabaseTokenGroup, ExemptionTokenGroup, Issued, KeyserverTokenGroup,
+    PublicKey, SigningKeyPair, SynthesizerTokenGroup, TokenBundle, TokenGroup,
 };
 use doprf::{
     party::{KeyserverId, KeyserverIdSet},
-    prf::CompletedHashValue,
+    prf::CompressedCompletedHashValue,
 };
 
 pub fn client_initialize(
@@ -52,7 +54,7 @@ pub fn client_initialize(
     let client_nonce: ClientNonce = rand::thread_rng().gen();
 
     let request = OpenRequest {
-        protocol_version: 1,
+        protocol_version: ClientVersion::LATEST,
         version_hint,
         nonce: client_nonce,
         request_type,
@@ -80,7 +82,7 @@ pub async fn server_prevalidate_and_mutual_auth<
     issuer_pks: &[PublicKey],
     server_version: u64,
     server_cert_chain: TokenBundle<ServerTokenKind>,
-    server_keypair: KeyPair,
+    server_keypair: SigningKeyPair,
     hash_spec: HashSpec,
 ) -> Result<
     (OpenResponse<ServerTokenKind>, ServerStateForClient),
@@ -88,30 +90,16 @@ pub async fn server_prevalidate_and_mutual_auth<
 >
 where
     ServerTokenKind: TokenGroup + std::fmt::Debug,
-    ServerTokenKind::Token: CanLoadKey + Clone + std::fmt::Debug,
+    ServerTokenKind::Token: CanLoadSigningKey + Clone + std::fmt::Debug,
     ServerTokenKind::AssociatedRole: std::fmt::Debug,
     ServerTokenKind::ChainType: std::fmt::Debug,
     GetLastClientVersion: FnOnce(certificates::Id) -> GetLastClientVersionFut,
     GetLastClientVersionFut: Future<Output = Option<u64>>,
 {
-    // check version *before* we try to parse as something specific
-    let protocol_version = request
-        .get("protocol_version")
-        .and_then(|v| v.as_u64())
-        .ok_or(ScepError::BadProtocol)?;
-    match protocol_version.cmp(&1) {
-        Ordering::Less => return Err(error::ServerPrevalidation::ClientVersionTooLow.into()),
-        Ordering::Greater => return Err(error::ServerPrevalidation::ClientVersionTooHigh.into()),
-        _ => {}
-    };
-
-    // now we can deserialize and provide error diagnostics
-    let request: OpenRequest = serde_json::value::from_value(request)
-        .context("while parsing request")
-        .map_err(ScepError::InvalidMessage)?;
+    let request = OpenRequest::try_from_json(request)?;
 
     if let Some(last_client_version) = get_last_client_version(request.client_mid()).await {
-        if protocol_version < last_client_version {
+        if u64::from(request.protocol_version) < last_client_version {
             return Err(error::ServerPrevalidation::VersionRollback.into());
         }
     }
@@ -120,7 +108,7 @@ where
     // DO NOT check if cert is revoked yet!
     request
         .cert_chain
-        .validate_path_to_issuers(issuer_pks, None)
+        .validate_path_to_issuers(issuer_pks, None, &SystemClock)
         .map_err(|error| {
             error::ServerPrevalidation::InvalidCert(InvalidClientTokenBundle {
                 error,
@@ -138,15 +126,27 @@ where
         )));
     }
 
-    // generate the server nonce
+    // generate the server nonce and cookie
     let server_nonce: ServerNonce = rand::thread_rng().gen();
+    let cookie: SessionCookie = rand::thread_rng().gen();
 
     // generate and sign the mutual authentication string
-    let server_mutual_auth = mutual_authentication::generate_server_mutual_auth(
-        (server_version, server_nonce),
-        (request.protocol_version, request.nonce),
-        &server_cert_chain,
-    )
+    // VERSION NOTE: since we are the server, we might be dealing with an old client (SCEP v1),
+    // which doesn't include the cookie in mutual-auth strings. so we branch on protocol version here
+    let server_mutual_auth = match request.protocol_version {
+        ClientVersion::V1 => mutual_authentication::v1::generate_server_mutual_auth(
+            (server_version, server_nonce),
+            (request.protocol_version, request.nonce),
+            &server_cert_chain,
+        ),
+        ClientVersion::V2 => mutual_authentication::v2::generate_server_mutual_auth(
+            (server_version, server_nonce),
+            (request.protocol_version, request.nonce),
+            &server_cert_chain,
+            &request.cert_chain,
+            cookie,
+        ),
+    }
     .context("while generating server mutual auth string")
     .map_err(ScepError::InternalError)?;
 
@@ -165,13 +165,15 @@ where
         server_version,
         nonce: server_nonce,
         cert_chain: server_cert_chain,
-        sig: server_mutual_auth_sig,
+        sig: server_mutual_auth_sig.clone(),
         hash_spec,
+        session_id: cookie,
     };
     let client_state = ServerStateForClient::Opened(ServerStateForOpenedClient {
-        cookie: rand::thread_rng().gen(),
+        cookie,
         open_request: request,
         server_nonce,
+        server_mutual_auth_signature: server_mutual_auth_sig,
     });
     Ok((response, client_state))
 }
@@ -179,7 +181,7 @@ where
 fn client_prevalidate_and_mutual_auth<ServerTokenKind>(
     open_response: serde_json::Value,
     client_state: InitializedClientState,
-    client_keypair: KeyPair,
+    client_keypair: SigningKeyPair,
     issuer_pks: &[PublicKey],
     server_specific_validation: impl FnOnce(
         &OpenResponse<ServerTokenKind>,
@@ -187,7 +189,7 @@ fn client_prevalidate_and_mutual_auth<ServerTokenKind>(
 ) -> Result<OpenedClientState, ScepError<error::ClientPrevalidation>>
 where
     ServerTokenKind: TokenGroup<AssociatedRole = Infrastructure> + std::fmt::Debug,
-    ServerTokenKind::Token: CanLoadKey + std::fmt::Debug,
+    ServerTokenKind::Token: CanLoadSigningKey + std::fmt::Debug,
     ServerTokenKind::ChainType: std::fmt::Debug,
 {
     // check version *before* we try to parse as something specific
@@ -218,7 +220,7 @@ where
     // in order to avoid leaking revocations to random unauthenticated strangers.
     open_response
         .cert_chain
-        .validate_path_to_issuers(issuer_pks, None)
+        .validate_path_to_issuers(issuer_pks, None, &SystemClock)
         .map_err(|error| {
             error::ClientPrevalidation::InvalidCert(InvalidInfrastructureTokenBundle {
                 error,
@@ -228,13 +230,17 @@ where
         })?;
 
     // check that server mutual auth is valid
-    let server_mutual_auth = mutual_authentication::generate_server_mutual_auth(
+    // VERSION NOTE: since we are the client, we can unilaterally use SCEP v2 mutual auth here,
+    // since we always talk protocol_version: 2, and we don't support a new client talking
+    // to an old server
+    let client_version = client_state.open_request.protocol_version;
+    assert!(client_version == ClientVersion::V2);
+    let server_mutual_auth = mutual_authentication::v2::generate_server_mutual_auth(
         (open_response.server_version, open_response.nonce),
-        (
-            client_state.open_request.protocol_version,
-            client_state.open_request.nonce,
-        ),
+        (client_version, client_state.open_request.nonce),
         &open_response.cert_chain,
+        &client_state.open_request.cert_chain,
+        open_response.session_id,
     )
     .context("while generating server mutual auth string")
     .map_err(ScepError::InternalError)?;
@@ -249,13 +255,16 @@ where
 
     // TODO: validate HTD entries
 
-    let client_mutual_auth = mutual_authentication::generate_client_mutual_auth(
+    // VERSION NOTE: see above
+    let client_mutual_auth = mutual_authentication::v2::generate_client_mutual_auth(
         (open_response.server_version, open_response.nonce),
-        (
-            client_state.open_request.protocol_version,
-            client_state.open_request.nonce,
-        ),
+        (client_version, client_state.open_request.nonce),
+        &open_response.cert_chain,
         &client_state.open_request.cert_chain,
+        open_response.session_id,
+        // mutual auth signature previously checked, so we know this signature corresponds to
+        // the server's mutual auth (containing the session cookie) at this point
+        &open_response.sig,
     )
     .context("while generating client mutual auth string")
     .map_err(ScepError::InternalError)?;
@@ -272,6 +281,7 @@ where
     server_specific_validation(&open_response)?;
 
     Ok(OpenedClientState {
+        session_id: open_response.session_id,
         client_mutual_auth_sig,
         hash_spec: open_response.hash_spec,
         server_version: open_response.server_version,
@@ -281,7 +291,7 @@ where
 pub fn client_prevalidate_and_mutual_auth_keyserver(
     open_response: serde_json::Value,
     client_state: InitializedClientState,
-    client_keypair: KeyPair,
+    client_keypair: SigningKeyPair,
     issuer_pks: &[PublicKey],
     expected_keyserver_id: KeyserverId,
 ) -> Result<OpenedClientState, ScepError<error::ClientPrevalidation>> {
@@ -309,7 +319,7 @@ pub fn client_prevalidate_and_mutual_auth_keyserver(
 pub fn client_prevalidate_and_mutual_auth_hdb(
     open_response: serde_json::Value,
     client_state: InitializedClientState,
-    client_keypair: KeyPair,
+    client_keypair: SigningKeyPair,
     issuer_pks: &[PublicKey],
 ) -> Result<OpenedClientState, ScepError<error::ClientPrevalidation>> {
     client_prevalidate_and_mutual_auth::<DatabaseTokenGroup>(
@@ -328,26 +338,54 @@ pub fn client_authenticate(state: OpenedClientState, hash_total_count: u64) -> A
     }
 }
 
+pub struct ServerAuthenticateClientParams<'a, ServerTokenKind, GetScreenedLastDay, RecordExceedance>
+where
+    ServerTokenKind: TokenGroup,
+{
+    pub authenticate_request: serde_json::Value,
+    pub client_state: ServerStateForClient,
+    pub server_version: u64,
+    pub server_cert_chain: &'a TokenBundle<ServerTokenKind>,
+    pub issuer_pks: &'a [PublicKey],
+    pub revocation_list: &'a RevocationList,
+    pub request_hash_limit: u64,
+    pub get_client_screened_last_day: GetScreenedLastDay,
+    pub record_rate_limit_exceedance: RecordExceedance,
+}
+
 pub async fn server_authenticate_client<
+    ServerTokenKind,
     GetScreenedLastDay,
     GetScreenedLastDayFut,
     RecordExceedance,
     RecordExceedanceFut,
 >(
-    authenticate_request: serde_json::Value,
-    client_state: ServerStateForClient,
-    server_version: u64,
-    issuer_pks: &[PublicKey],
-    revocation_list: &RevocationList,
-    get_client_screened_last_day: GetScreenedLastDay,
-    record_rate_limit_exceedance: RecordExceedance,
+    params: ServerAuthenticateClientParams<
+        '_,
+        ServerTokenKind,
+        GetScreenedLastDay,
+        RecordExceedance,
+    >,
 ) -> Result<ServerStateForClient, ScepError<error::ServerAuthentication>>
 where
+    ServerTokenKind: TokenGroup,
     GetScreenedLastDay: FnOnce(certificates::Id) -> GetScreenedLastDayFut,
     GetScreenedLastDayFut: Future<Output = Result<u64, anyhow::Error>>,
     RecordExceedance: FnOnce(certificates::Id, u64) -> RecordExceedanceFut,
     RecordExceedanceFut: Future<Output = ()>,
 {
+    let ServerAuthenticateClientParams {
+        authenticate_request,
+        client_state,
+        server_version,
+        server_cert_chain,
+        issuer_pks,
+        revocation_list,
+        request_hash_limit,
+        get_client_screened_last_day,
+        record_rate_limit_exceedance,
+    } = params;
+
     let client_state = match client_state {
         ServerStateForClient::Opened(client_state) => client_state,
         ServerStateForClient::Authenticated(_) => {
@@ -365,14 +403,23 @@ where
             .map_err(ScepError::InvalidMessage)?;
 
     // check client mutual auth signature
-    let client_mutual_auth = mutual_authentication::generate_client_mutual_auth(
-        (server_version, client_state.server_nonce),
-        (
-            client_state.open_request.protocol_version,
-            client_state.open_request.nonce,
+    // VERSION NOTE: as in prevalidate, we need to handle old clients using SCEP v1 mutual auth
+    let client_version = client_state.open_request.protocol_version;
+    let client_mutual_auth = match client_version {
+        ClientVersion::V1 => mutual_authentication::v1::generate_client_mutual_auth(
+            (server_version, client_state.server_nonce),
+            (client_version, client_state.open_request.nonce),
+            &client_state.open_request.cert_chain,
         ),
-        &client_state.open_request.cert_chain,
-    )
+        ClientVersion::V2 => mutual_authentication::v2::generate_client_mutual_auth(
+            (server_version, client_state.server_nonce),
+            (client_version, client_state.open_request.nonce),
+            server_cert_chain,
+            &client_state.open_request.cert_chain,
+            client_state.cookie,
+            &client_state.server_mutual_auth_signature,
+        ),
+    }
     .context("while generating client mutual auth string")
     .map_err(ScepError::InternalError)?;
 
@@ -387,7 +434,7 @@ where
     client_state
         .open_request
         .cert_chain
-        .validate_path_to_issuers(issuer_pks, Some(revocation_list))
+        .validate_path_to_issuers(issuer_pks, Some(revocation_list), &SystemClock)
         .map_err(|error| {
             error::ServerAuthentication::RevokedCert(InvalidClientTokenBundle {
                 error,
@@ -412,7 +459,8 @@ where
         .open_request
         .cert_chain
         .token
-        .max_dna_base_pairs_per_day();
+        .max_dna_base_pairs_per_day()
+        .min(request_hash_limit);
     let screened_last_day_bp = get_client_screened_last_day(client_mid)
         .await
         .map_err(|e| {
@@ -443,6 +491,7 @@ where
                 cookie: client_state.cookie,
                 open_request: client_state.open_request,
                 server_nonce: client_state.server_nonce,
+                server_mutual_auth_signature: client_state.server_mutual_auth_signature,
                 hash_total_count: authenticate_request.hash_total_count,
                 et_state,
             },
@@ -611,7 +660,7 @@ pub fn server_et_client(
 
 /// Code for the `exemption-seq-hashes` endpoint.
 pub fn server_et_seq_hashes_client(
-    hashes: impl IntoIterator<Item = CompletedHashValue>,
+    hashes: impl IntoIterator<Item = CompressedCompletedHashValue>,
     client_state: ServerStateForClient,
 ) -> Result<ServerStateForAuthenticatedClient, ScepError<error::EtSeqHashes>> {
     let ServerStateForClient::Authenticated(mut client) = client_state else {
@@ -635,13 +684,13 @@ fn client_htc_unreasonable(_hash_total_count: u64, _nucleotide_total_count: u64)
 
 fn keyserver_id_set_valid(keyserver_id_set: &KeyserverIdSet) -> bool {
     let mut last: Option<KeyserverId> = None;
-    for item in keyserver_id_set.iter() {
+    for item in keyserver_id_set {
         if let Some(last) = last {
             if item.as_u32() <= last.as_u32() {
                 return false; // no duplicates, must be sorted
             }
         }
-        last = Some(*item);
+        last = Some(item);
     }
     true
 }

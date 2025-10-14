@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use serde::Serialize;
@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use crate::{
     asn::ToASN1DerBytes,
     error::EncodeError,
-    keypair::{KeyPair, PublicKey},
+    key::signing::{PublicKey, SigningKeyPair},
     shared_components::{
         common::{Id, Signed},
         role::{Role, RoleGuard},
@@ -66,7 +66,7 @@ where
     pub(crate) fn self_sign(
         self,
         additional_fields: IssuerAdditionalFields,
-        kp: &KeyPair,
+        kp: &SigningKeyPair,
     ) -> Result<CertificateInner<T, R, S, Issuer1>, EncodeError> {
         let issuer_identity = self.subject.to_compatible_identity();
         let issuer = Issuer1::new(issuer_identity, additional_fields);
@@ -85,5 +85,9 @@ where
 impl<T: HierarchyLevel> RequestInner<T, Exemption, ExemptionSubject1> {
     pub(crate) fn blinding_allowed(&self) -> bool {
         self.subject.allow_blinding
+    }
+
+    pub(crate) fn totp_token_name(&self) -> Option<String> {
+        self.subject.totp_token_name()
     }
 }

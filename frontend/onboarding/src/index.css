@@ -1,11 +1,194 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@source "../../common/";
+
+@theme {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-inherit: inherit;
+  --color-white: #fff;
+  --color-red: #f55;
+
+  --color-primary-light: #e9f9ff;
+  --color-primary: #a5cfdf;
+
+  --color-secondary: #070720;
+  --color-success: #0088ff;
+  --color-error: #dd0044;
+  --color-warn: #ff7000;
+
+  --font-*: initial;
+  --font-primary: DM Sans Variable, DM Sans, sans-serif;
+
+  --text-*: initial;
+  --text-2xs: 0.75rem;
+  --text-xs: 0.875rem;
+  --text-sm: 1.03125rem;
+  --text-base: 1.125rem;
+  --text-lg: 1.375rem;
+  --text-xl: 1.6875rem;
+  --text-2xl: 1.875rem;
+  --text-3xl: 2.0625rem;
+  --text-4xl: 2.4375rem;
+  --text-5xl: 3.6875rem;
+
+  --min-height-hero: min(calc(100vh - 32rem), 720px);
+  --min-height-hero-sm: min(calc(80vh - 32rem), 640px);
+  --min-height-footer: 25vh;
+
+  --container-content: 58rem;
+
+  --animate-fade-in: fadeIn 0.2s ease-in-out;
+  --animate-fade-out: fadeOut 0.2s ease-in-out;
+  --animate-appear: appear 0.3s ease-out;
+  --animate-slide-down: slideDown 0.3s ease-out;
+  --animate-slide-up: slideUp 0.3s ease-out;
+
+  @keyframes fadeIn {
+    0% {
+      opacity: 0;
+    }
+    100% {
+      opacity: 1;
+    }
+  }
+  @keyframes fadeOut {
+    0% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes appear {
+    0% {
+      opacity: 0;
+      transform: translateY(10px) scale(0.95);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes slideDown {
+    0% {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes slideUp {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@utility container {
+  margin-inline: auto;
+  padding-inline: 1rem;
+  @media (width >= theme(--breakpoint-sm)) {
+    padding-inline: 2rem;
+  }
+  @media (width >= theme(--breakpoint-lg)) {
+    padding-inline: 4rem;
+  }
+  @media (width >= theme(--breakpoint-2xl)) {
+    padding-inline: 7rem;
+  }
+}
+
+/*
+  The default border color has changed to `currentColor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
+
+@utility grid-layout {
+  @apply grid grid-cols-12 gap-x-6 gap-y-8 sm:gap-x-8;
+}
+
+@utility btn {
+  @apply px-8 py-2.5 border-2 border-transparent inline-flex text-base sm:text-lg font-medium enabled:cursor-pointer items-center justify-center rounded-full text-white bg-secondary transition-colors enabled:hover:bg-secondary/90 disabled:opacity-50;
+
+  header & {
+    @apply text-primary;
+  }
+}
+
+@utility btn-outline {
+  @apply bg-transparent text-secondary border-secondary hover:bg-secondary/90 hover:text-white;
+}
+
+@utility input {
+  @apply block w-full bg-white rounded-xs border border-secondary px-4 py-3 text-base text-secondary read-only:opacity-50 focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary;
+}
+
+@utility textarea {
+  @apply block w-full rounded-xs border border-secondary px-4 py-3 text-base text-secondary read-only:opacity-50 focus:border-primary focus:outline-hidden focus:ring-1 focus:ring-primary;
+}
+
+@utility group/block {
+  &.dark {
+    @apply bg-primary text-secondary;
+
+    .btn:not(.btn-outline) {
+      @apply text-primary;
+    }
+
+    .btn-outline:hover {
+      @apply text-primary;
+    }
+  }
+  &.light {
+    @apply relative text-secondary;
+
+    &::after {
+      @apply absolute inset-0 -z-10 opacity-10;
+      content: '';
+      background: linear-gradient(
+        346deg,
+        #00d4ff 26.89%,
+        #0bd5f2 64.9%,
+        #2ad7d0 137.75%,
+        #5bdc98 232.77%,
+        #9be252 343.63%
+      );
+    }
+  }
+  &.white {
+    @apply bg-white text-secondary;
+
+    .shapes {
+      @apply opacity-50;
+    }
+  }
+}
 
 @layer base {
   html,
@@ -18,7 +201,7 @@
 
     font-size: 0.85rem;
 
-    @screen sm {
+    @media (width >= theme(--breakpoint-sm)) {
       font-size: 1rem;
     }
   }
@@ -37,65 +220,5 @@
 
   a[href] {
     @apply underline hover:opacity-50 transition-opacity;
-  }
-}
-
-@layer components {
-  .grid-layout {
-    @apply grid grid-cols-12 gap-x-6 gap-y-8 sm:gap-x-8;
-  }
-
-  .btn {
-    @apply px-8 py-2.5 border-2 border-transparent inline-flex text-base sm:text-lg font-medium enabled:cursor-pointer items-center justify-center rounded-full text-white bg-secondary transition-colors enabled:hover:bg-opacity-90 disabled:opacity-50;
-  }
-
-  .btn-outline {
-    @apply bg-transparent text-secondary border-secondary hover:bg-secondary/90 hover:text-white;
-  }
-
-  .input,
-  .textarea {
-    @apply block w-full rounded-sm border border-secondary px-4 py-3 text-base text-secondary read-only:opacity-50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary;
-  }
-
-  .group\/block {
-    &.dark {
-      @apply bg-primary text-secondary;
-
-      .btn:not(.btn-outline) {
-        @apply text-primary;
-      }
-
-      .btn-outline:hover {
-        @apply text-primary;
-      }
-    }
-    &.light {
-      @apply relative text-secondary;
-
-      &::after {
-        @apply absolute inset-0 -z-10 opacity-10;
-        content: "";
-        background: linear-gradient(
-          346deg,
-          #00d4ff 26.89%,
-          #0bd5f2 64.9%,
-          #2ad7d0 137.75%,
-          #5bdc98 232.77%,
-          #9be252 343.63%
-        );
-      }
-    }
-    &.white {
-      @apply bg-white text-secondary;
-
-      .shapes {
-        @apply opacity-50;
-      }
-    }
-  }
-
-  header .btn {
-    @apply text-primary;
   }
 }

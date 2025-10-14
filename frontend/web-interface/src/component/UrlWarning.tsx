@@ -1,12 +1,11 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
 import { faWarning } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { ReactNode } from "react";
-import colors from "tailwindcss/colors";
 
 interface UrlWarningProps {
   setSynthClientUrl: (url: string) => void;
@@ -16,7 +15,8 @@ interface UrlWarningProps {
 function Warning({ children }: { children: ReactNode }) {
   return (
     <div className="text-sm">
-      <FontAwesomeIcon icon={faWarning} color={colors.yellow[500]} /> {children}
+      <FontAwesomeIcon icon={faWarning} color={"var(--color-yellow-500)"} />{" "}
+      {children}
     </div>
   );
 }

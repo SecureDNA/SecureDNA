@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for generating a keypair for use with certificates and tokens
@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use clap::{crate_version, Parser};
+use clap::Parser;
 
 use super::error::CertCliError;
 use crate::key::create_new_key_file;
@@ -18,7 +18,7 @@ use crate::passphrase_reader::{PassphraseReader, PassphraseSource, ENV_PASSPHRAS
 #[clap(
 name = "sdna-create-key",
 about = "Generates a SecureDNA keypair",
-version = crate_version!()
+version = crate::certificate_client_version!()
 )]
 pub struct CreateKeyOpts {
     #[clap(
@@ -71,7 +71,7 @@ fn run<P: PassphraseReader>(
     Ok(details)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use std::fs::File;
 

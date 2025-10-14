@@ -19,6 +19,7 @@
     * [Setting `emails_to_notify` on an exemption token](#setting-emails_to_notify-on-an-exemption-token)
     * [Issuing 'child' exemption tokens from a 'parent' exemption token](#issuing-child-exemption-tokens-from-a-parent-exemption-token)
   * [Database Tokens](#database-tokens)
+  * [Verifier Tokens](#verifier-tokens)
   * [HLT Tokens](#hlt-tokens)
   * [Keyserver Tokens](#keyserver-tokens)
   * [Synthesizer Tokens](#synthesizer-tokens)
@@ -26,6 +27,7 @@
   * [Keypair](#keypair)
   * [Certificate](#certificate)
   * [Token](#token)
+  * [Pipe support](#pipe-support)
 * [Validating a certificate or token](#validating-a-certificate-or-token)
 * [Design overview](#design-overview)
 
@@ -68,7 +70,7 @@ Certificates are able to issue new certificates from certificate requests accord
 When creating a certificate request a role and public key must be provided. To create a root exemption certificate request:
 
 ```rust
-let root_keypair = KeyPair::new_random();
+let root_keypair = SigningKeyPair::new_random();
 let root_req = RequestBuilder::<Exemption>::root_v1_builder(root_keypair.public_key()).build();
 ```
 
@@ -102,7 +104,7 @@ The certificate bundle holds the main certificate(s) (multiple in the case of cr
 For convenience, we interact directly with the certificate bundle when issuing new certificates. The newly issued certificate bundle inherits the entire certificate chain from the parent bundle, with the addition of the parent certificate. This approach both minimises the amount of code that a user needs to write, and removes the risk of errors in specifying the certificate's chain.
 
 ```rust
-let intermediate_keypair = KeyPair::new_random();
+let intermediate_keypair = SigningKeyPair::new_random();
 let intermediate_req = RequestBuilder::<Exemption>::intermediate_v1_builder(intermediate_keypair.public_key())
     .build()
 
@@ -178,12 +180,16 @@ An exemption token request can be created and issued by an exemption leaf certif
 
     let shipping_address = vec!["19 Some Street".to_string(), "Some City".to_string()];
 
+    // Any attached digital paperwork we want to sign over.
+    let attachments = vec![];
+
     let etr = ExemptionTokenRequest::v1_token_request(
         None,
         vec![exemption],
         requestor,
         vec![auth_device],
         vec![shipping_address],
+        attachments,
     );
 
     // Authenticators added by token issuer, if any.
@@ -205,13 +211,14 @@ A 'parent' exemption token which is capable of issuing further exemption tokens 
 The parent token should be issued as normal by an exemption leaf certificate.
 
 ```rust
-    let et_keypair = KeyPair::new_random();
+    let et_keypair = SigningKeyPair::new_random();
     let parent_etr = ExemptionTokenRequest::v1_token_request(
         Some(keypair.public_key()),
         vec![exemption],
         requestor,
         vec![auth_device],
         vec![shipping_address],
+        vec![attachment],
     );
 
     let parent_et_bundle = leaf_cert_bundle
@@ -242,10 +249,23 @@ Database tokens are used to identify and authorize instances of the HDB.
 They are issued by infrastructure leaf certificate bundles as follows:
 
 ```rust
-let keypair = KeyPair::new_random();
+let keypair = SigningKeyPair::new_random();
 let token_request = DatabaseTokenRequest::v1_token_request(kp.public_key());
 
 let database_token_bundle = leaf_cert_bundle.issue_database_token_bundle(req, Expiration::default(), leaf_keypair)
+```
+
+### Verifier Tokens
+
+Verifier tokens are used to identify and authorize a "verifier".
+This is a component of the HDB, whose certs can be rotated independently, and serves to sign "verifiable screening" requests.
+They are issued by infrastructure leaf certificate bundles as follows:
+
+```rust
+let keypair = SigningKeyPair::new_random();
+let token_request = VerifierTokenRequest::v1_token_request(kp.public_key());
+
+let verifier_token_bundle = leaf_cert_bundle.issue_verifier_token_bundle(req, Expiration::default(), leaf_keypair)
 ```
 
 ### HLT Tokens
@@ -254,7 +274,7 @@ Hazard lookup table (HLT) tokens are used to identify and authorize instances of
 They are issued by infrastructure leaf certificate bundles as follows:
 
 ```rust
-let keypair = KeyPair::new_random();
+let keypair = SigningKeyPair::new_random();
 let token_request = HltTokenRequest::v1_token_request(kp.public_key());
 
 let hlt_token_bundle = leaf_cert_bundle.issue_hlt_token_bundle(req, Expiration::default(), leaf_keypair)
@@ -266,7 +286,7 @@ Keyserver tokens are used to identify and authorize keyservers.
 The are issued by infrastructure leaf certificate bundles as follows:
 
 ```rust
-let keypair = KeyPair::new_random();
+let keypair = SigningKeyPair::new_random();
 let token_request = KeyserverTokenRequest::v1_token_request(kp.public_key(), KeyserverId::try_from(1).unwrap());
 
 let keyserver_token_bundle = leaf_cert_bundle.issue_keyserver_token_bundle(req, Expiration::default(), leaf_keypair)
@@ -278,7 +298,7 @@ Synthesizer tokens are used to identify benchtop synthesizers.
 They are issued by manufacturer leaf certificate bundles as follows:
 
 ```rust
-let keypair = KeyPair::new_random();
+let keypair = SigningKeyPair::new_random();
 let domain = "maker.synth";
 let model = "XL";
 let serial_number = "10AK";
@@ -330,10 +350,15 @@ Token bundles and token requests are saved to files with the following extension
 | Database           | `.dtr`                 | `.dt`                |
 | HLT                | `.htr`                 | `.ht`                |
 | Synthesizer        | `.str`                 | `.st`                |
+| Verifier           | `.vtr`                 | `.vt`                |
 
 On retrieving a token bundle from file, the token's private key will need to be loaded from file in order to create a signature.
 
 Token bundles sent over the wire are ASN.1 DER encoded.
+
+### Pipe support
+
+Normally writing will fail if a file already exists, but if you are using the CLI under Linux, you may write output to named pipes as long as they have the same name as the file that would have been created. Note that if supplying a named pipe as the destination for a key, i.e. `--create-new-key [pipe_name]`, the private key will be output to `[pipe_name]`, and the public key will be output to `[pipe_name].pub` (which will be a new file if a pipe does not exist with that name).
 
 ## Validating a certificate or token
 
@@ -355,6 +380,14 @@ let path_exists = token_bundle.validate_path_to_issuers(
     &[*root_cert.public_key()],
     Some(revocation_list),
 );
+```
+
+## Tests
+
+To run the tests for the certificates crate you should activate the `cert_tests` feature, and use release mode in order to avoid lengthy key encryption/decryption times.
+
+```shell
+cargo test --release --features cert_tests
 ```
 
 ## Design overview

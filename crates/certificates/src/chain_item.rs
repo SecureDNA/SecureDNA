@@ -1,21 +1,24 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use crate::key_traits::HasAssociatedSigningKey;
 use crate::revocation::RevocationList;
+use crate::shared_components::common::Clock;
 use crate::tokens::exemption::digest::ExemptionTokenDigest;
 use crate::tokens::infrastructure::digest::{
-    DatabaseTokenDigest, HltTokenDigest, KeyserverTokenDigest,
+    DatabaseTokenDigest, HltTokenDigest, KeyserverTokenDigest, VerifierTokenDigest,
 };
 use crate::tokens::manufacturer::digest::SynthesizerTokenDigest;
 use crate::validation_error::{InvalidityCause, ValidationError};
 use crate::{
     Certificate, CertificateDigest, DatabaseToken, Digestible, Exemption, ExemptionToken,
     Expiration, HierarchyKind, HltToken, Infrastructure, Issued, KeyUnavailable, KeyserverToken,
-    Manufacturer, PublicKey, Role, SynthesizerToken,
+    Manufacturer, PublicKey, Role, SynthesizerToken, SystemClock, VerifierToken,
 };
 use rasn::{AsnType, Decode, Encode};
 use serde::Serialize;
 use std::fmt::{Display, Formatter};
+use thiserror::Error;
 
 /// A certificate or token which is part of a certificate hierarchy, extending from a root certificate to a token.
 #[derive(
@@ -31,6 +34,7 @@ where
     ExemptionToken(ExemptionToken<KeyUnavailable>),
     KeyserverToken(KeyserverToken<KeyUnavailable>),
     DatabaseToken(DatabaseToken<KeyUnavailable>),
+    VerifierToken(VerifierToken<KeyUnavailable>),
     HltToken(HltToken<KeyUnavailable>),
     SynthesizerToken(SynthesizerToken<KeyUnavailable>),
 }
@@ -58,6 +62,12 @@ impl From<DatabaseToken<KeyUnavailable>> for ChainItem<Infrastructure> {
     }
 }
 
+impl From<VerifierToken<KeyUnavailable>> for ChainItem<Infrastructure> {
+    fn from(value: VerifierToken<KeyUnavailable>) -> Self {
+        Self::VerifierToken(value)
+    }
+}
+
 impl From<HltToken<KeyUnavailable>> for ChainItem<Infrastructure> {
     fn from(value: HltToken<KeyUnavailable>) -> Self {
         Self::HltToken(value)
@@ -71,9 +81,13 @@ impl From<SynthesizerToken<KeyUnavailable>> for ChainItem<Manufacturer> {
 }
 
 impl<R: Role> ChainItem<R> {
-    pub fn validate(&self, list: Option<&RevocationList>) -> Result<(), ValidationError> {
+    pub fn validate(
+        &self,
+        list: Option<&RevocationList>,
+        clock: &impl Clock,
+    ) -> Result<(), ValidationError> {
         let revoked = list.is_some_and(|list| self.has_been_revoked(list));
-        let signature_expiry_result = self.check_signature_and_expiry();
+        let signature_expiry_result = self.check_signature_and_expiry(clock);
 
         if !revoked {
             signature_expiry_result
@@ -92,9 +106,10 @@ impl<R: Role> ChainItem<R> {
     pub fn user_friendly_text(&self) -> String {
         match self {
             Self::Certificate(c) => format!(
-                "{} certificate belonging to '{}'",
+                "{} certificate belonging to '{}' (public key: {})",
                 c.hierarchy_level(),
-                c.requestor_description()
+                c.requestor_description(),
+                c.public_key(),
             ),
             Self::ExemptionToken(t) => {
                 format!(
@@ -106,24 +121,30 @@ impl<R: Role> ChainItem<R> {
                 format!("keyserver token with keyserver id {}", t.keyserver_id())
             }
             Self::DatabaseToken(_) => "database token".to_string(),
+            Self::VerifierToken(_) => "verifier token".to_string(),
             Self::HltToken(_) => "hlt token".to_string(),
             Self::SynthesizerToken(t) => {
                 format!(
-                    "synthesizer token registered to '{}'",
-                    t.manufacturer_domain()
+                    "synthesizer token registered to '{}' (public key: {})",
+                    t.manufacturer_domain(),
+                    t.public_key(),
                 )
             }
         }
     }
 
-    pub(crate) fn check_signature_and_expiry(&self) -> Result<(), ValidationError> {
+    pub(crate) fn check_signature_and_expiry(
+        &self,
+        clock: &impl Clock,
+    ) -> Result<(), ValidationError> {
         match self {
-            Self::Certificate(c) => c.check_signature_and_expiry(),
-            Self::ExemptionToken(t) => t.check_signature_and_expiry(),
-            Self::KeyserverToken(t) => t.check_signature_and_expiry(),
-            Self::HltToken(t) => t.check_signature_and_expiry(),
-            Self::DatabaseToken(t) => t.check_signature_and_expiry(),
-            Self::SynthesizerToken(t) => t.check_signature_and_expiry(),
+            Self::Certificate(c) => c.check_signature_and_expiry(clock),
+            Self::ExemptionToken(t) => t.check_signature_and_expiry(clock),
+            Self::KeyserverToken(t) => t.check_signature_and_expiry(clock),
+            Self::HltToken(t) => t.check_signature_and_expiry(clock),
+            Self::DatabaseToken(t) => t.check_signature_and_expiry(clock),
+            Self::VerifierToken(t) => t.check_signature_and_expiry(clock),
+            Self::SynthesizerToken(t) => t.check_signature_and_expiry(clock),
         }
     }
 
@@ -136,6 +157,7 @@ impl<R: Role> ChainItem<R> {
                 token.was_issued_by_cert(cert)
             }
             (Self::DatabaseToken(token), Self::Certificate(cert)) => token.was_issued_by_cert(cert),
+            (Self::VerifierToken(token), Self::Certificate(cert)) => token.was_issued_by_cert(cert),
             (Self::ExemptionToken(token), Self::Certificate(cert)) => {
                 token.was_issued_by_cert(cert)
             }
@@ -158,6 +180,7 @@ impl<R: Role> ChainItem<R> {
             Self::Certificate(cert_a) => cert_a.was_issued_by_public_key(public_key),
             Self::KeyserverToken(token) => token.was_issued_by_public_key(public_key),
             Self::DatabaseToken(token) => token.was_issued_by_public_key(public_key),
+            Self::VerifierToken(token) => token.was_issued_by_public_key(public_key),
             Self::ExemptionToken(token) => token.was_issued_by_public_key(public_key),
             Self::HltToken(token) => token.was_issued_by_public_key(public_key),
             Self::SynthesizerToken(token) => token.was_issued_by_public_key(public_key),
@@ -174,6 +197,7 @@ impl<R: Role> ChainItem<R> {
             }
             ChainItem::KeyserverToken(t) => list.item_id_or_public_key_has_been_revoked(t),
             ChainItem::DatabaseToken(t) => list.item_id_or_public_key_has_been_revoked(t),
+            ChainItem::VerifierToken(t) => list.item_id_or_public_key_has_been_revoked(t),
             ChainItem::HltToken(t) => list.item_id_or_public_key_has_been_revoked(t),
             ChainItem::SynthesizerToken(t) => list.item_id_or_public_key_has_been_revoked(t),
         }
@@ -190,14 +214,35 @@ impl<R: Role> ChainItem<R> {
         }
     }
 
-    pub(crate) fn expiration(&self) -> &Expiration {
+    pub fn expiration(&self) -> &Expiration {
         match self {
             ChainItem::Certificate(c) => c.expiration(),
             ChainItem::ExemptionToken(t) => t.expiration(),
             ChainItem::KeyserverToken(t) => t.expiration(),
             ChainItem::DatabaseToken(t) => t.expiration(),
+            ChainItem::VerifierToken(t) => t.expiration(),
             ChainItem::HltToken(t) => t.expiration(),
             ChainItem::SynthesizerToken(t) => t.expiration(),
+        }
+    }
+
+    pub fn expiring_soon_text(&self) -> String {
+        let days_until_expiry = self.expiration().days_until_expiry(&SystemClock);
+        format!(
+            "The {} is expiring {}",
+            self.user_friendly_text(),
+            if days_until_expiry <= 1 {
+                "in less than a day".to_string()
+            } else {
+                format!("in less than {} days", days_until_expiry)
+            }
+        )
+    }
+
+    pub fn email_addresses(&self) -> Vec<String> {
+        match self {
+            ChainItem::Certificate(c) => c.email_addresses(),
+            _ => vec![],
         }
     }
 }
@@ -209,6 +254,7 @@ pub enum ChainItemDigest {
     ExemptionToken(ExemptionTokenDigest),
     KeyserverToken(KeyserverTokenDigest),
     DatabaseToken(DatabaseTokenDigest),
+    VerifierToken(VerifierTokenDigest),
     HltToken(HltTokenDigest),
     SynthesizerToken(SynthesizerTokenDigest),
 }
@@ -232,6 +278,9 @@ impl Display for ChainItemDigest {
             ChainItemDigest::DatabaseToken(t) => {
                 write!(f, "{}", t)
             }
+            ChainItemDigest::VerifierToken(t) => {
+                write!(f, "{}", t)
+            }
             ChainItemDigest::HltToken(t) => {
                 write!(f, "{}", t)
             }
@@ -249,6 +298,7 @@ impl<R: Role> From<ChainItem<R>> for ChainItemDigest {
             ChainItem::ExemptionToken(t) => Self::ExemptionToken(t.into()),
             ChainItem::KeyserverToken(t) => Self::KeyserverToken(t.into()),
             ChainItem::DatabaseToken(t) => Self::DatabaseToken(t.into()),
+            ChainItem::VerifierToken(t) => Self::VerifierToken(t.into()),
             ChainItem::HltToken(t) => Self::HltToken(t.into()),
             ChainItem::SynthesizerToken(t) => Self::SynthesizerToken(t.into()),
         }
@@ -256,7 +306,7 @@ impl<R: Role> From<ChainItem<R>> for ChainItemDigest {
 }
 
 /// Holds both the item that failed validation and the error that occurred.
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, Error)]
 pub struct ChainItemValidationError<R: Role> {
     pub item: ChainItem<R>,
     pub error: ValidationError,
@@ -298,7 +348,7 @@ impl<R: Role> From<ChainItemValidationError<R>> for ChainItemDigestValidationErr
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod test {
     use doprf::party::KeyserverId;
 
@@ -307,16 +357,17 @@ mod test {
         test_helpers::{
             create_leaf_cert, expected_cert_display, expected_database_token_display,
             expected_hlt_token_display, expected_keyserver_token_display,
-            expected_synthesizer_token_display, BreakableSignature,
+            expected_synthesizer_token_display, expected_verifier_token_display,
+            BreakableSignature,
         },
-        Builder, ChainItem, DatabaseTokenRequest, Expiration, HltTokenRequest, Infrastructure,
-        Issued, IssuerAdditionalFields, KeyPair, KeyserverTokenRequest, Manufacturer,
-        RequestBuilder, SynthesizerTokenRequest,
+        Builder, ChainItem, DatabaseTokenRequest, Domain, Expiration, HltTokenRequest,
+        Infrastructure, Issued, IssuerAdditionalFields, KeyserverTokenRequest, Manufacturer,
+        RequestBuilder, SigningKeyPair, SynthesizerTokenRequest, SystemClock, VerifierTokenRequest,
     };
 
     #[test]
     fn display_for_root_manufacturer_certificate_with_invalid_signature_matches_expected_display() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let mut cert = RequestBuilder::<Manufacturer>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -340,7 +391,7 @@ mod test {
 
         let item: ChainItem<Manufacturer> = cert.into();
         let error = item
-            .validate(None)
+            .validate(None, &SystemClock)
             .map_err(|err| ChainItemValidationError::new(item, err))
             .expect_err("Expected validation to fail");
         assert_eq!(error.to_string(), expected_text);
@@ -349,7 +400,7 @@ mod test {
     #[test]
     fn display_for_database_token_failure_warns_if_signature_invalid() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = DatabaseTokenRequest::v1_token_request(kp.public_key());
 
         let mut token = cert
@@ -365,7 +416,32 @@ mod test {
 
         let item: ChainItem<Infrastructure> = token.into();
         let error = item
-            .validate(None)
+            .validate(None, &SystemClock)
+            .map_err(|err| ChainItemValidationError::new(item, err))
+            .expect_err("Expected validation to fail");
+        assert_eq!(error.to_string(), expected_text);
+    }
+
+    #[test]
+    fn display_for_verifier_token_failure_warns_if_signature_invalid() {
+        let cert = create_leaf_cert::<Infrastructure>();
+        let kp = SigningKeyPair::new_random();
+        let req = VerifierTokenRequest::v1_token_request(kp.public_key());
+
+        let mut token = cert
+            .issue_verifier_token(req, Expiration::default())
+            .unwrap();
+        token.break_signature();
+
+        let mut expected_text = expected_verifier_token_display(
+            &token,
+            &format!("(public key: {})", token.issuer_public_key()),
+        );
+        expected_text.push_str("\nINVALID: The signature failed verification");
+
+        let item: ChainItem<Infrastructure> = token.into();
+        let error = item
+            .validate(None, &SystemClock)
             .map_err(|err| ChainItemValidationError::new(item, err))
             .expect_err("Expected validation to fail");
         assert_eq!(error.to_string(), expected_text);
@@ -374,7 +450,7 @@ mod test {
     #[test]
     fn display_for_keyserver_token_failure_warns_if_signature_invalid() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = KeyserverTokenRequest::v1_token_request(
             kp.public_key(),
             KeyserverId::try_from(1).unwrap(),
@@ -394,7 +470,7 @@ mod test {
 
         let item: ChainItem<Infrastructure> = token.into();
         let error = item
-            .validate(None)
+            .validate(None, &SystemClock)
             .map_err(|err| ChainItemValidationError::new(item, err))
             .expect_err("Expected validation to fail");
         assert_eq!(error.to_string(), expected_text);
@@ -403,7 +479,7 @@ mod test {
     #[test]
     fn display_for_hlt_token_warns_if_signature_invalid() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = HltTokenRequest::v1_token_request(kp.public_key());
 
         let mut token = cert.issue_hlt_token(req, Expiration::default()).unwrap();
@@ -417,7 +493,7 @@ mod test {
 
         let item: ChainItem<Infrastructure> = token.into();
         let error = item
-            .validate(None)
+            .validate(None, &SystemClock)
             .map_err(|err| ChainItemValidationError::new(item, err))
             .expect_err("Expected validation to fail");
         assert_eq!(error.to_string(), expected_text);
@@ -426,10 +502,10 @@ mod test {
     #[test]
     fn display_for_synthesizer_token_failure_warns_if_signature_invalid() {
         let cert = create_leaf_cert::<Manufacturer>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = SynthesizerTokenRequest::v1_token_request(
             kp.public_key(),
-            "maker.synth",
+            Domain::try_new("maker.synth").unwrap(),
             "XL",
             "10AK",
             10_000u64,
@@ -454,7 +530,7 @@ mod test {
 
         let item: ChainItem<Manufacturer> = token.into();
         let error = item
-            .validate(None)
+            .validate(None, &SystemClock)
             .map_err(|err| ChainItemValidationError::new(item, err))
             .expect_err("Expected validation to fail");
         assert_eq!(error.to_string(), expected_text);

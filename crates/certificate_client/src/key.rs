@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{
@@ -11,7 +11,7 @@ use clap::Parser;
 use certificates::file::{KEY_PRIV_EXT, KEY_PUB_EXT};
 use certificates::{
     file::{load_public_key_from_file, save_keypair_to_file},
-    KeyPair, PublicKey,
+    PublicKey, SigningKeyPair,
 };
 
 use crate::default_filepath::set_appropriate_filepath_and_create_default_dir_if_required;
@@ -126,7 +126,7 @@ pub fn create_new_key_file<P: PassphraseReader>(
         .read_passphrase()
         .map_err(CertCliError::from)?;
 
-    let keypair = KeyPair::new_random();
+    let keypair = SigningKeyPair::new_random();
 
     let public_key = keypair.public_key();
 

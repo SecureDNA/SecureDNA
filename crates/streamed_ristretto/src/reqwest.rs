@@ -1,28 +1,35 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Tools for implementing [`reqwest`] clients
 
 use std::any::Any;
 use std::borrow::Cow;
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Cursor;
 
+#[cfg(not(target_arch = "wasm32"))]
 use futures::{Stream, TryStream, TryStreamExt};
 use reqwest::header::CONTENT_TYPE;
+#[cfg(not(target_arch = "wasm32"))]
 use reqwest::{Body, RequestBuilder, Response};
 
+#[cfg(not(target_arch = "wasm32"))]
 use crate::contenttype::HasContentType;
 pub use crate::stream::{
     check_content_length, HasShortErrorMsg, MessageError, RistrettoError, StreamableRistretto,
     HASH_SIZE,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use crate::stream::{decode, ConversionError};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::util;
 
 /// Add fallible stream of ristrettos to the body of a [`RequestBuilder`]
 ///
 /// This will appropriately set the `Content-Type`, and the body will buffer up
 /// about 256KB worth of data before producing a frame.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn add_ristrettos<S>(mut request_builder: RequestBuilder, ristrettos: S) -> RequestBuilder
 where
     S: TryStream + Send + Sync + 'static,
@@ -41,6 +48,7 @@ where
 /// Note that this checks that `Content-Type` matches
 /// [`R::CONTENT_TYPE`](HasContentType::CONTENT_TYPE), but does not check the `Content-Length`;
 /// see [`check_content_length`] for that.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn from_response<R: StreamableRistretto>(
     response: Response,
 ) -> Result<

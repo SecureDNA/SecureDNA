@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt::Display;
@@ -10,7 +10,7 @@ pub struct MultiItemDisplay<'a, 'b, T: Display> {
     pub skip_first_indent: bool,
 }
 
-impl<'a, 'b, T: Display> Display for MultiItemDisplay<'a, 'b, T> {
+impl<T: Display> Display for MultiItemDisplay<'_, '_, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (index, item) in self.items.iter().enumerate() {
             if index == 0 && self.skip_first_indent {
@@ -33,7 +33,7 @@ pub struct TruncatedMultiItemDisplay<'a, 'b, T: Display> {
     pub max_items: usize,
 }
 
-impl<'a, 'b, T: Display> Display for TruncatedMultiItemDisplay<'a, 'b, T> {
+impl<T: Display> Display for TruncatedMultiItemDisplay<'_, '_, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let total_items = self.items.len();
         let items_to_print = total_items.min(self.max_items);

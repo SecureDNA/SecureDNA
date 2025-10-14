@@ -1,32 +1,50 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::env;
+use std::fmt;
 use std::net::IpAddr;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
 use clap::{crate_version, ArgAction, Args, CommandFactory, Parser};
 use serde::{de, Deserialize, Deserializer};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use url::Url;
 
 use crate::parsefasta::{CurrentSystemLoadTracker, LimitConfiguration};
 use crate::rate_limiter::{RateLimiter, SystemTimeHourProvider};
 use crate::shims::event_store::Connection;
+use crate::web_cache::WebCache;
 use doprf_client::server_selection::{ServerEnumerationSource, ServerSelector};
 use minhttp::mpserver::{cli::ServerConfigSource, traits::RelativeConfig};
-use scep_client_helpers::ClientCerts;
+use scep_client_helpers::{scep_version, ClientCerts};
 use shared_types::metrics::SynthClientMetrics;
 use shared_types::server_selection::Tier;
+
+#[macro_export]
+macro_rules! api_version {
+    () => {
+        1
+    };
+}
 
 #[derive(Debug, Parser)]
 #[clap(
     name = "synthclient",
-    about = "SecureDNA Synthesizer Client",
-    version = crate_version!()
+    about = concat!("SecureDNA Synthesizer Client ", crate_version!()),
+    version = concat!(
+        crate_version!(),
+        " (client API version ",
+        api_version!(),
+        ", server protocol ",
+        scep_version!(),
+        ")",
+    ),
 )]
 pub struct Opts {
     #[command(flatten)]
@@ -46,6 +64,20 @@ pub struct Config {
     #[command(flatten)]
     #[serde(flatten)]
     pub certs: CertificateArgs,
+
+    #[clap(
+        long,
+        help = "Maximum simultaneous cryptographic operations across server",
+        env = "SECUREDNA_SYNTHCLIENT_CRYPTO_PARALLELISM_PER_SERVER"
+    )]
+    pub crypto_parallelism_per_server: Option<NonZeroUsize>,
+
+    #[clap(
+        long,
+        help = "Maximum simultaneous cryptographic operations per phase of request",
+        env = "SECUREDNA_SYNTHCLIENT_CRYPTO_PARALLELISM_PER_REQUEST"
+    )]
+    pub crypto_parallelism_per_request: Option<NonZeroUsize>,
 
     #[clap(
         long,
@@ -74,6 +106,7 @@ pub struct Config {
 
     #[clap(
         long,
+        hide = true,
         help = "Secret key for validating reCAPTCHA v3 responses (enables a demo on https://securedna.org/)",
         env = "SECUREDNA_SYNTHCLIENT_RECAPTCHA_SECRET_KEY"
     )]
@@ -81,6 +114,7 @@ pub struct Config {
 
     #[clap(
         long,
+        hide = true,
         help = "Hourly rate limit on reCAPTCHA screening requests from the same IP address",
         env = "SECUREDNA_SYNTHCLIENT_RECAPTCHA_REQUESTS_PER_HOUR",
         default_value_t = Config::default_recaptcha_requests_per_hour(),
@@ -90,6 +124,7 @@ pub struct Config {
 
     #[clap(
         long,
+        hide = true,
         help = "Use http (instead of https) for all requests to internal servers (hdb and keyservers). Useful for local development, will not work with securedna.org servers.",
         env = "SECUREDNA_SYNTHCLIENT_USE_HTTP"
     )]
@@ -124,15 +159,30 @@ pub struct Config {
      )]
     #[serde(default = "Config::default_event_store_path")]
     pub event_store_path: PathBuf,
+
+    #[clap(
+        long,
+        hide = true,
+        help = "When flag is set, the /screen endpoint will require captchas",
+        env = "SECUREDNA_SYNTHCLIENT_REQUIRE_CAPTCHA"
+    )]
+    pub require_captcha: bool,
+
+    #[clap(
+        long,
+        help = "When set, request-response JSON pairs for requests with `verifiable_screening` enabled will be stored in timestamped subdirectories of this directory.",
+        env = "SECUREDNA_SYNTHCLIENT_STORE_VERIFIABLE_RESULTS"
+    )]
+    pub store_verifiable_results: Option<PathBuf>,
 }
 
 impl Config {
     fn default_default_max_request_bp() -> usize {
-        1000000
+        1_000_000_000
     }
 
     fn default_limited_max_request_bp() -> usize {
-        10000
+        10_000
     }
 
     fn default_recaptcha_requests_per_hour() -> usize {
@@ -140,13 +190,13 @@ impl Config {
     }
 
     fn default_frontend_url() -> Url {
-        "https://pages.securedna.org/web-interface/"
+        "https://pages.securedna.org/v1/web-interface/"
             .parse()
             .unwrap()
     }
 
     fn default_json_size_limit() -> u64 {
-        100000
+        1_000_000_000
     }
 
     fn default_event_store_path() -> PathBuf {
@@ -251,37 +301,75 @@ impl EnumerationArgs {
     }
 }
 
+/// A wrapper around `std::time::Duration` that supports parsing from strings
+/// like "1day", "2weeks", "3min", etc.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FriendlyDuration(pub Duration);
+
+impl FromStr for FriendlyDuration {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let Some(i) = s.find(char::is_alphabetic) else {
+            return Err("must specify a unit like `12hr` or `2days`".to_owned());
+        };
+
+        let amount: u64 = s[..i]
+            .trim()
+            .parse()
+            .map_err(|e| format!("failed to parse amount: {e}"))?;
+
+        let unit_string = s[i..].trim().to_ascii_lowercase();
+        let unit = match unit_string.as_str() {
+            "s" | "sec" | "second" | "seconds" => 1,
+            "m" | "min" | "minute" | "minutes" => 60,
+            "h" | "hr" | "hour" | "hours" => 3600,
+            "d" | "day" | "days" => 24 * 3600,
+            "wk" | "week" | "weeks" => 7 * 24 * 3600,
+            _ => return Err(format!("unknown unit {unit_string:?}")),
+        };
+
+        let Some(seconds) = amount.checked_mul(unit) else {
+            return Err("duration is greater than 2^64 seconds".to_owned());
+        };
+        Ok(FriendlyDuration(Duration::from_secs(seconds)))
+    }
+}
+
+impl fmt::Display for FriendlyDuration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}s", self.0.as_secs())
+    }
+}
+
 #[derive(Args, Clone, Debug, Deserialize)]
 pub struct SelectionRefreshArgs {
     #[clap(
         long,
-        action = ArgAction::Set,
-        help = "Timeout before a cached selection will be refreshed in the background. Uses formatting from the `humantime` crate.",
+        help = "Timeout before a cached selection will be refreshed in the background. Supports strings like `2days` or `1week`.",
         env = "SECUREDNA_SYNTHCLIENT_SOFT_TIMEOUT",
         default_value_t = SelectionRefreshArgs::default_soft_timeout(),
      )]
     #[serde(
-        default = "SelectionRefreshArgs::default_soft_timeout",
-        deserialize_with = "deserialize_via_parse"
+        deserialize_with = "deserialize_via_parse",
+        default = "SelectionRefreshArgs::default_soft_timeout"
     )]
-    pub soft_timeout: humantime::Duration,
+    pub soft_timeout: FriendlyDuration,
 
     #[clap(
         long,
-        action = ArgAction::Set,
-        help = "Timeout before a cached selection will be refreshed in the _foreground_, making all requests wait. Uses formatting from the `humantime` crate.",
+        help = "Timeout before a cached selection will be refreshed in the _foreground_, making all requests wait. Supports strings like `2days` or `1week`.",
         env = "SECUREDNA_SYNTHCLIENT_BLOCKING_TIMEOUT",
         default_value_t = SelectionRefreshArgs::default_blocking_timeout(),
      )]
     #[serde(
-        default = "SelectionRefreshArgs::default_blocking_timeout",
-        deserialize_with = "deserialize_via_parse"
+        deserialize_with = "deserialize_via_parse",
+        default = "SelectionRefreshArgs::default_blocking_timeout"
     )]
-    pub blocking_timeout: humantime::Duration,
+    pub blocking_timeout: FriendlyDuration,
 
     #[clap(
         long,
-        action = ArgAction::Set,
         help = "If nonzero, an extra amount of good keyservers, on top of the quorum threshold, below which the selection will be refreshed in the background.",
         env = "SECUREDNA_SYNTHCLIENT_SOFT_EXTRA_KS",
         default_value_t = SelectionRefreshArgs::default_soft_extra_keyserver_threshold(),
@@ -291,7 +379,6 @@ pub struct SelectionRefreshArgs {
 
     #[clap(
         long,
-        action = ArgAction::Set,
         help = "If nonzero, an extra amount of good hdbs, on top of the one needed for quorum, below which the selection will be refreshed in the background.",
         env = "SECUREDNA_SYNTHCLIENT_SOFT_EXTRA_HDB",
         default_value_t = SelectionRefreshArgs::default_soft_extra_hdb_threshold(),
@@ -301,12 +388,12 @@ pub struct SelectionRefreshArgs {
 }
 
 impl SelectionRefreshArgs {
-    fn default_soft_timeout() -> humantime::Duration {
-        "1day".parse().unwrap()
+    fn default_soft_timeout() -> FriendlyDuration {
+        FriendlyDuration::from_str("1day").expect("default duration is valid")
     }
 
-    fn default_blocking_timeout() -> humantime::Duration {
-        "1week".parse().unwrap()
+    fn default_blocking_timeout() -> FriendlyDuration {
+        FriendlyDuration::from_str("1week").expect("default duration is valid")
     }
 
     fn default_soft_extra_keyserver_threshold() -> u32 {
@@ -343,6 +430,7 @@ pub struct CertificateArgs {
 
     #[clap(
         long,
+        hide = true,
         help = "Use a test root when validating certificates.  This will never work against production servers.",
         env = "SECUREDNA_USE_TEST_ROOTS_DO_NOT_USE_THIS_IN_PROD"
     )]
@@ -396,6 +484,9 @@ pub struct SynthClientState {
     /// version string returned from /version and passed to doprf_client to identify us
     pub synthclient_version: String,
     pub persistence_connection: Arc<Connection>,
+    pub web_cache: Arc<WebCache>,
+    pub parallelism_per_request: NonZeroUsize,
+    pub server_parallelism_limit: Arc<Semaphore>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -418,5 +509,85 @@ impl SynthClientState {
             max_request_bp: self.max_request_bp(screening_type),
             limits: &self.limits,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_parse_friendly_duration() {
+        assert_eq!(
+            FriendlyDuration::from_str("3min"),
+            Ok(FriendlyDuration(Duration::from_secs(180)))
+        );
+        assert_eq!(
+            FriendlyDuration::from_str("1D"),
+            Ok(FriendlyDuration(Duration::from_secs(24 * 3600)))
+        );
+        assert_eq!(
+            FriendlyDuration::from_str("2 weeks"),
+            Ok(FriendlyDuration(Duration::from_secs(1_209_600)))
+        );
+        assert_eq!(
+            FriendlyDuration::from_str("-2 days"),
+            Err("failed to parse amount: invalid digit found in string".to_owned())
+        );
+        assert_eq!(
+            FriendlyDuration::from_str("2"),
+            Err("must specify a unit like `12hr` or `2days`".to_owned())
+        );
+        assert_eq!(
+            FriendlyDuration::from_str("weeks"),
+            Err("failed to parse amount: cannot parse integer from empty string".to_owned())
+        );
+        assert_eq!(
+            FriendlyDuration::from_str("2 xyz"),
+            Err("unknown unit \"xyz\"".to_owned())
+        );
+        assert_eq!(
+            FriendlyDuration::from_str("10000000000000000000 weeks"),
+            Err("duration is greater than 2^64 seconds".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_display_friendly_duration() {
+        assert_eq!(
+            FriendlyDuration(Duration::from_secs(180)).to_string(),
+            "180s"
+        );
+        assert_eq!(
+            FriendlyDuration(Duration::from_secs(86400)).to_string(),
+            "86400s"
+        );
+    }
+
+    #[test]
+    fn test_serde_friendly_duration() {
+        #[derive(Deserialize, PartialEq, Debug)]
+        struct TestStruct {
+            #[serde(deserialize_with = "deserialize_via_parse")]
+            duration: FriendlyDuration,
+        }
+
+        let test = TestStruct {
+            duration: FriendlyDuration(Duration::from_secs(7200)),
+        };
+
+        // Test deserialization with the original string format
+        let json_s = r#"{"duration":"7200s"}"#;
+        let deserialized_s: TestStruct = serde_json::from_str(json_s).unwrap();
+        assert_eq!(test, deserialized_s);
+
+        // Test deserialization with the friendly format
+        let json_alt = r#"{"duration":"2h"}"#;
+        let deserialized_alt: TestStruct = serde_json::from_str(json_alt).unwrap();
+        assert_eq!(test, deserialized_alt);
+
+        let json_invalid = r#"{"duration":"2years"}"#;
+        assert!(serde_json::from_str::<TestStruct>(json_invalid).is_err());
     }
 }

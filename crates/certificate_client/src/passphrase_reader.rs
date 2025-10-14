@@ -1,7 +1,7 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use thiserror::Error;
 
 pub const CREATE_KEY_PASSPHRASE_PROMPT: &str =
@@ -20,9 +20,12 @@ pub const ENTER_PASSPHRASE_PROMPT: &str =
 
 pub const KEY_ENCRYPTION_PASSPHRASE_ENV_VAR: &str = "SECUREDNA_CERT_KEY_ENCRYPTION_PASSPHRASE";
 
-pub static ENV_PASSPHRASE_WARNING: Lazy<String> = Lazy::new(|| {
+pub const CREATE_AUDIT_KEY_PASSPHRASE_PROMPT: &str =
+    "Please enter a passphrase to protect the key which you will use to decrypt your audit data:";
+
+pub static ENV_PASSPHRASE_WARNING: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "Using passphrase from environment variable {}; this is insecure\n",
+        "Using passphrase from environment variable {}; this is insecure",
         KEY_ENCRYPTION_PASSPHRASE_ENV_VAR
     )
 });
@@ -137,7 +140,7 @@ pub enum PassphraseSource {
     Memory,
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use crate::passphrase_reader::{
         EnvVarPassphraseReader, PassphraseReader, PassphraseReaderError, PassphraseSource,

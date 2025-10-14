@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::error::Error;
@@ -8,14 +8,10 @@ use std::hash::Hash;
 use std::num::NonZeroU32;
 use std::str::FromStr;
 
-use curve25519_dalek::{
-    constants::RISTRETTO_BASEPOINT_POINT,
-    ristretto::{CompressedRistretto, RistrettoPoint},
-    scalar::Scalar,
-};
-use rand::rngs::OsRng;
+use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use serde::{de, ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
 use sha3::Sha3_512;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
 use crate::lagrange::evaluate_lagrange_polynomial;
 use crate::party::KeyserverId;
@@ -23,17 +19,15 @@ use crate::party::KeyserverIdSet;
 use crate::prf::DecodeError;
 use crate::prf::KeyShare;
 
-/// Validation target used in database membership protocol.
-/// Acts as a checksum for verifying the keyserver's responses, ensuring correct evaluation of the PRF.
-// Default is implemented here to preserve functionality in 'incorporate_responses_and_hash'
-// function where QueryStateSet's ownership is temporarily changed.
-// However this shouldn't really have a default implementation.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct Target(RistrettoPoint);
+#[derive(
+    Debug, Clone, Copy, Eq, PartialEq, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned,
+)]
+#[repr(transparent)]
+pub struct CompressedCommitment([u8; 32]);
 
 /// Provides a commitment to a secret scalar value, without revealing it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, std::hash::Hash)]
-pub struct Commitment(CompressedRistretto);
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Commitment(RistrettoPoint);
 
 impl Commitment {
     // Commitments are created using the generator point for our chosen curve.
@@ -43,7 +37,7 @@ impl Commitment {
     }
 }
 
-/// Creates a `RandomizedTarget`for each screening, used to ensure correct evaluation
+/// Creates a `RandomizedTarget` for each screening, used to ensure correct evaluation
 /// of the DOPRF and identify which keyservers are responsible for an incorrect result.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActiveSecurityKey(Vec<RistrettoPoint>);
@@ -53,21 +47,30 @@ impl ActiveSecurityKey {
         Self(commitments.into_iter().map(|c| c.to_rp()).collect())
     }
 
-    /// To validate the keyserver responses we create a target unknown to the keyservers.
-    pub fn randomized_target(&self) -> RandomizedTarget {
-        let random_modifier = Scalar::random(&mut OsRng);
-        let target = Target(self.0[0] * random_modifier);
+    /// Returns commitment [`RistrettoPoint`] for hazard database key.
+    pub fn database_key_commitment(&self) -> &RistrettoPoint {
+        &self.0[0]
+    }
 
-        RandomizedTarget {
-            random_modifier,
-            target,
-            commitments: self.0.clone(),
-        }
+    /// Returns commitment [`RistrettoPoint`] for a keyserver.
+    ///
+    /// In order to speed up client crypto, we apply Lagrange coefficients in keyservers rather
+    /// than in the client. The commitment needs to mirror the behavior of the keyserver,
+    /// so it needs to incorporate the same Lagrange coefficient the keyserver will be applying,
+    /// which requires knowledge of the set of keyservers we're using.
+    pub fn adjusted_keyserver_commitment(
+        &self,
+        keyserver_id: KeyserverId,
+        keyservers: &KeyserverIdSet,
+    ) -> RistrettoPoint {
+        let coeff = keyservers.langrange_coefficient_for_id(&keyserver_id);
+        let ks_commitment = evaluate_lagrange_polynomial(&self.0, (&keyserver_id).into());
+        coeff * ks_commitment
     }
 
     /// The active security key supports a quorum that is equal to the number of commitments it holds internally
-    pub fn supported_quorum(&self) -> u32 {
-        self.0.len() as u32
+    pub fn supported_quorum(&self) -> usize {
+        self.0.len()
     }
 
     #[cfg(test)]
@@ -226,42 +229,7 @@ impl Display for InvalidSecretAndKeyshareInput {
     }
 }
 
-/// Randomised target is a modification of the established target
-#[derive(Debug, Clone, Default)]
-pub struct RandomizedTarget {
-    random_modifier: Scalar,
-    target: Target,
-    commitments: Vec<RistrettoPoint>,
-}
-
-impl RandomizedTarget {
-    pub fn get_checksum_point_for_validation(&self, point_sum: &RistrettoPoint) -> RistrettoPoint {
-        RISTRETTO_BASEPOINT_POINT * self.random_modifier - point_sum
-    }
-
-    pub fn validate_responses(&self, verifier: &RistrettoPoint) -> bool {
-        self.target.0 == *verifier
-    }
-
-    pub fn is_keyserver_response_valid(
-        &self,
-        keyservers: &KeyserverIdSet,
-        keyserver_id: &KeyserverId,
-        sum: &RistrettoPoint,
-    ) -> bool {
-        let coeff = keyservers.langrange_coefficient_for_id(keyserver_id);
-        let verifier = evaluate_lagrange_polynomial(&self.commitments, keyserver_id.into());
-        self.random_modifier * coeff * verifier == *sum
-    }
-}
-
-impl Commitment {
-    pub fn to_rp(self) -> RistrettoPoint {
-        self.0.decompress().unwrap()
-    }
-}
-
-impls_for_ristretto_point!(Commitment);
+impls_for_ristretto_point!(CompressedCommitment, Commitment);
 
 #[cfg(test)]
 mod tests {

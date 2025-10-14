@@ -1,26 +1,29 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use doprf::party::KeyserverId;
 use time::{format_description::well_known::Rfc2822, OffsetDateTime};
 
-use crate::key_traits::HasAssociatedKey;
+use crate::key_traits::HasAssociatedSigningKey;
 use crate::{
     asn::{FromASN1DerBytes, ToASN1DerBytes},
     Authenticator, Builder, Certificate, CertificateBundle, CertificateRequest, DatabaseToken,
     DatabaseTokenGroup, DatabaseTokenRequest, Description, Exemption, ExemptionToken,
     ExemptionTokenGroup, ExemptionTokenRequest, Expiration, GenbankId, HltToken, HltTokenGroup,
-    HltTokenRequest, IssuanceError, Issued, IssuerAdditionalFields, KeyAvailable, KeyPair,
-    KeyUnavailable, KeyserverToken, KeyserverTokenGroup, KeyserverTokenRequest, Organism,
-    PublicKey, RequestBuilder, Role, Sequence, SequenceIdentifier, SynthesizerToken,
+    HltTokenRequest, IssuanceError, Issued, IssuerAdditionalFields, KeyAvailable, KeyUnavailable,
+    KeyserverToken, KeyserverTokenGroup, KeyserverTokenRequest, Organism, PublicKey,
+    RequestBuilder, Role, Sequence, SequenceIdentifier, SigningKeyPair, SynthesizerToken,
     SynthesizerTokenGroup, SynthesizerTokenRequest, TokenBundle, TokenGroup, YubikeyId,
+};
+use crate::{
+    Attachment, Domain, SystemClock, VerifierToken, VerifierTokenGroup, VerifierTokenRequest,
 };
 
 pub fn create_leaf_cert<R: Role>() -> Certificate<R, KeyAvailable>
 where
     RequestBuilder<R>: Builder<Item = CertificateRequest<R, KeyUnavailable>>,
 {
-    let kp = KeyPair::new_random();
+    let kp = SigningKeyPair::new_random();
     let root_cert = RequestBuilder::<R>::root_v1_builder(kp.public_key())
         .build()
         .load_key(kp)
@@ -28,7 +31,7 @@ where
         .self_sign(IssuerAdditionalFields::default())
         .unwrap();
 
-    let int_kp = KeyPair::new_random();
+    let int_kp = SigningKeyPair::new_random();
     let int_req = RequestBuilder::<R>::intermediate_v1_builder(int_kp.public_key()).build();
 
     let intermediate_cert = root_cert
@@ -37,7 +40,7 @@ where
         .load_key(int_kp)
         .unwrap();
 
-    let leaf_kp = KeyPair::new_random();
+    let leaf_kp = SigningKeyPair::new_random();
     let leaf_req = RequestBuilder::<R>::leaf_v1_builder(leaf_kp.public_key()).build();
 
     intermediate_cert
@@ -47,11 +50,11 @@ where
         .unwrap()
 }
 
-pub fn create_intermediate_bundle<R: Role>() -> (CertificateBundle<R>, KeyPair, PublicKey)
+pub fn create_intermediate_bundle<R: Role>() -> (CertificateBundle<R>, SigningKeyPair, PublicKey)
 where
     RequestBuilder<R>: Builder<Item = CertificateRequest<R, KeyUnavailable>>,
 {
-    let kp = KeyPair::new_random();
+    let kp = SigningKeyPair::new_random();
     let root_pk = kp.public_key();
     let root_cert = RequestBuilder::<R>::root_v1_builder(kp.public_key())
         .build()
@@ -60,7 +63,7 @@ where
         .self_sign(IssuerAdditionalFields::default())
         .unwrap();
 
-    let int_kp = KeyPair::new_random();
+    let int_kp = SigningKeyPair::new_random();
     let int_req = RequestBuilder::<R>::intermediate_v1_builder(int_kp.public_key()).build();
 
     let intermediate_cert = root_cert
@@ -75,11 +78,11 @@ where
 }
 
 pub fn create_cross_signed_intermediate_bundle<R: Role>(
-) -> (CertificateBundle<R>, KeyPair, PublicKey)
+) -> (CertificateBundle<R>, SigningKeyPair, PublicKey)
 where
     RequestBuilder<R>: Builder<Item = CertificateRequest<R, KeyUnavailable>>,
 {
-    let kp = KeyPair::new_random();
+    let kp = SigningKeyPair::new_random();
     let root_pk = kp.public_key();
     let root_cert = RequestBuilder::<R>::root_v1_builder(kp.public_key())
         .build()
@@ -88,7 +91,7 @@ where
         .self_sign(IssuerAdditionalFields::default())
         .unwrap();
 
-    let int_kp = KeyPair::new_random();
+    let int_kp = SigningKeyPair::new_random();
     let int_req_a = RequestBuilder::<R>::intermediate_v1_builder(int_kp.public_key()).build();
     let int_req_b = int_req_a.clone();
 
@@ -107,11 +110,11 @@ where
     (bundle, int_kp, root_pk)
 }
 
-pub fn create_leaf_bundle<R: Role>() -> (CertificateBundle<R>, KeyPair, PublicKey)
+pub fn create_leaf_bundle<R: Role>() -> (CertificateBundle<R>, SigningKeyPair, PublicKey)
 where
     RequestBuilder<R>: Builder<Item = CertificateRequest<R, KeyUnavailable>>,
 {
-    let kp = KeyPair::new_random();
+    let kp = SigningKeyPair::new_random();
     let root_pk = kp.public_key();
     let root_cert = RequestBuilder::<R>::root_v1_builder(kp.public_key())
         .build()
@@ -120,7 +123,7 @@ where
         .self_sign(IssuerAdditionalFields::default())
         .unwrap();
 
-    let int_kp = KeyPair::new_random();
+    let int_kp = SigningKeyPair::new_random();
     let int_req = RequestBuilder::<R>::intermediate_v1_builder(int_kp.public_key()).build();
 
     let intermediate_cert = root_cert
@@ -129,7 +132,7 @@ where
         .load_key(int_kp)
         .unwrap();
 
-    let leaf_kp = KeyPair::new_random();
+    let leaf_kp = SigningKeyPair::new_random();
     let leaf_req = RequestBuilder::<R>::leaf_v1_builder(leaf_kp.public_key()).build();
 
     let leaf_cert = intermediate_cert
@@ -156,6 +159,10 @@ pub fn create_etr_with_options(
         .with_email("email@example.com");
 
     let shipping_address = vec!["19 Some Street".to_string(), "Some City".to_string()];
+    let attachment = Attachment {
+        name: "testfile.txt".to_owned(),
+        contents: b"abc".to_vec(),
+    };
 
     ExemptionTokenRequest::v1_token_request(
         public_key,
@@ -163,6 +170,7 @@ pub fn create_etr_with_options(
         requestor,
         auth_devices,
         vec![shipping_address],
+        vec![attachment],
     )
 }
 
@@ -188,12 +196,12 @@ pub fn create_et_with_auth_devices(
         .unwrap()
 }
 
-pub fn create_synth_token_request() -> (SynthesizerTokenRequest, KeyPair) {
-    let kp = KeyPair::new_random();
+pub fn create_synth_token_request() -> (SynthesizerTokenRequest, SigningKeyPair) {
+    let kp = SigningKeyPair::new_random();
 
     let token = SynthesizerTokenRequest::v1_token_request(
         kp.public_key(),
-        "maker.synth",
+        Domain::try_new("maker.synth").unwrap(),
         "XL",
         "10AK",
         10_000u64,
@@ -202,7 +210,10 @@ pub fn create_synth_token_request() -> (SynthesizerTokenRequest, KeyPair) {
     (token, kp)
 }
 
-fn create_token_bundle<T, F, G>(create_req_fn: F, issue_token_fn: G) -> (TokenBundle<T>, PublicKey)
+pub fn create_token_bundle<T, F, G>(
+    create_req_fn: F,
+    issue_token_fn: G,
+) -> (TokenBundle<T>, PublicKey)
 where
     T: TokenGroup,
     F: FnOnce() -> T::TokenRequest,
@@ -216,7 +227,7 @@ where
     let (leaf_bundle, leaf_kp, root_public_key) = create_leaf_bundle::<T::AssociatedRole>();
 
     let issuing_cert = leaf_bundle
-        .get_lead_cert()
+        .get_lead_cert(&SystemClock)
         .unwrap()
         .to_owned()
         .load_key(leaf_kp)
@@ -231,8 +242,8 @@ where
 }
 
 pub fn create_issuing_exemption_token_bundle(
-) -> (TokenBundle<ExemptionTokenGroup>, KeyPair, PublicKey) {
-    let keypair = KeyPair::new_random();
+) -> (TokenBundle<ExemptionTokenGroup>, SigningKeyPair, PublicKey) {
+    let keypair = SigningKeyPair::new_random();
     let create_etr = || create_etr_with_options(Some(keypair.public_key()), vec![], vec![]);
     let (bundle, root_public_key) = create_token_bundle(create_etr, |cert, req| {
         cert.issue_exemption_token(req, Expiration::default(), vec![])
@@ -249,10 +260,19 @@ pub fn create_et_bundle_with_exemptions(
     )
 }
 
+pub fn create_et_bundle_with_custom_expiry(
+    expiry: Expiration,
+) -> (TokenBundle<ExemptionTokenGroup>, PublicKey) {
+    create_token_bundle(
+        || create_etr(create_exemptions()),
+        |cert, req| cert.issue_exemption_token(req, expiry, vec![]),
+    )
+}
+
 pub fn create_et_bundle_from_leaf_bundle(
     exemptions: Vec<Organism>,
     leaf_bundle: &CertificateBundle<Exemption>,
-    leaf_kp: KeyPair,
+    leaf_kp: SigningKeyPair,
 ) -> TokenBundle<ExemptionTokenGroup> {
     let request = create_etr(exemptions);
     leaf_bundle
@@ -297,17 +317,27 @@ pub fn create_child_exemption_token_bundle() -> (TokenBundle<ExemptionTokenGroup
 pub fn create_database_token_bundle() -> (TokenBundle<DatabaseTokenGroup>, PublicKey) {
     create_token_bundle(
         || {
-            let kp = KeyPair::new_random();
+            let kp = SigningKeyPair::new_random();
             DatabaseTokenRequest::v1_token_request(kp.public_key())
         },
         |cert, req| cert.issue_database_token(req, Expiration::default()),
     )
 }
 
+pub fn create_verifier_token_bundle() -> (TokenBundle<VerifierTokenGroup>, PublicKey) {
+    create_token_bundle(
+        || {
+            let kp = SigningKeyPair::new_random();
+            VerifierTokenRequest::v1_token_request(kp.public_key())
+        },
+        |cert, req| cert.issue_verifier_token(req, Expiration::default()),
+    )
+}
+
 pub fn create_hlt_token_bundle() -> (TokenBundle<HltTokenGroup>, PublicKey) {
     create_token_bundle(
         || {
-            let kp = KeyPair::new_random();
+            let kp = SigningKeyPair::new_random();
             HltTokenRequest::v1_token_request(kp.public_key())
         },
         |cert, req| cert.issue_hlt_token(req, Expiration::default()),
@@ -317,7 +347,7 @@ pub fn create_hlt_token_bundle() -> (TokenBundle<HltTokenGroup>, PublicKey) {
 pub fn create_keyserver_token_bundle() -> (TokenBundle<KeyserverTokenGroup>, PublicKey) {
     create_token_bundle(
         || {
-            let kp = KeyPair::new_random();
+            let kp = SigningKeyPair::new_random();
             KeyserverTokenRequest::v1_token_request(
                 kp.public_key(),
                 KeyserverId::try_from(1).unwrap(),
@@ -341,24 +371,31 @@ pub fn create_synthesizer_token_bundle() -> (TokenBundle<SynthesizerTokenGroup>,
 #[macro_export]
 macro_rules! test_for_all_token_types {
     ($test_fn:ident) => {
-        $crate::test_for_token_types!(
-            child_exemption, exemption, database, hlt, keyserver, synthesizer;
-            $test_fn
-        );
-    };
-}
-
-#[cfg(test)]
-#[macro_export]
-macro_rules! test_for_token_types {
-    ($($token_type:ident),*; $test_fn:ident) => {
-        paste::item! {
-            $(
-                #[test]
-                fn [< $test_fn _for_ $token_type _token_bundle >]() {
-                    $test_fn($crate::test_helpers::[<create_ $token_type _token_bundle>]);
-                }
-            )*
+        mod $test_fn {
+            #[test]
+            fn for_child_exemption() {
+                super::$test_fn($crate::test_helpers::create_child_exemption_token_bundle);
+            }
+            #[test]
+            fn for_exemption() {
+                super::$test_fn($crate::test_helpers::create_exemption_token_bundle);
+            }
+            #[test]
+            fn for_database() {
+                super::$test_fn($crate::test_helpers::create_database_token_bundle);
+            }
+            #[test]
+            fn for_hlt() {
+                super::$test_fn($crate::test_helpers::create_hlt_token_bundle);
+            }
+            #[test]
+            fn for_keyserver() {
+                super::$test_fn($crate::test_helpers::create_keyserver_token_bundle);
+            }
+            #[test]
+            fn for_synthesizer() {
+                super::$test_fn($crate::test_helpers::create_synthesizer_token_bundle);
+            }
         }
     };
 }
@@ -466,6 +503,44 @@ pub fn expected_database_token_display<K>(token: &DatabaseToken<K>, issued_by: &
     format!(
         concat_with_newline!(
             "V1 Database Token",
+            "  Issuance ID:",
+            "    {}",
+            "  Request ID:",
+            "    {}",
+            "  Public Key:",
+            "    {}",
+            "  Issued by:",
+            "    {}",
+            "  Issued on:",
+            "    {}",
+            "  Expires:",
+            "    {}",
+            "  Signature:",
+            "    {}",
+        ),
+        token.issuance_id(),
+        token.request_id(),
+        token.public_key(),
+        issued_by,
+        issued_on,
+        expires_on,
+        token.signature()
+    )
+}
+
+pub fn expected_verifier_token_display<K>(token: &VerifierToken<K>, issued_by: &str) -> String {
+    let issued_on = OffsetDateTime::from_unix_timestamp(token.expiration().not_valid_before)
+        .unwrap()
+        .format(&Rfc2822)
+        .unwrap();
+    let expires_on = OffsetDateTime::from_unix_timestamp(token.expiration().not_valid_after)
+        .unwrap()
+        .format(&Rfc2822)
+        .unwrap();
+
+    format!(
+        concat_with_newline!(
+            "V1 Verifier Token",
             "  Issuance ID:",
             "    {}",
             "  Request ID:",

@@ -1,12 +1,16 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use shared_types::{hash::HashSpec, synthesis_permission::Region};
 
 use doprf::party::KeyserverIdSet;
 
+pub use crate::cookie::SessionCookie;
+use crate::error::{ScepError, ServerPrevalidation};
 pub use crate::nonce::{ClientNonce, ServerNonce};
+pub use crate::version::ClientVersion;
 use certificates::{
     DatabaseTokenGroup, Id, Issued, KeyserverTokenGroup, Signature, SynthesizerTokenGroup,
     TokenBundle, TokenGroup,
@@ -18,7 +22,7 @@ pub struct OpenRequest {
     /// V_c, the (non-negotiated) protocol version.
     /// Do not change this field name, it is hardcoded in steps.rs for the
     /// pre-deserialization version check.
-    pub protocol_version: u64,
+    pub protocol_version: ClientVersion,
     /// A freeform version hint so the servers can track client distribution.
     pub version_hint: String,
     pub nonce: ClientNonce,
@@ -35,6 +39,25 @@ pub struct OpenRequest {
 }
 
 impl OpenRequest {
+    pub fn try_from_json(
+        request: serde_json::Value,
+    ) -> Result<Self, ScepError<ServerPrevalidation>> {
+        // Check version *before* we try to parse as something specific.
+        // This helps give nicer, more specific errors around protocol versions.
+        let protocol_version = request
+            .get("protocol_version")
+            .and_then(|v| v.as_u64())
+            .ok_or(ScepError::BadProtocol)?;
+        ClientVersion::try_from(protocol_version)?;
+
+        // Now we can deserialize and provide error diagnostics.
+        let request: OpenRequest = serde_json::value::from_value(request)
+            .context("while parsing request")
+            .map_err(ScepError::InvalidMessage)?;
+
+        Ok(request)
+    }
+
     /// Unique id from client machine certificate
     pub fn client_mid(&self) -> Id {
         *self.cert_chain.token.issuance_id()
@@ -49,6 +72,32 @@ pub struct ScreenCommon {
     /// (This allows for a signed response to be recognized as genuinely
     /// corresponding to the request.)
     pub provider_reference: Option<String>,
+    /// Whether the client is requesting verifiable screening from the database.
+    /// (Defaults to NotRequested if the field isn't provided, e.g. by pre-VS clients.)
+    #[serde(default)]
+    pub verifiable: VerifiableScreeningRequested,
+    /// A hex digest of the SHA3-256 hash of the JSON body submitted to synthclient.
+    /// Only used for verifiable screening. Defaults to an empty string if the field isn't
+    /// provided, e.g. by pre-VS clients.
+    ///
+    /// This field is a bit of a misnomer: the hash is not just over a FASTA,
+    /// but over a larger JSON object also containing region and exemption data.
+    #[serde(default)]
+    pub fasta_sha3_256_hex: String,
+    /// The synthclient version string. Only used for verifiable screening.
+    /// Defaults to an empty string if the field isn't provided, e.g. by pre-VS
+    /// clients.
+    #[serde(default)]
+    pub synthclient_version: String,
+}
+
+/// Whether the client is requesting verifiable screening from the database.
+/// (Defaults to NotRequested if the field isn't provided, e.g. by pre-VS clients.)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum VerifiableScreeningRequested {
+    #[default]
+    NotRequested,
+    Requested,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,8 +133,10 @@ pub struct OpenResponse<TokenKind: TokenGroup> {
     pub nonce: ServerNonce,
     #[serde(with = "cert_chain_serde")]
     pub cert_chain: TokenBundle<TokenKind>,
+    /// Server mutual auth signature
     pub sig: Signature,
     pub hash_spec: HashSpec,
+    pub session_id: SessionCookie,
 }
 
 pub type KeyserverOpenResponse = OpenResponse<KeyserverTokenGroup>;

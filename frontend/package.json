@@ -6,9 +6,12 @@
   "description": "npm workspace for SecureDNA frontend",
   "scripts": {
     "build": "pnpm -r run build",
-    "test": "pnpm -r run test --passWithNoTests"
+    "check": "pnpm exec biome check",
+    "fix": "pnpm exec biome check --fix",
+    "test": "pnpm -r run test"
   },
   "devDependencies": {
-    "@biomejs/biome": "1.8.3"
+    "@biomejs/biome": "2.0.6",
+    "typescript": "~5.8.2"
   }
 }

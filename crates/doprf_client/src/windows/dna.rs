@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::num::NonZeroUsize;
@@ -34,11 +34,11 @@ impl DnaWindows {
     /// Expansions are yielded in ascending order of `index`, but beyond that no particular order
     /// is promised.
     pub fn new(
-        src: Vec<NucleotideAmbiguous>,
+        src: Arc<[NucleotideAmbiguous]>,
         window_len: NonZeroUsize,
         max_window_expansions: Option<NonZeroUsize>,
     ) -> Self {
-        let windows = WindowExpansions::new(src.into(), window_len, max_window_expansions);
+        let windows = WindowExpansions::new(src, window_len, max_window_expansions);
         Self {
             windows,
             output: DnaWindow::new(window_len.get()),
@@ -137,10 +137,11 @@ impl std::fmt::Debug for DnaWindow {
 mod test {
     use std::collections::HashSet;
 
-    use quickcheck::{quickcheck, Arbitrary, Gen};
+    use quickcheck::quickcheck;
 
     use quickdna::{expansions::Expansions, DnaSequence};
 
+    use super::super::test::{Oligo, SemiAmbiguousDna, WindowLen};
     use super::*;
 
     fn to_dna(repr: &str) -> Vec<Nucleotide> {
@@ -159,7 +160,7 @@ mod test {
 
         let window_len = NonZeroUsize::new(10).unwrap();
         let max_window_expansions = None;
-        let windows = DnaWindows::new(dna, window_len, max_window_expansions);
+        let windows = DnaWindows::new(dna.into(), window_len, max_window_expansions);
 
         // I expect the 10-nucleotide windows to look like:
         // offset  0 = ATGTGCGCGC
@@ -204,7 +205,7 @@ mod test {
 
         let window_len = NonZeroUsize::new(15).unwrap();
         let max_window_expansions = None;
-        let windows = DnaWindows::new(dna, window_len, max_window_expansions);
+        let windows = DnaWindows::new(dna.into(), window_len, max_window_expansions);
 
         // I expect the 15-nucleotide windows to look like:
         // offset 0 = ATNARTCTTTTAACG
@@ -384,7 +385,7 @@ mod test {
 
         let window_len = NonZeroUsize::new(15).unwrap();
         let max_window_expansions = Some(NonZeroUsize::new(20).unwrap());
-        let windows = DnaWindows::new(dna, window_len, max_window_expansions);
+        let windows = DnaWindows::new(dna.into(), window_len, max_window_expansions);
 
         // I expect the 15-nucleotide windows to look like:
         // offset 0 = ATNARTCTTTTAACG
@@ -484,7 +485,7 @@ mod test {
             let dna = to_dna_amb("ATNARTCTTTTAACGHAGGT");
             let window_len = NonZeroUsize::new(15).unwrap();
             let max_window_expansions = Some(NonZeroUsize::new(limit).unwrap());
-            let windows = DnaWindows::new(dna, window_len, max_window_expansions);
+            let windows = DnaWindows::new(dna.into(), window_len, max_window_expansions);
             assert_eq!(
                 windows.size_hint(),
                 (expected_len, Some(expected_len)),
@@ -518,7 +519,7 @@ mod test {
 
         let window_len = NonZeroUsize::new(ambiguous_len).unwrap();
         let max_window_expansions = Some(NonZeroUsize::MAX);
-        let windows = DnaWindows::new(dna, window_len, max_window_expansions);
+        let windows = DnaWindows::new(dna.into(), window_len, max_window_expansions);
 
         let expected_len = 2usize.pow(usize::BITS - 1);
         assert_eq!(windows.size_hint(), (expected_len, Some(expected_len)));
@@ -526,7 +527,7 @@ mod test {
 
     #[test]
     fn regression_test_empty_dna() {
-        let dna = vec![];
+        let dna = Arc::default();
         let window_len = NonZeroUsize::new(1).unwrap();
         let max_window_expansions = None;
         let mut windows = DnaWindows::new(dna, window_len, max_window_expansions);
@@ -536,17 +537,17 @@ mod test {
 
     #[test]
     fn regression_test_single_nucleotide_with_excess_window_len() {
-        let dna = [NucleotideAmbiguous::A].to_vec();
+        let dna = [NucleotideAmbiguous::A];
         let window_len = NonZeroUsize::new(2).unwrap();
         let max_window_expansions = None;
-        let mut windows = DnaWindows::new(dna, window_len, max_window_expansions);
+        let mut windows = DnaWindows::new(dna.into(), window_len, max_window_expansions);
         assert_eq!(windows.size_hint(), (0, Some(0)));
         assert!(windows.next().is_none());
     }
 
     #[test]
     fn regression_test_single_nucleotide_with_single_window_len() {
-        let dna = [NucleotideAmbiguous::A].to_vec();
+        let dna = [NucleotideAmbiguous::A].into();
         let window_len = NonZeroUsize::new(1).unwrap();
         let max_window_expansions = None;
         let mut windows = DnaWindows::new(dna, window_len, max_window_expansions);
@@ -560,70 +561,7 @@ mod test {
     }
 
     // Max length of windows iterators that will be checked by the quickcheck tests
-    const MAX_ITER_LEN: usize = 10000;
-
-    #[derive(Clone, Debug)]
-    struct WindowLen(usize);
-
-    impl WindowLen {
-        fn for_slice<T>(&self, slice: &[T]) -> NonZeroUsize {
-            // Using len + 1 has two advantages: no div-by-zero and occasionally checking window sizes larger than the data size
-            NonZeroUsize::new(1 + self.0 % (slice.len() + 1)).unwrap()
-        }
-    }
-
-    impl Arbitrary for WindowLen {
-        fn arbitrary(g: &mut Gen) -> Self {
-            Self(Arbitrary::arbitrary(g))
-        }
-
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            Box::new(self.0.shrink().map(Self))
-        }
-    }
-
-    #[derive(Clone, Debug)]
-    struct SemiAmbiguousDna(Vec<NucleotideAmbiguous>);
-
-    impl Arbitrary for SemiAmbiguousDna {
-        fn arbitrary(g: &mut Gen) -> Self {
-            let (dna, mut ambiguities): (Vec<Nucleotide>, Vec<(usize, NucleotideAmbiguous)>) =
-                Arbitrary::arbitrary(g);
-            ambiguities.truncate(dna.len() / 4);
-
-            let mut dna: Vec<_> = dna.into_iter().map(NucleotideAmbiguous::from).collect();
-            for (i, nuc) in ambiguities {
-                dna.insert(i % (dna.len() + 1), nuc);
-            }
-            Self(dna)
-        }
-
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            Box::new(self.0.shrink().map(Self))
-        }
-    }
-
-    // One provider does a lot of oligos that match [ATCG]*(KNN|SNN|NNN|NNS|NNK)*[ATCG]*
-    // Let's make sure we can handle that kind of thing tolerably well.
-    #[derive(Clone, Debug)]
-    struct Oligo(Vec<NucleotideAmbiguous>);
-
-    impl Arbitrary for Oligo {
-        fn arbitrary(g: &mut Gen) -> Self {
-            use NucleotideAmbiguous::{K, N, S};
-            let ambiguous_aa_type = g
-                .choose(&[[K, N, N], [S, N, N], [N, N, N], [N, N, S], [N, N, K]])
-                .unwrap();
-            let (prefix, ambiguous_aas, suffix): (Vec<Nucleotide>, Vec<()>, Vec<Nucleotide>) =
-                Arbitrary::arbitrary(g);
-
-            let mut dna = Vec::new();
-            dna.extend(prefix.into_iter().map(NucleotideAmbiguous::from));
-            dna.extend(ambiguous_aas.iter().flat_map(|_| ambiguous_aa_type));
-            dna.extend(suffix.into_iter().map(NucleotideAmbiguous::from));
-            Self(dna)
-        }
-    }
+    const MAX_ITER_LEN: usize = 10_000;
 
     // Simple reference implementation for situations where there are no ambiguities
     fn unambiguous_dna_windows_reference_implementation(
@@ -660,7 +598,7 @@ mod test {
     }
 
     fn windows_match_reference_implementation(
-        dna: Vec<NucleotideAmbiguous>,
+        dna: Arc<[NucleotideAmbiguous]>,
         window_len: WindowLen,
         max_window_expansions: Option<NonZeroUsize>,
     ) -> bool {
@@ -691,7 +629,7 @@ mod test {
 
             let reference1 = unambiguous_dna_windows_reference_implementation(&dna, window_len);
 
-            let dna: Vec<_> = dna.into_iter().map(NucleotideAmbiguous::from).collect();
+            let dna: Arc<_> = dna.into_iter().map(NucleotideAmbiguous::from).collect();
             let reference2 = dna_windows_reference_implementation(&dna, window_len, max_window_expansions);
 
             let actual = DnaWindows::new(dna, window_len, max_window_expansions);
@@ -705,7 +643,7 @@ mod test {
             window_len: WindowLen,
             max_window_expansions: Option<NonZeroUsize>
         ) -> bool {
-            windows_match_reference_implementation(dna, window_len, max_window_expansions)
+            windows_match_reference_implementation(dna.into(), window_len, max_window_expansions)
         }
 
         fn less_ambiguous_windows_match_reference_implementation(
@@ -713,7 +651,7 @@ mod test {
             window_len: WindowLen,
             max_window_expansions: Option<NonZeroUsize>
         ) -> bool {
-            windows_match_reference_implementation(dna.0, window_len, max_window_expansions)
+            windows_match_reference_implementation(dna.0.into(), window_len, max_window_expansions)
         }
 
         fn oligo_windows_match_reference_implementation(
@@ -721,7 +659,7 @@ mod test {
             window_len: WindowLen,
             max_window_expansions: Option<NonZeroUsize>
         ) -> bool {
-            windows_match_reference_implementation(dna.0, window_len, max_window_expansions)
+            windows_match_reference_implementation(dna.0.into(), window_len, max_window_expansions)
         }
 
         // It's easy to calculate exactly how many windows unambiguous DNA should produce,
@@ -737,7 +675,7 @@ mod test {
             } else {
                 0
             };
-            let dna: Vec<_> = dna.into_iter().map(NucleotideAmbiguous::from).collect();
+            let dna: Arc<_> = dna.into_iter().map(NucleotideAmbiguous::from).collect();
             let size_hint = DnaWindows::new(dna, window_len, max_window_expansions).size_hint();
             size_hint == (expected_len, Some(expected_len))
         }
@@ -750,7 +688,7 @@ mod test {
             max_window_expansions: Option<NonZeroUsize>
         ) -> bool {
             let window_len = window_len.for_slice(&dna.0);
-            let mut windows = DnaWindows::new(dna.0, window_len, max_window_expansions);
+            let mut windows = DnaWindows::new(dna.0.into(), window_len, max_window_expansions);
             let (lower, upper) = windows.size_hint();
             if lower > MAX_ITER_LEN {
                 return true; // too large to check
@@ -780,7 +718,7 @@ mod test {
             max_window_expansions: Option<NonZeroUsize>
         ) -> bool {
             let window_len = window_len.for_slice(&dna.0);
-            let mut windows = DnaWindows::new(dna.0, window_len, max_window_expansions).map(|(i, _)| i.start);
+            let mut windows = DnaWindows::new(dna.0.into(), window_len, max_window_expansions).map(|(i, _)| i.start);
             if windows.size_hint().0 > MAX_ITER_LEN {
                 return true; // too large to check
             }

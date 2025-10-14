@@ -81,27 +81,27 @@ Intermediate V1 Infrastructure Certificate
 
 Leaf V1 Infrastructure Certificate Request
   Request ID:
-    b067f1e8754046a29cda24cbfe00ce9a
+    6de9b3239274d56a63d9c5ffd7e4a736
   Subject:
-    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 139d11f20ab528ac66dd824b7ad4973f16a434e189d77462a21b2e5b7511d2df)
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 180614b6e50b1c571edb0c8a2a7fd1ab5074965ecbde3ad1f062379a2c9f2647)
 
 *** ./infrastructure-leaf.cert ***
 
 Leaf V1 Infrastructure Certificate
   Issuance ID:
-    d38dc5eb399ddd6dc5bcf61719f50f87
+    4e0b8027f1e0f8fe4951ef918a6cc29d
   Request ID:
-    b067f1e8754046a29cda24cbfe00ce9a
+    6de9b3239274d56a63d9c5ffd7e4a736
   Issued to:
-    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 139d11f20ab528ac66dd824b7ad4973f16a434e189d77462a21b2e5b7511d2df)
+    SecureDNA-infrastructure-leaf, ca-infrastructure-leaf@securedna.org (public key: 180614b6e50b1c571edb0c8a2a7fd1ab5074965ecbde3ad1f062379a2c9f2647)
   Issued by:
-    SecureDNA-infrastructure-intermediate, ca-infrastructure-intermediate@securedna.org (public key: 1ad33daeef8f6eb407a34dea64a71be0a5041a669f527287173e1daaf73026f2)
+    SecureDNA-infrastructure-int-int, ca-infrastructure-intermediate@securedna.org (public key: 436f906976dafc6b66b847d70b30a7d795d1bd59c164a1af0dca6a16f5b3ce41)
   Issued on:
-    Thu, 08 Feb 2024 22:32:49 +0000
+    Mon, 29 Jul 2024 01:01:27 +0000
   Expires:
-    Sun, 07 Feb 2044 22:32:49 +0000
+    Thu, 28 Jul 2044 01:01:27 +0000
   Signature:
-    47ff061287fac469d0b52bed2c5b2d7daec5c8add04489ab5046c3fd5b6a7eb69a96fdd7e8e48719c38052d8927fd3186ca7d5de846926606657eefb9f642003
+    b5b446dd304fc72b5439cfe8c098461ee38848f84a09d3543caba8a216b73a279ca9d5c30a1cb71602ba15188aa85777b0c29f52741512c5dee60c341a1ebb08
 
 *** ./manufacturer-root.certr ***
 
@@ -185,128 +185,128 @@ Intermediate V1 Manufacturer Certificate
 
 Leaf V1 Manufacturer Certificate Request
   Request ID:
-    7054510a1f8f690d22589854356ea47e
+    a0ff52838be66d42fb43b28dca5adfc1
   Subject:
-    SecureDNA-manufacturer-leaf, ca-manufacturer-leaf@securedna.org (public key: 9e364936549ff233a92d82c3f23b1c7e4ebc80ad59a0fc81bcaf215b52fc0f49)
+    SecureDNA-manufacturer-leaf, ca-manufacturer-leaf@securedna.org (public key: 0c76a624e41dd1f12a63a60e229434d8826a5be6a704440a18106558a1d11647)
 
 *** ./manufacturer-leaf.cert ***
 
 Leaf V1 Manufacturer Certificate
   Issuance ID:
-    6537c3a19279d114940209347f907c7c
+    cbc27284e7bd64b616c04882328f9cee
   Request ID:
-    7054510a1f8f690d22589854356ea47e
+    a0ff52838be66d42fb43b28dca5adfc1
   Issued to:
-    SecureDNA-manufacturer-leaf, ca-manufacturer-leaf@securedna.org (public key: 9e364936549ff233a92d82c3f23b1c7e4ebc80ad59a0fc81bcaf215b52fc0f49)
+    SecureDNA-manufacturer-leaf, ca-manufacturer-leaf@securedna.org (public key: 0c76a624e41dd1f12a63a60e229434d8826a5be6a704440a18106558a1d11647)
   Issued by:
-    SecureDNA-manufacturer-intermediate, ca-manufacturer-intermediate@securedna.org (public key: e6e79e479bb6f1b315e384218612d2cb8884b5480fffe04640011ec28ba1cbbd)
+    SecureDNA-manufacturer-int-int, ca-manufacturer-intermediate@securedna.org (public key: 8048b0b07d92ce3e5c3d75e293b516f9482655f8839f980931bc41680382e4f9)
   Issued on:
-    Thu, 08 Feb 2024 22:32:47 +0000
+    Mon, 29 Jul 2024 01:01:25 +0000
   Expires:
-    Sun, 07 Feb 2044 22:32:47 +0000
+    Thu, 28 Jul 2044 01:01:25 +0000
   Signature:
-    017d1b72c7868c00f11dc864b8cb9f373fa64d540f31fb0801e2228701d8ba0a51aa555f6a9e79166f25377c41eea0a148c69a41b28639e951663bdbd55b9204
+    75a735cd1c50b84c4496f2b8d94d640df27f66e3d85bd49563730672cfc4e39e4b2b1f1477fd7db6c84f63cd40664df964e474990f0fa795aa1ea43031acd40b
 
 *** ./exemption-root.certr ***
 
 Root V1 Exemption Certificate Request
   Request ID:
-    19841fd2c91f4d442718b08c8910de8c
+    33799d56ffa22549cee9ce2e019c1283
   Subject:
-    SecureDNA-exemption-root, ca-exemption-root@securedna.org (public key: 2a07b73f277d8a8c5af682e51b93bb896c6ded1c709012b6413ddef6a3ad654b)
+    SecureDNA-exemption-root, ca-exemption-root@securedna.org (public key: d3f373b82755f03b41b620492e05a9e62c80d4669a990925310041dcd662cabc)
 
 *** ./exemption-root.cert ***
 
 Root V1 Exemption Certificate
   Issuance ID:
-    ea89935aae9fe2f70b117d5eb2fa319a
+    9d6fb2f70855749acf2d1325955559cc
   Request ID:
-    19841fd2c91f4d442718b08c8910de8c
+    33799d56ffa22549cee9ce2e019c1283
   Issued to:
-    SecureDNA-exemption-root, ca-exemption-root@securedna.org (public key: 2a07b73f277d8a8c5af682e51b93bb896c6ded1c709012b6413ddef6a3ad654b)
+    SecureDNA-exemption-root, ca-exemption-root@securedna.org (public key: d3f373b82755f03b41b620492e05a9e62c80d4669a990925310041dcd662cabc)
   Issued by:
-    SecureDNA-exemption-root, ca-exemption-root@securedna.org (public key: 2a07b73f277d8a8c5af682e51b93bb896c6ded1c709012b6413ddef6a3ad654b)
+    SecureDNA-exemption-root, ca-exemption-root@securedna.org (public key: d3f373b82755f03b41b620492e05a9e62c80d4669a990925310041dcd662cabc)
   Issued on:
-    Thu, 11 Jul 2024 00:34:57 +0000
+    Wed, 02 Oct 2024 23:43:34 +0000
   Expires:
-    Sun, 10 Jul 2044 00:34:57 +0000
+    Sat, 01 Oct 2044 23:43:34 +0000
   Signature:
-    e9ab2d28c9d7ac7fd535b07f4fd809936d070b21d371b117232ef2363116d4fd9b9722bcdca53882dededc525663286df26672786f28ee479e876546123e4d0c
+    17a914092de53cf654c120dda2f844389c653c106fbc784edb4450a6ab363d6dce41741d650812e4dc8fbdecf9cbefed9a39aa50ea7d3aeed2f6e039f074bb0b
 
 *** ./exemption-intermediate.certr ***
 
 Intermediate V1 Exemption Certificate Request
   Request ID:
-    cd08286d0ae57a5abbb6cbff4daad45e
+    cb001d0a9d41f7679803f2d702717756
   Subject:
-    SecureDNA-exemption-intermediate, ca-exemption-intermediate@securedna.org (public key: b8a24d5413a20d21eaa39cf4b0a2236b50159358201435b544797e7df124573d)
+    SecureDNA-exemption-intermediate, ca-exemption-intermediate@securedna.org (public key: a4a9cb58ba3cac312976b32e22cf0b5a6f8200e84be70243dc67053c4d49cafd)
 
 *** ./exemption-intermediate.cert ***
 
 Intermediate V1 Exemption Certificate
   Issuance ID:
-    9fa87da0ffff5006c6058ee2b9bae1a4
+    3eb36d2c969440b14255a1ce1ccb3d25
   Request ID:
-    cd08286d0ae57a5abbb6cbff4daad45e
+    cb001d0a9d41f7679803f2d702717756
   Issued to:
-    SecureDNA-exemption-intermediate, ca-exemption-intermediate@securedna.org (public key: b8a24d5413a20d21eaa39cf4b0a2236b50159358201435b544797e7df124573d)
+    SecureDNA-exemption-intermediate, ca-exemption-intermediate@securedna.org (public key: a4a9cb58ba3cac312976b32e22cf0b5a6f8200e84be70243dc67053c4d49cafd)
   Issued by:
-    SecureDNA-exemption-root, ca-exemption-root@securedna.org (public key: 2a07b73f277d8a8c5af682e51b93bb896c6ded1c709012b6413ddef6a3ad654b)
+    SecureDNA-exemption-root, ca-exemption-root@securedna.org (public key: d3f373b82755f03b41b620492e05a9e62c80d4669a990925310041dcd662cabc)
   Issued on:
-    Thu, 11 Jul 2024 00:34:57 +0000
+    Wed, 02 Oct 2024 23:43:36 +0000
   Expires:
-    Sun, 10 Jul 2044 00:34:57 +0000
+    Sat, 01 Oct 2044 23:43:36 +0000
   Signature:
-    c75d512b6d8b1bd8cf2c64bb7053ef8d470e4f4fcf02c8093735658716680a67c5b133c96f8e0e9c33210669dca321354a54d85cc00fbb1360ae610d0bf43408
+    af1dfd3a7dcc87ab8b2ba80a1a0b63c610430bd133018d8299889098387b2cddc9e4fda2f22478492dba48ff1b46bc0b9b112891ac66a5f4518b077524606b02
 
 *** ./exemption-int-int.certr ***
 
 Intermediate V1 Exemption Certificate Request
   Request ID:
-    49657c8fcc6cdb8b0da68a77f2f493d2
+    70afcb9b5065f4c127b806bc6a98852c
   Subject:
-    SecureDNA-exemption-int-int, ca-exemption-intermediate@securedna.org (public key: 59d78b09469fecd129bd8623f0f7a070f26e2450c9af646689da9682de0b022b)
+    SecureDNA-exemption-int-int, ca-exemption-int-int@securedna.org (public key: d56d9fcef5c6f226b1116f98dbbd744c9fb8bfa5f104e9dd5d004a86c07825a4)
 
 *** ./exemption-int-int.cert ***
 
 Intermediate V1 Exemption Certificate
   Issuance ID:
-    5724df6dba705d3b057b4cc79c276dfd
+    47e36e8197c40dab3de0c1e3f2f46bed
   Request ID:
-    49657c8fcc6cdb8b0da68a77f2f493d2
+    70afcb9b5065f4c127b806bc6a98852c
   Issued to:
-    SecureDNA-exemption-int-int, ca-exemption-intermediate@securedna.org (public key: 59d78b09469fecd129bd8623f0f7a070f26e2450c9af646689da9682de0b022b)
+    SecureDNA-exemption-int-int, ca-exemption-int-int@securedna.org (public key: d56d9fcef5c6f226b1116f98dbbd744c9fb8bfa5f104e9dd5d004a86c07825a4)
   Issued by:
-    SecureDNA-exemption-intermediate, ca-exemption-intermediate@securedna.org (public key: b8a24d5413a20d21eaa39cf4b0a2236b50159358201435b544797e7df124573d)
+    SecureDNA-exemption-intermediate, ca-exemption-intermediate@securedna.org (public key: a4a9cb58ba3cac312976b32e22cf0b5a6f8200e84be70243dc67053c4d49cafd)
   Issued on:
-    Thu, 11 Jul 2024 00:34:58 +0000
+    Wed, 02 Oct 2024 23:43:37 +0000
   Expires:
-    Sun, 10 Jul 2044 00:34:58 +0000
+    Sat, 01 Oct 2044 23:43:37 +0000
   Signature:
-    2db6c21788e03bf432bf4bfb971ee4809ef78735c93accddcc78c2b27d28d3053571f287972e599ebe98087dab4f1a85e8cb41003f1f87a08a46365feac6d90b
+    34b5d85db4efab87704daf97905a756e61d1daa16a0a5307b2a5c077726492c5161f93850ea7c7920227fcc19dbf4009a0d8f49c73980a62e9e3b39e34f7c909
 
 *** ./exemption-leaf.certr ***
 
 Leaf V1 Exemption Certificate Request
   Request ID:
-    c5c10a1d78817a16ac22c23da0533c9a
+    6d31592c66e60dace2e2efceae5d3160
   Subject:
-    SecureDNA-exemption-leaf, ca-exemption-leaf@securedna.org (public key: d151e08915d6424f1bfdcdc1d75a8e81a8f47543282aac7dc1b6a6c6e5b503f5)
+    SecureDNA-exemption-leaf, ca-exemption-leaf@securedna.org (public key: f78619d0a8aef622c2e514bbe95554404d496f8ad0927f0e706294f4f6196401)
 
 *** ./exemption-leaf.cert ***
 
 Leaf V1 Exemption Certificate
   Issuance ID:
-    829c8d49eec877d5888147efc6823fe0
+    c9f6792c842e9a690dc0118bc5d65fc9
   Request ID:
-    c5c10a1d78817a16ac22c23da0533c9a
+    6d31592c66e60dace2e2efceae5d3160
   Issued to:
-    SecureDNA-exemption-leaf, ca-exemption-leaf@securedna.org (public key: d151e08915d6424f1bfdcdc1d75a8e81a8f47543282aac7dc1b6a6c6e5b503f5)
+    SecureDNA-exemption-leaf, ca-exemption-leaf@securedna.org (public key: f78619d0a8aef622c2e514bbe95554404d496f8ad0927f0e706294f4f6196401)
   Issued by:
-    SecureDNA-exemption-intermediate, ca-exemption-intermediate@securedna.org (public key: b8a24d5413a20d21eaa39cf4b0a2236b50159358201435b544797e7df124573d)
+    SecureDNA-exemption-int-int, ca-exemption-int-int@securedna.org (public key: d56d9fcef5c6f226b1116f98dbbd744c9fb8bfa5f104e9dd5d004a86c07825a4)
   Issued on:
-    Thu, 11 Jul 2024 00:34:57 +0000
+    Wed, 02 Oct 2024 23:43:39 +0000
   Expires:
-    Sun, 10 Jul 2044 00:34:57 +0000
+    Sat, 01 Oct 2044 23:43:39 +0000
   Signature:
-    37197be0d48b655d0259c223d0572dd9adec5758c3b02b0175bac35b02eabda6f79adfbaf03a493543f5c1643447a337bbc432243d1a07f0c2784bedcf43db0b
+    e2926dfbd2dbec0d01f29487e4447ca47b977c4f7806402d358bf56decc0baf0397daab1df7997abd95d591a96c9db5e6882f58f66ac8f8b697296428684e80d

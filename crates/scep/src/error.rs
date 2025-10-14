@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::types::ClientRequestType;
@@ -49,6 +49,8 @@ pub enum ClientPrevalidation {
         expected: KeyserverId,
         in_cert: KeyserverId,
     },
+    #[error("invalid fasta_sha3_256_hex (must be a string of 64 hexadecimal digits)")]
+    InvalidFastaHash,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -90,6 +92,8 @@ pub enum Screen {
     ScreenBeforeEtHashes,
     #[error("exemption token validation error: {0}")]
     EtValidation(String),
+    #[error("client asked for verifiable screening but it is not configured on the server")]
+    VerifiableScreeningUnavailable,
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -1,9 +1,12 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for inspecting the contents of a certificate or certificate request
 
-use std::{io::Write, path::PathBuf};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use clap::{crate_version, Parser, Subcommand};
 
@@ -12,9 +15,12 @@ use crate::inspect::{
     ChainViewMode, FormatMethod, Formattable, MultiItemOutput, SingleRequestOutput,
 };
 use certificates::{
-    file::{load_token_bundle_from_file, load_token_request_from_file, TokenExtension},
-    DatabaseTokenGroup, ExemptionTokenGroup, HltTokenGroup, KeyserverTokenGroup,
-    SynthesizerTokenGroup, TokenGroup, TokenKind,
+    file::{
+        load_token_bundle_from_file, load_token_request_from_file, save_attachment_to_directory,
+        TokenExtension,
+    },
+    Attachment, DatabaseTokenGroup, ExemptionTokenGroup, HltTokenGroup, KeyserverTokenGroup,
+    SynthesizerTokenGroup, TokenBundle, TokenGroup, TokenKind, VerifierTokenGroup,
 };
 
 #[derive(Debug, Parser)]
@@ -23,7 +29,6 @@ use certificates::{
     about = "Inspects and validates a SecureDNA token, token request, or a token's certificate chain",
     version = crate_version!()
 )]
-
 pub struct InspectTokenOpts {
     #[clap(
         help = "Type of token [possible values: keyserver, exemption, database, synthesizer, hlt]"
@@ -38,7 +43,10 @@ pub struct InspectTokenOpts {
         default_value = "plain-digest"
     )]
     pub format: FormatMethod,
+    #[clap(help = "Extract any attachments contained in the token into this directory")]
+    pub extract_attachments: Option<PathBuf>,
 }
+
 /// The data type being inspected
 #[derive(Debug, Subcommand)]
 pub enum Target {
@@ -62,6 +70,94 @@ pub enum Target {
     },
 }
 
+pub enum LoadedTarget<T: TokenGroup> {
+    Request(T::TokenRequest),
+    Token(TokenBundle<T>),
+    Chain(TokenBundle<T>, ChainViewMode),
+}
+
+impl Target {
+    pub fn load_from_file<T: TokenGroup + TokenExtension>(
+        &self,
+    ) -> Result<LoadedTarget<T>, CertCliError> {
+        match self {
+            Target::Request { file } => {
+                let file = match file.extension() {
+                    Some(_) => file.to_owned(),
+                    None => file.with_extension(T::REQUEST_EXT),
+                };
+                let request = load_token_request_from_file::<T>(&file)?;
+                Ok(LoadedTarget::Request(request))
+            }
+            Target::Token { file } => {
+                let file = match file.extension() {
+                    Some(_) => file.to_owned(),
+                    None => file.with_extension(T::TOKEN_EXT),
+                };
+                let token_bundle = load_token_bundle_from_file::<T>(&file)?;
+                Ok(LoadedTarget::Token(token_bundle))
+            }
+            Target::Chain { file, view_mode } => {
+                let file = match file.extension() {
+                    Some(_) => file.to_owned(),
+                    None => file.with_extension(T::TOKEN_EXT),
+                };
+                let token_bundle = load_token_bundle_from_file::<T>(&file)?;
+                Ok(LoadedTarget::Chain(token_bundle, view_mode.to_owned()))
+            }
+        }
+    }
+
+    pub fn inspect<T: TokenGroup + TokenExtension>(
+        &self,
+        format_method: &FormatMethod,
+    ) -> Result<String, CertCliError> {
+        self.load_from_file::<T>()?.display(format_method)
+    }
+}
+
+impl<T: TokenGroup> LoadedTarget<T> {
+    pub fn display(self, format_method: &FormatMethod) -> Result<String, CertCliError> {
+        match self {
+            LoadedTarget::Request(request) => SingleRequestOutput(request)
+                .format(format_method)
+                .map_err(CertCliError::from),
+            LoadedTarget::Token(token_bundle) => {
+                MultiItemOutput::from_items(vec![token_bundle.token])
+                    .format(format_method)
+                    .map_err(CertCliError::from)
+            }
+            LoadedTarget::Chain(token_bundle, view_mode) => {
+                view_mode.display_chain(token_bundle, format_method)
+            }
+        }
+    }
+}
+
+impl LoadedTarget<ExemptionTokenGroup> {
+    fn attachments(&self) -> &[Attachment] {
+        match self {
+            LoadedTarget::Request(request) => request.attachments(),
+            LoadedTarget::Token(bundle) | LoadedTarget::Chain(bundle, _) => {
+                bundle.token.request_attachments()
+            }
+        }
+    }
+
+    pub fn extract_attachments(&self, path: &Path) -> Result<String, CertCliError> {
+        let mut lines: Vec<String> = vec![];
+        let path_name = path.to_str().unwrap_or("(non-unicode path)");
+        for attachment in self.attachments() {
+            save_attachment_to_directory(attachment, path)?;
+            lines.push(format!("Extracted {} to {path_name}", attachment.name));
+        }
+        if lines.is_empty() {
+            lines.push("This file has no attachments.".to_owned());
+        }
+        Ok(lines.join("\n") + "\n\n")
+    }
+}
+
 pub fn main<W: Write, E: Write>(
     opts: &InspectTokenOpts,
     stdout: &mut W,
@@ -78,72 +174,48 @@ pub fn main<W: Write, E: Write>(
 
 fn run(opts: &InspectTokenOpts) -> Result<String, CertCliError> {
     match opts.token {
-        TokenKind::Exemption => inspect_file::<ExemptionTokenGroup>(opts),
-        TokenKind::Keyserver => inspect_file::<KeyserverTokenGroup>(opts),
-        TokenKind::Database => inspect_file::<DatabaseTokenGroup>(opts),
-        TokenKind::Hlt => inspect_file::<HltTokenGroup>(opts),
-        TokenKind::Synthesizer => inspect_file::<SynthesizerTokenGroup>(opts),
+        TokenKind::Exemption => {
+            let mut output = String::new();
+            let target = opts.target.load_from_file::<ExemptionTokenGroup>()?;
+            if let Some(extract_attachments) = &opts.extract_attachments {
+                output += &target.extract_attachments(extract_attachments)?;
+            }
+            output += &target.display(&opts.format)?;
+            Ok(output)
+        }
+        TokenKind::Keyserver => opts.target.inspect::<KeyserverTokenGroup>(&opts.format),
+        TokenKind::Database => opts.target.inspect::<DatabaseTokenGroup>(&opts.format),
+        TokenKind::Verifier => opts.target.inspect::<VerifierTokenGroup>(&opts.format),
+        TokenKind::Hlt => opts.target.inspect::<HltTokenGroup>(&opts.format),
+        TokenKind::Synthesizer => opts.target.inspect::<SynthesizerTokenGroup>(&opts.format),
     }
 }
 
-fn inspect_file<T: TokenGroup + TokenExtension>(
-    opts: &InspectTokenOpts,
-) -> Result<String, CertCliError> {
-    let format_method = &opts.format;
-
-    let display_text = match &opts.target {
-        Target::Request { file } => {
-            let file = match file.extension() {
-                Some(_) => file.to_owned(),
-                None => file.with_extension(T::REQUEST_EXT),
-            };
-            let request = load_token_request_from_file::<T>(&file)?;
-            SingleRequestOutput(request)
-                .format(format_method)
-                .map_err(CertCliError::from)
-        }
-        Target::Token { file } => {
-            let file = match file.extension() {
-                Some(_) => file.to_owned(),
-                None => file.with_extension(T::TOKEN_EXT),
-            };
-            let token = load_token_bundle_from_file::<T>(&file)?.token;
-            MultiItemOutput::from_items(vec![token])
-                .format(format_method)
-                .map_err(CertCliError::from)
-        }
-        Target::Chain { file, view_mode } => {
-            let file = match file.extension() {
-                Some(_) => file.to_owned(),
-                None => file.with_extension(T::TOKEN_EXT),
-            };
-            let token_bundle = load_token_bundle_from_file::<T>(&file)?;
-            view_mode.display_chain(token_bundle, format_method)
-        }
-    }?;
-
-    Ok(display_text)
-}
-
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
-    use certificates::{Digestible, KeyserverTokenGroup, TokenBundle};
+    use std::fs;
+
+    use certificates::{Digestible, KeyserverTokenGroup, SystemClock, TokenBundle};
     use tempfile::TempDir;
 
     use certificates::file::{
         save_token_bundle_to_file, save_token_request_to_file, FileError, TokenExtension,
     };
-    use certificates::test_helpers::{create_leaf_bundle, create_leaf_cert};
+    use certificates::test_helpers::{
+        create_etr_with_options, create_leaf_bundle, create_leaf_cert,
+    };
     use certificates::{
         test_helpers::{
             create_database_token_bundle, create_hlt_token_bundle, create_intermediate_bundle,
             create_keyserver_token_bundle, create_synthesizer_token_bundle,
-            expected_database_token_display, expected_hlt_token_display,
-            expected_keyserver_token_display, expected_synthesizer_token_display,
+            create_verifier_token_bundle, expected_database_token_display,
+            expected_hlt_token_display, expected_keyserver_token_display,
+            expected_synthesizer_token_display, expected_verifier_token_display,
             BreakableSignature,
         },
-        Builder, DatabaseTokenGroup, DatabaseTokenRequest, Expiration, Infrastructure, Issued,
-        IssuerAdditionalFields, KeyPair, KeyserverTokenRequest, RequestBuilder, TokenKind,
+        Builder, DatabaseTokenGroup, DatabaseTokenRequest, ExemptionTokenGroup, Expiration,
+        Infrastructure, Issued, IssuerAdditionalFields, KeyserverTokenRequest, RequestBuilder,
+        SigningKeyPair, TokenKind,
     };
     use doprf::party::KeyserverId;
 
@@ -168,6 +240,7 @@ mod tests {
             token: TokenKind::Database,
             target: Target::Token { file: token_path },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
         let text = run(&opts).unwrap();
         assert_eq!(text, expected_text);
@@ -192,6 +265,55 @@ mod tests {
             token: TokenKind::Database,
             target: Target::Token { file: token_path },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
+        };
+        let text = run(&opts).unwrap();
+        assert_eq!(text, expected_text);
+    }
+
+    #[test]
+    fn inspect_plaintext_display_for_verifier_token_matches_expected_display() {
+        let temp_dir = TempDir::new().unwrap();
+        let token_path = temp_dir.path().join("token.vt");
+
+        let (token_bundle, _) = create_verifier_token_bundle();
+        let expected_text = expected_verifier_token_display(
+            &token_bundle.token,
+            &format!("(public key: {})", token_bundle.token.issuer_public_key()),
+        );
+
+        save_token_bundle_to_file(token_bundle, &token_path).unwrap();
+
+        let opts = InspectTokenOpts {
+            token: TokenKind::Verifier,
+            target: Target::Token { file: token_path },
+            format: FormatMethod::PlainDigest,
+            extract_attachments: None,
+        };
+        let text = run(&opts).unwrap();
+        assert_eq!(text, expected_text);
+    }
+
+    #[test]
+    fn inspect_plaintext_display_for_verifier_token_warns_if_signature_invalid() {
+        let temp_dir = TempDir::new().unwrap();
+        let token_path = temp_dir.path().join("token.vt");
+
+        let (mut token_bundle, _) = create_verifier_token_bundle();
+        token_bundle.token.break_signature();
+        let mut expected_text = expected_verifier_token_display(
+            &token_bundle.token,
+            &format!("(public key: {})", token_bundle.token.issuer_public_key()),
+        );
+        expected_text.push_str("\nINVALID: The signature failed verification");
+
+        save_token_bundle_to_file(token_bundle, &token_path).unwrap();
+
+        let opts = InspectTokenOpts {
+            token: TokenKind::Verifier,
+            target: Target::Token { file: token_path },
+            format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
         let text = run(&opts).unwrap();
         assert_eq!(text, expected_text);
@@ -214,6 +336,7 @@ mod tests {
             token: TokenKind::Hlt,
             target: Target::Token { file: token_path },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
         let text = run(&opts).unwrap();
         assert_eq!(text, expected_text);
@@ -238,6 +361,7 @@ mod tests {
             token: TokenKind::Hlt,
             target: Target::Token { file: token_path },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
         let text = run(&opts).unwrap();
         assert_eq!(text, expected_text);
@@ -261,6 +385,7 @@ mod tests {
             token: TokenKind::Keyserver,
             target: Target::Token { file: token_path },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
         let text = run(&opts).unwrap();
         assert_eq!(text, expected_text);
@@ -286,6 +411,7 @@ mod tests {
             token: TokenKind::Keyserver,
             target: Target::Token { file: token_path },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
         let text = run(&opts).unwrap();
         assert_eq!(text, expected_text);
@@ -314,6 +440,7 @@ mod tests {
             token: TokenKind::Synthesizer,
             target: Target::Token { file: token_path },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
         let text = run(&opts).unwrap();
         assert_eq!(text, expected_text);
@@ -343,6 +470,7 @@ mod tests {
             token: TokenKind::Synthesizer,
             target: Target::Token { file: token_path },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
         let text = run(&opts).unwrap();
         assert_eq!(text, expected_text);
@@ -361,6 +489,7 @@ mod tests {
             token: TokenKind::Keyserver,
             target: Target::Token { file: token_path },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
         let error = run(&opts)
             .expect_err("should not be able to inspect synthesizer token as keyserver token");
@@ -377,7 +506,7 @@ mod tests {
 
         let (int_bundle, int_kp, _) = create_intermediate_bundle::<Infrastructure>();
 
-        let leaf_kp = KeyPair::new_random();
+        let leaf_kp = SigningKeyPair::new_random();
         let leaf_req =
             RequestBuilder::<Infrastructure>::leaf_v1_builder(leaf_kp.public_key()).build();
 
@@ -385,7 +514,7 @@ mod tests {
             .issue_cert_bundle(leaf_req, IssuerAdditionalFields::default(), int_kp)
             .unwrap();
 
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let token_request = DatabaseTokenRequest::v1_token_request(token_kp.public_key());
 
         let token_bundle = leaf_bundle
@@ -400,19 +529,20 @@ mod tests {
                 view_mode: ChainViewMode::AllCerts,
             },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
 
         let result = run(&opts).unwrap();
 
         // check 'AllCerts' contains leaf cert and int cert
         let int_cert_display = int_bundle
-            .get_lead_cert()
+            .get_lead_cert(&SystemClock)
             .unwrap()
             .clone()
             .into_digest()
             .to_string();
         let leaf_cert_display = leaf_bundle
-            .get_lead_cert()
+            .get_lead_cert(&SystemClock)
             .unwrap()
             .clone()
             .into_digest()
@@ -429,7 +559,7 @@ mod tests {
 
         let (int_bundle, int_kp, root_public_key) = create_intermediate_bundle::<Infrastructure>();
 
-        let leaf_kp = KeyPair::new_random();
+        let leaf_kp = SigningKeyPair::new_random();
         let leaf_req =
             RequestBuilder::<Infrastructure>::leaf_v1_builder(leaf_kp.public_key()).build();
 
@@ -437,7 +567,7 @@ mod tests {
             .issue_cert_bundle(leaf_req, IssuerAdditionalFields::default(), int_kp)
             .unwrap();
 
-        let token_kp = KeyPair::new_random();
+        let token_kp = SigningKeyPair::new_random();
         let token_request = DatabaseTokenRequest::v1_token_request(token_kp.public_key());
 
         let token_bundle = leaf_bundle
@@ -455,6 +585,7 @@ mod tests {
                 },
             },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
 
         let result = run(&opts).unwrap();
@@ -481,7 +612,7 @@ mod tests {
 
         let (leaf_bundle, leaf_kp, root_public_key) = create_leaf_bundle::<Infrastructure>();
         let token_request = KeyserverTokenRequest::v1_token_request(
-            KeyPair::new_random().public_key(),
+            SigningKeyPair::new_random().public_key(),
             KeyserverId::try_from(1).unwrap(),
         );
         let token_bundle = leaf_bundle
@@ -506,6 +637,7 @@ mod tests {
                 },
             },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
 
         let result = run(&opts).unwrap();
@@ -522,7 +654,7 @@ mod tests {
         let (token_bundle, _) = create_keyserver_token_bundle();
 
         save_token_bundle_to_file(token_bundle, &token_path).unwrap();
-        let incorrect_root_key = KeyPair::new_random().public_key();
+        let incorrect_root_key = SigningKeyPair::new_random().public_key();
 
         let opts = InspectTokenOpts {
             token: TokenKind::Keyserver,
@@ -533,6 +665,7 @@ mod tests {
                 },
             },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
 
         let result = run(&opts).unwrap();
@@ -557,6 +690,7 @@ mod tests {
                 },
             },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
 
         let result = run(&opts).unwrap();
@@ -568,7 +702,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let request_path = temp_dir.path().join("token");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let request = DatabaseTokenRequest::v1_token_request(kp.public_key());
         save_token_request_to_file::<DatabaseTokenGroup>(
             request,
@@ -580,6 +714,7 @@ mod tests {
             token: TokenKind::Database,
             target: Target::Request { file: request_path },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
 
         inspect_token::run(&opts)
@@ -602,11 +737,13 @@ mod tests {
             token: TokenKind::Database,
             target: Target::Token { file: request_path },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
 
         inspect_token::run(&opts)
             .expect("inspect token tool should be able to infer request extension");
     }
+
     #[test]
     fn inspect_token_chain_infers_extension_if_not_provided() {
         let temp_dir = TempDir::new().unwrap();
@@ -626,9 +763,31 @@ mod tests {
                 view_mode: ChainViewMode::AllCerts,
             },
             format: FormatMethod::PlainDigest,
+            extract_attachments: None,
         };
 
         inspect_token::run(&opts)
             .expect("inspect token tool should be able to infer request extension");
+    }
+
+    #[test]
+    fn extract_exemption_request_attachments() {
+        let temp_dir = TempDir::new().unwrap();
+        let request_path = temp_dir.path().join("token.etr");
+
+        let etr = create_etr_with_options(None, vec![], vec![]);
+        save_token_request_to_file::<ExemptionTokenGroup>(etr, &request_path).unwrap();
+
+        let opts = InspectTokenOpts {
+            token: TokenKind::Exemption,
+            target: Target::Request { file: request_path },
+            format: FormatMethod::PlainDigest,
+            extract_attachments: Some(temp_dir.path().join("attachments")),
+        };
+        run(&opts).unwrap();
+
+        // Attachment specified in `create_etr_with_options` in certificates/src/test_helpers.rs
+        let path = temp_dir.path().join("attachments").join("testfile.txt");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "abc");
     }
 }

@@ -1,0 +1,10 @@
+synthclient
+sdna-sign-cert
+sdna-sign-token
+sdna-create-key
+sdna-create-cert
+sdna-create-token
+sdna-inspect-cert
+sdna-inspect-token
+sdna-merge-cert
+sdna-retrieve-cert-request

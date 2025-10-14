@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -7,6 +7,7 @@ import * as path from "node:path";
 import legacy from "@vitejs/plugin-legacy";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { viteSingleFile } from "vite-plugin-singlefile";
 import topLevelAwait from "vite-plugin-top-level-await";
 import wasm from "vite-plugin-wasm";
 
@@ -24,7 +25,13 @@ export default defineConfig(({ command, mode }) => ({
     legacy({
       targets: ["defaults", "not IE 11"],
     }),
+    viteSingleFile(),
   ],
+  test: {
+    globals: true,
+    environment: "jsdom",
+    root: ".",
+  },
   resolve: {
     alias: {
       "@securedna/frontend_common": path.resolve(

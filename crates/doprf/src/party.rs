@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{fmt::Display, num::NonZeroU32, str::FromStr};
@@ -139,8 +139,8 @@ impl KeyserverIdSet {
         lagrange_coefficient_at_zero(x_i, &x_coords)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &KeyserverId> {
-        self.sorted_keyserver_ids.iter()
+    pub fn iter(&self) -> <&Self as IntoIterator>::IntoIter {
+        self.into_iter()
     }
 
     pub fn len(&self) -> usize {
@@ -149,6 +149,24 @@ impl KeyserverIdSet {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+}
+
+impl IntoIterator for KeyserverIdSet {
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+    type Item = KeyserverId;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.sorted_keyserver_ids.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a KeyserverIdSet {
+    type IntoIter = std::iter::Copied<std::slice::Iter<'a, Self::Item>>;
+    type Item = KeyserverId;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.sorted_keyserver_ids.iter().copied()
     }
 }
 
@@ -211,5 +229,11 @@ impl FromIterator<KeyserverId> for KeyserverIdSet {
     {
         let ids: Vec<KeyserverId> = iter.into_iter().collect();
         ids.into()
+    }
+}
+
+impl From<KeyserverIdSet> for Vec<KeyserverId> {
+    fn from(value: KeyserverIdSet) -> Self {
+        value.sorted_keyserver_ids
     }
 }

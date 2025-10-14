@@ -1,11 +1,21 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
 import { faCheck, faWarning } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { download, makeFileName } from "@securedna/frontend_common";
+import {
+  type Attachment,
+  AuthenticatorsInput,
+  Button,
+  Card,
+  Modal,
+  Page,
+  PrimaryButton,
+  download,
+  makeFileName,
+} from "@securedna/frontend_common";
 import {
   FieldArray,
   type FieldArrayRenderProps,
@@ -15,18 +25,10 @@ import {
   type FormikProps,
 } from "formik";
 import { useState } from "react";
-import {
-  Button,
-  ExemptionTable,
-  FormInput,
-  FormPhoneInput,
-  PrimaryButton,
-  ShippingAddresses,
-} from "src/components";
-import { AuthenticatorsInput } from "src/components/AuthInput";
+import { ExemptionTable } from "src/components/ExemptionTable";
+import { FormInput, FormPhoneInput } from "src/components/FormInput";
 import { MakeKeypair } from "src/components/MakeKeypair";
-import { Modal } from "src/components/Modal";
-import { Page } from "src/components/Page";
+import { ShippingAddresses } from "src/components/ShippingAddresses";
 import {
   type ExemptionFormData,
   type OrganismWithSource,
@@ -35,6 +37,24 @@ import {
 } from "src/types";
 import { isOrcidChecksumValid } from "src/util/orcid";
 import { makeEtrPem } from "src/util/sign_etr";
+
+function readAttachment(file: File): Promise<Attachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (loaded) => {
+      const result = loaded.target?.result;
+      if (result && result instanceof ArrayBuffer) {
+        resolve({
+          name: file.name,
+          contents: Array.from(new Uint8Array(result)),
+        });
+      } else {
+        reject();
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
 
 const emailRegex =
   /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
@@ -49,7 +69,7 @@ const ExemptionRequestForm = () => {
   const successPageIndex = 3;
 
   const [keypairModal, setKeypairModal] = useState(false);
-
+  const [attachmentError, setAttachmentError] = useState("");
   const renderIntroPage = (props: FormikProps<ExemptionFormData>) => (
     <>
       <div className="max-w-prose mx-auto">
@@ -71,7 +91,7 @@ const ExemptionRequestForm = () => {
           </li>
           <li>
             Download the resulting <b>token request file</b> and send it to your
-            superior or biosafety officer. They will verify your request and
+            superior or biosafety authority. They will verify your request and
             send you a token.
           </li>
         </ol>
@@ -82,11 +102,11 @@ const ExemptionRequestForm = () => {
   const renderShippingPage = (props: FormikProps<ExemptionFormData>) => (
     <>
       <h2>Shipping Addresses</h2>
-      <div className="rounded-lg border border-warn bg-warn/10 my-2 py-4 px-6">
+      <Card flavor="warn">
         <FontAwesomeIcon icon={faWarning} className="mr-2" />
         The token will be limited to the provided shipping addresses. The
         addresses can't be changed later.
-      </div>
+      </Card>
       <FieldArray
         name="shippingAddresses"
         render={(arrayHelpers: FieldArrayRenderProps) => (
@@ -97,7 +117,7 @@ const ExemptionRequestForm = () => {
         )}
       />
       <h2>Contact Info</h2>
-      <div className="rounded-lg border border-primary bg-primary/10 py-4 px-6">
+      <Card flavor="primary">
         <FormInput
           required={true}
           label="E-mail address"
@@ -116,7 +136,7 @@ const ExemptionRequestForm = () => {
             transform: "uppercase",
           }}
         />
-      </div>
+      </Card>
       <h2>Subsetting</h2>
       <div>
         <p>
@@ -136,6 +156,7 @@ const ExemptionRequestForm = () => {
             New keypair
           </Button>
           <Button
+            type="button"
             onClick={() => props.setFieldValue("publicKey", undefined)}
             disabled={props.values.publicKey === undefined}
           >
@@ -147,7 +168,7 @@ const ExemptionRequestForm = () => {
             <h3 className="font-bold">
               <FontAwesomeIcon
                 icon={faCheck}
-                className="text-green-500 mt-1 mr-1"
+                className="text-success mt-1 mr-1"
               />{" "}
               Public key:
             </h3>
@@ -155,13 +176,41 @@ const ExemptionRequestForm = () => {
           </div>
         )}
       </div>
+      <h2>Attachments</h2>
+      <div>
+        <p className="pb-4">
+          You can optionally attach any digital paperwork to this request. This
+          paperwork will be checked by your signing authority. If approved, it
+          is signed over and included in your exemption token.
+        </p>
+        <p className="pb-4">
+          Tip: You can select multiple files (hold Ctrl or Shift while
+          selecting).
+        </p>
+        {attachmentError && <p className="text-error">{attachmentError}</p>}
+        <input
+          type="file"
+          multiple
+          onChange={async (event) => {
+            const files = [...(event.currentTarget.files ?? [])];
+            try {
+              const attachments = await Promise.all(files.map(readAttachment));
+              props.setFieldValue("attachments", attachments);
+              setAttachmentError("");
+            } catch (e) {
+              props.setFieldValue("attachments", []);
+              setAttachmentError(`Could not upload attachments. ${e}`);
+            }
+          }}
+        />
+      </div>
 
       <h2>Two-factor authentication</h2>
-      <p className="mb-2 py-4 px-6 bg-warn/10 border-warn border rounded-lg">
+      <Card flavor="warn">
         <FontAwesomeIcon icon={faWarning} className="mr-2" />
         Two-factor authentication is <strong>required</strong>. An OTP from one
         of the provided devices will be required to use the resulting token.
-      </p>
+      </Card>
       <AuthenticatorsInput
         value={props.values.authenticators}
         setValue={(auths) => {

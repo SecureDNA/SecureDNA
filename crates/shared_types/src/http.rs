@@ -1,8 +1,9 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::sync::LazyLock;
+
 use http::{header, HeaderMap, HeaderName, HeaderValue};
-use once_cell::sync::Lazy;
 use regex::bytes::Regex;
 
 use crate::requests::RequestId;
@@ -23,7 +24,7 @@ const BASE_CORS_HEADERS: [(&str, &str); 3] = [
     ("access-control-allow-methods", "POST, GET, PATCH, OPTIONS"),
     (
         "access-control-allow-headers",
-        "Accept, Accept-Encoding, Content-Type, Origin, X-Request-Id, X-Real-Ip, Host, Forwarded, X-Forwarded-For, X-Forwarded-Proto, X-Forwarded-Protocol, X-Url-Scheme, X-Forwarded-Ssl, Front-End-Https",
+        "Accept, Accept-Encoding, Content-Type, Origin, X-Request-Id, X-Real-Ip, Host, Forwarded, X-Forwarded-For, X-Forwarded-Proto, X-Forwarded-Protocol, X-Url-Scheme, X-Forwarded-Ssl, Front-End-Https, securedna-session-id",
     ),
     ("access-control-allow-credentials", "true"),
 ];
@@ -46,7 +47,7 @@ pub fn add_cors_headers(request_headers: &HeaderMap, response_headers: &mut Head
 }
 
 fn is_trusted_origin(origin: &[u8]) -> bool {
-    static ORIGIN_REGEX: Lazy<Regex> = Lazy::new(|| {
+    static ORIGIN_REGEX: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"^https?://(localhost|127\.0\.0\.1|(\w+\.)*securedna.org)(:\d+)?$").unwrap()
     });
     ORIGIN_REGEX.is_match(origin)

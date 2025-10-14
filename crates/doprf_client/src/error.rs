@@ -1,10 +1,12 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::time::Duration;
 
 use thiserror::Error;
 
+use crate::splice::KeyserverError;
+use crate::stream::{HashingStartupError, HashingStreamError};
 use crate::{server_selection::ServerSelectionError, windows::WindowsError};
 use doprf::prf::{DecodeError, QueryError};
 
@@ -65,6 +67,47 @@ impl<E: std::error::Error + Send + Sync + 'static> From<scep_client_helpers::Err
                 source: Box::new(source),
                 domain,
             },
+        }
+    }
+}
+
+impl From<HashingStartupError<DoprfError>> for DoprfError {
+    fn from(err: HashingStartupError<DoprfError>) -> Self {
+        match err {
+            HashingStartupError::InexactWindows => DoprfError::SequencesTooBig,
+            HashingStartupError::TooManyQueries => DoprfError::SequencesTooBig,
+            HashingStartupError::AccessingKeyservers(err) => err,
+        }
+    }
+}
+
+impl From<HashingStreamError<DoprfError>> for DoprfError {
+    fn from(err: HashingStreamError<DoprfError>) -> Self {
+        match err {
+            HashingStreamError::Keyserver(err) => err.into(),
+            HashingStreamError::Query(err) => Self::CryptoError(err),
+        }
+    }
+}
+
+impl From<KeyserverError<DoprfError>> for DoprfError {
+    fn from(err: KeyserverError<DoprfError>) -> Self {
+        match err {
+            KeyserverError::Response { source, .. } => source,
+            KeyserverError::TooShort { .. } => {
+                DoprfError::HttpError(http_client::HttpError::DecodeError {
+                    decoding: "hashparts".to_owned(),
+                    source: "keyserver yielded too few hashparts".into(),
+                })
+            }
+            KeyserverError::TooLong { .. } => {
+                // I'm avoiding DoprfError::SequencesTooBig because I'm guessing that's more
+                // intended for user input, not keysever responses...?
+                DoprfError::HttpError(http_client::HttpError::DecodeError {
+                    decoding: "hashparts".to_owned(),
+                    source: "keyserver yielded too many hashparts".into(),
+                })
+            }
         }
     }
 }

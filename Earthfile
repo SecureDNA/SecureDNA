@@ -51,6 +51,26 @@ client-image:
 
     SAVE IMAGE --push ghcr.io/securedna/client:${SECUREDNA_TAG} ghcr.io/securedna/client:${EARTHLY_GIT_SHORT_HASH}
 
+client-tools-image:
+    FROM +debian-base
+    WORKDIR /client
+    EXPOSE 80
+
+    RUN apt-get update
+    # utils for troubleshooting
+    # ping dig nc(netcat) wget curl netstat
+    RUN apt-get install -y iputils-ping dnsutils netcat-traditional wget curl net-tools
+
+    COPY +build-rust/build/synthclient .
+    COPY +build-rust/build/sdna-* .
+
+    ARG EARTHLY_GIT_SHORT_HASH
+    ARG SECUREDNA_TAG
+
+    CMD ["./synthclient"]
+
+    SAVE IMAGE --push ghcr.io/securedna/client-tools:${SECUREDNA_TAG} ghcr.io/securedna/client-tools:${EARTHLY_GIT_SHORT_HASH}
+
 ## builders
 
 debian-base:
@@ -64,7 +84,7 @@ debian-base:
 # rust builder
 
 rust-base:
-    FROM rust:1.79.0-bookworm
+    FROM rust:1.86.0-bookworm
     ENV NODE_VERSION=18.17.1
     RUN apt install -y curl
     RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
@@ -76,7 +96,8 @@ rust-base:
     RUN node --version
     RUN npm --version
     RUN npm install -g pnpm
-    RUN cargo install --debug cargo-chef --locked --version '>=0.1.48'
+    # See https://github.com/LukeMathWalker/cargo-chef/issues/290
+    RUN cargo install --debug cargo-chef --locked --version 0.1.68
 
 prepare-cache:
     FROM +rust-base
@@ -104,5 +125,5 @@ build-rust:
     COPY +build-cache/cargo_home $CARGO_HOME
     COPY +build-cache/target target
 
-    RUN cargo build --release -p synthclient -p keyserver -p hdbserver
+    RUN cargo build --release -p synthclient -p keyserver -p hdbserver -p certificate-client
     SAVE ARTIFACT target/release build

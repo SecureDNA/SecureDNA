@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fs;
@@ -8,15 +8,18 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::key::ecies::EciesKeyPair;
+use crate::key::error::{KeyLoadError, KeyWriteError};
+use crate::key::signing::SigningKeyPair;
+use crate::key::EncryptableKeypair;
+use crate::Attachment;
 use crate::CertificateBundle;
 use crate::CertificateRequest;
 use crate::DatabaseTokenGroup;
+use crate::EciesPublicKey;
 use crate::ExemptionTokenGroup;
 use crate::HltTokenGroup;
-use crate::KeyLoadError;
-use crate::KeyPair;
 use crate::KeyUnavailable;
-use crate::KeyWriteError;
 use crate::KeyserverTokenGroup;
 use crate::PemDecodable;
 use crate::PemEncodable;
@@ -25,6 +28,7 @@ use crate::Role;
 use crate::SynthesizerTokenGroup;
 use crate::TokenBundle;
 use crate::TokenGroup;
+use crate::VerifierTokenGroup;
 
 pub const CERT_EXT: &str = "cert";
 pub const CERT_REQUEST_EXT: &str = "certr";
@@ -34,6 +38,8 @@ pub const KEYSERVER_TOKEN_EXT: &str = "kt";
 pub const KEYSERVER_TOKEN_REQUEST_EXT: &str = "ktr";
 pub const DATABASE_TOKEN_EXT: &str = "dt";
 pub const DATABASE_TOKEN_REQUEST_EXT: &str = "dtr";
+pub const VERIFIER_TOKEN_EXT: &str = "vt";
+pub const VERIFIER_TOKEN_REQUEST_EXT: &str = "vtr";
 pub const HLT_TOKEN_EXT: &str = "ht";
 pub const HLT_TOKEN_REQUEST_EXT: &str = "htr";
 pub const SYNTHESIZER_TOKEN_EXT: &str = "st";
@@ -59,6 +65,11 @@ impl TokenExtension for KeyserverTokenGroup {
 impl TokenExtension for DatabaseTokenGroup {
     const TOKEN_EXT: &'static str = DATABASE_TOKEN_EXT;
     const REQUEST_EXT: &'static str = DATABASE_TOKEN_REQUEST_EXT;
+}
+
+impl TokenExtension for VerifierTokenGroup {
+    const TOKEN_EXT: &'static str = VERIFIER_TOKEN_EXT;
+    const REQUEST_EXT: &'static str = VERIFIER_TOKEN_REQUEST_EXT;
 }
 
 impl TokenExtension for HltTokenGroup {
@@ -160,8 +171,23 @@ pub fn load_cert_request_from_file<R: Role>(
     Ok(request)
 }
 
+pub fn save_audit_keypair_to_file<B: AsRef<[u8]>>(
+    keypair: EciesKeyPair,
+    passphrase: B,
+    path: &Path,
+) -> Result<(PathBuf, PathBuf), FileError> {
+    validate_extension(path, KEY_PRIV_EXT)?;
+
+    let pub_path = path.with_extension(KEY_PUB_EXT);
+    save_audit_public_key_to_file(keypair.public_key(), &pub_path)?;
+
+    let mut priv_file = prepare_for_writing(path, FileMode::Sensitive)?;
+    keypair.write_key(&mut priv_file, passphrase)?;
+    Ok((path.to_path_buf(), pub_path))
+}
+
 pub fn save_keypair_to_file<B: AsRef<[u8]>>(
-    keypair: KeyPair,
+    keypair: SigningKeyPair,
     passphrase: B,
     path: &Path,
 ) -> Result<(PathBuf, PathBuf), FileError> {
@@ -170,7 +196,7 @@ pub fn save_keypair_to_file<B: AsRef<[u8]>>(
     let pub_path = path.with_extension(KEY_PUB_EXT);
     save_public_key_to_file(keypair.public_key(), &pub_path)?;
 
-    let mut priv_file = create_new_file(path, FileMode::Sensitive)?;
+    let mut priv_file = prepare_for_writing(path, FileMode::Sensitive)?;
     keypair.write_key(&mut priv_file, passphrase)?;
     Ok((path.to_path_buf(), pub_path))
 }
@@ -178,14 +204,36 @@ pub fn save_keypair_to_file<B: AsRef<[u8]>>(
 pub fn load_keypair_from_file(
     path: &Path,
     passphrase: impl AsRef<[u8]>,
-) -> Result<KeyPair, FileError> {
+) -> Result<SigningKeyPair, FileError> {
     validate_extension(path, KEY_PRIV_EXT)?;
     let contents = fs::read(path).map_err(|_| FileError::CouldNotReadFromFile(path.to_owned()))?;
-    let kp = KeyPair::load_key(contents, passphrase)?;
+    let kp = SigningKeyPair::load_key(contents, passphrase)?;
+    Ok(kp)
+}
+
+pub fn load_audit_keypair_from_file(
+    path: &Path,
+    passphrase: impl AsRef<[u8]>,
+) -> Result<EciesKeyPair, FileError> {
+    validate_extension(path, KEY_PRIV_EXT)?;
+    let contents = fs::read(path).map_err(|_| FileError::CouldNotReadFromFile(path.to_owned()))?;
+    let kp = EciesKeyPair::load_key(contents, passphrase)?;
     Ok(kp)
 }
 
 pub fn save_public_key_to_file(public_key: PublicKey, path: &Path) -> Result<(), FileError> {
+    validate_extension(path, KEY_PUB_EXT)?;
+    let contents = public_key
+        .to_file_contents()
+        .map_err(|_| FileError::CouldNotSaveKey)?;
+    save_to_file(contents, path)?;
+    Ok(())
+}
+
+pub fn save_audit_public_key_to_file(
+    public_key: EciesPublicKey,
+    path: &Path,
+) -> Result<(), FileError> {
     validate_extension(path, KEY_PUB_EXT)?;
     let contents = public_key
         .to_file_contents()
@@ -201,18 +249,42 @@ pub fn load_public_key_from_file(path: &Path) -> Result<PublicKey, FileError> {
     Ok(key)
 }
 
+pub fn load_audit_public_key_from_file(path: &Path) -> Result<EciesPublicKey, FileError> {
+    validate_extension(path, KEY_PUB_EXT)?;
+    let contents = fs::read(path).map_err(|_| FileError::CouldNotReadFromFile(path.to_owned()))?;
+    let key =
+        EciesPublicKey::from_file_contents(contents).map_err(|_| FileError::PublicKeyError)?;
+    Ok(key)
+}
+
+pub fn save_attachment_to_directory(attachment: &Attachment, path: &Path) -> Result<(), FileError> {
+    fs::create_dir_all(path)
+        .map_err(|e| FileError::DirectoryCreation(path.into(), e.to_string()))?;
+    let file_path = path.join(&attachment.name);
+    fs::write(file_path, &attachment.contents)
+        .map_err(|e| FileError::FileWriteError(e.to_string()))?;
+    Ok(())
+}
+
 #[derive(PartialEq)]
 enum FileMode {
     Regular,
     Sensitive,
 }
 
-fn create_new_file(path: &Path, mode: FileMode) -> Result<File, FileError> {
-    let file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|err| FileError::FileCreation(path.to_owned(), err.to_string()))?;
+fn prepare_for_writing(path: &Path, mode: FileMode) -> Result<File, FileError> {
+    let file = OpenOptions::new().write(true).create_new(true).open(path);
+
+    #[cfg(unix)]
+    if matches!(file, Err(ref err) if err.kind() == std::io::ErrorKind::AlreadyExists) {
+        // The file exists so maybe it's a pipe? If we can't open it or it's not a pipe,
+        // fall through to the usual file-creation error handling.
+        if let Ok(pipe) = open_pipe(path) {
+            return Ok(pipe);
+        }
+    }
+
+    let file = file.map_err(|err| FileError::FileCreation(path.to_owned(), err.to_string()))?;
 
     if mode == FileMode::Sensitive {
         #[cfg(unix)]
@@ -226,8 +298,21 @@ fn create_new_file(path: &Path, mode: FileMode) -> Result<File, FileError> {
     Ok(file)
 }
 
+// Open a named pipe for appending. Checks that the file is a pipe.
+#[cfg(unix)]
+fn open_pipe(path: &Path) -> std::io::Result<File> {
+    use std::os::unix::fs::FileTypeExt;
+    let pipe = OpenOptions::new().append(true).open(path)?;
+    let metadata = pipe.metadata()?;
+    if !metadata.file_type().is_fifo() {
+        // The particular error doesn't matter; it should be discarded by prepare_for_writing.
+        return Err(std::io::ErrorKind::AlreadyExists.into());
+    }
+    Ok(pipe)
+}
+
 fn save_to_file(contents: String, path: &Path) -> Result<(), FileError> {
-    let mut file = create_new_file(path, FileMode::Regular)?;
+    let mut file = prepare_for_writing(path, FileMode::Regular)?;
     write!(file, "{}", contents).map_err(|err| FileError::FileWriteError(err.to_string()))?;
     Ok(())
 }
@@ -248,6 +333,8 @@ fn validate_extension(path: &Path, expected_ext: &str) -> Result<(), FileError> 
 pub enum FileError {
     #[error("Unable to create the file {:?}. Error: {}.", .0, .1)]
     FileCreation(PathBuf, String),
+    #[error("Unable to create the directory {:?}. Error: {}.", .0, .1)]
+    DirectoryCreation(PathBuf, String),
     #[error("Unable to save certificate request.")]
     CouldNotSaveCertificateRequest,
     #[error("Unable to save certificate.")]
@@ -278,7 +365,7 @@ pub enum FileError {
     FilePermissionSetting(PathBuf),
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use std::{
         fs,
@@ -296,14 +383,15 @@ mod tests {
             load_cert_request_from_file, save_cert_request_to_file, save_token_request_to_file,
             FileError, CERT_REQUEST_EXT,
         },
-        Builder, CertificateBundle, CertificateChain, DatabaseTokenGroup, DatabaseTokenRequest,
-        Exemption, HltTokenGroup, HltTokenRequest, Infrastructure, IssuerAdditionalFields, KeyPair,
-        KeyserverTokenGroup, KeyserverTokenRequest, PublicKey, RequestBuilder,
-        SynthesizerTokenGroup, SynthesizerTokenRequest,
+        Attachment, Builder, CertificateBundle, CertificateChain, DatabaseTokenGroup,
+        DatabaseTokenRequest, Domain, Exemption, HltTokenGroup, HltTokenRequest, Infrastructure,
+        IssuerAdditionalFields, KeyserverTokenGroup, KeyserverTokenRequest, PublicKey,
+        RequestBuilder, SigningKeyPair, SynthesizerTokenGroup, SynthesizerTokenRequest,
+        VerifierTokenGroup, VerifierTokenRequest,
     };
 
     use crate::file::{
-        load_certificate_bundle_from_file, load_public_key_from_file,
+        load_certificate_bundle_from_file, load_public_key_from_file, save_attachment_to_directory,
         save_certificate_bundle_to_file,
     };
 
@@ -311,7 +399,7 @@ mod tests {
 
     #[test]
     fn can_save_cert_and_load_from_file() {
-        let root_kp = KeyPair::new_random();
+        let root_kp = SigningKeyPair::new_random();
         let root_cert = RequestBuilder::<Exemption>::root_v1_builder(root_kp.public_key())
             .build()
             .load_key(root_kp)
@@ -319,7 +407,7 @@ mod tests {
             .self_sign(IssuerAdditionalFields::default())
             .unwrap();
 
-        let int_kp = KeyPair::new_random();
+        let int_kp = SigningKeyPair::new_random();
         let int_req =
             RequestBuilder::<Exemption>::intermediate_v1_builder(int_kp.public_key()).build();
 
@@ -346,7 +434,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let key_path = temp.path().join("key.priv");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let public_key = kp.public_key();
         let pw = "1234";
 
@@ -362,7 +450,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let key_path = temp.path().join("key.priv");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let public_key = kp.public_key();
         let pw = "1234";
 
@@ -376,13 +464,40 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn keypair_can_be_written_to_named_pipe() {
+        use crate::key::encryptable::EncryptableKeypair;
+        use nix::sys::stat::Mode;
+
+        let temp = TempDir::new().unwrap();
+        let pipe_path = temp.path().join("pipe.priv");
+        let rw_owner = Mode::S_IRUSR | Mode::S_IWUSR;
+        nix::unistd::mkfifo(&pipe_path, rw_owner).unwrap();
+
+        let pipe_path2 = pipe_path.clone();
+        let read_pipe = std::thread::spawn(move || std::fs::read(&pipe_path2).unwrap());
+
+        let kp = SigningKeyPair::new_random();
+        let passphrase = "1234";
+
+        save_keypair_to_file(kp.clone(), passphrase, &pipe_path).unwrap();
+
+        let pipe_contents = read_pipe.join().unwrap();
+        let pipe_kp = SigningKeyPair::load_key(pipe_contents, passphrase).unwrap();
+
+        let message = b"This is a test to make sure kp and pipe_kp are the same.";
+        let signature = pipe_kp.sign(message);
+        kp.public_key().verify(message, &signature).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn private_key_saved_with_correct_permissions() {
         use std::{fs::metadata, os::unix::fs::PermissionsExt};
 
         let temp = TempDir::new().unwrap();
         let key_path = temp.path().join("key.priv");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
 
         save_keypair_to_file(kp, "1234", &key_path).unwrap();
         let metadata = metadata(key_path).unwrap();
@@ -403,7 +518,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let key_path = temp.path().join("key.priv");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
 
         let (_, pub_path) = save_keypair_to_file(kp, "1234", &key_path).unwrap();
         let metadata = metadata(pub_path).unwrap();
@@ -440,7 +555,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let request_path = temp_dir.path().join("root.cert");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let request = RequestBuilder::<Exemption>::intermediate_v1_builder(kp.public_key()).build();
         let result = save_cert_request_to_file(request, &request_path);
         let expected_err =
@@ -454,7 +569,7 @@ mod tests {
         let temp_path = temp_dir.path();
         let request_path = temp_path.join("subdir/root.certr");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let request = RequestBuilder::<Exemption>::intermediate_v1_builder(kp.public_key()).build();
         let result = save_cert_request_to_file(request, &request_path);
 
@@ -471,7 +586,7 @@ mod tests {
         File::create(&request_path).unwrap();
         File::create(key_path).unwrap();
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let request = RequestBuilder::<Exemption>::intermediate_v1_builder(kp.public_key()).build();
         let result = save_cert_request_to_file(request, &request_path);
 
@@ -482,7 +597,7 @@ mod tests {
     fn can_handle_attempt_to_save_cert_request_to_dev_null() {
         let request_path = PathBuf::from("/dev/null");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
 
         let request = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .allow_blinding(true)
@@ -518,7 +633,7 @@ mod tests {
         let cert_path = temp_path.join("root.cert");
         let key_path = temp_path.join("root.priv");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         save_keypair_to_file(kp, "12345678", &key_path).unwrap();
         let key_file_contents = fs::read_to_string(key_path).expect("Unable to read file");
 
@@ -559,7 +674,7 @@ mod tests {
         let request_path = temp_path.join("root.certr");
         let key_path = temp_path.join("root.priv");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         save_keypair_to_file(kp, "12345678", &key_path).unwrap();
         let key_file_contents = fs::read_to_string(key_path).expect("Unable to read file");
 
@@ -579,7 +694,7 @@ mod tests {
         //Incorrect extension
         let request_path = destination_directory.path().join("token.dtr");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let keyserver_id = KeyserverId::try_from(1).unwrap();
         let token_request = KeyserverTokenRequest::v1_token_request(kp.public_key(), keyserver_id);
         let result =
@@ -597,7 +712,7 @@ mod tests {
         //Incorrect extension
         let request_path = destination_directory.path().join("token.ktr");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let token_request = DatabaseTokenRequest::v1_token_request(kp.public_key());
         let result = save_token_request_to_file::<DatabaseTokenGroup>(token_request, &request_path);
 
@@ -608,12 +723,28 @@ mod tests {
     }
 
     #[test]
+    fn verifier_token_request_cannot_be_saved_with_incorrect_extension() {
+        let destination_directory = TempDir::new().unwrap();
+        // Incorrect extension
+        let request_path = destination_directory.path().join("token.dtr");
+
+        let kp = SigningKeyPair::new_random();
+        let token_request = VerifierTokenRequest::v1_token_request(kp.public_key());
+        let result = save_token_request_to_file::<VerifierTokenGroup>(token_request, &request_path);
+
+        assert!(
+            matches!(result, Err(FileError::UnexpectedFileExtension(_, _))),
+            "should not be able to save verifier token to file with incorrect extension"
+        );
+    }
+
+    #[test]
     fn hlt_token_request_cannot_be_saved_with_incorrect_extension() {
         let destination_directory = TempDir::new().unwrap();
         //Incorrect extension
         let request_path = destination_directory.path().join("token.ktr");
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let token_request = HltTokenRequest::v1_token_request(kp.public_key());
         let result = save_token_request_to_file::<HltTokenGroup>(token_request, &request_path);
 
@@ -629,12 +760,12 @@ mod tests {
         //Incorrect extension
         let request_path = destination_directory.path().join("token.dtr");
 
-        let domain = "maker.synth".to_owned();
+        let domain = Domain::try_new("maker.synth").unwrap();
         let model = "XL".to_owned();
         let serial = "10AK".to_owned();
         let max_dna_base_pairs_per_day = 10_000_000u64;
 
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let token_request = SynthesizerTokenRequest::v1_token_request(
             kp.public_key(),
             domain,
@@ -650,5 +781,19 @@ mod tests {
             matches!(result, Err(FileError::UnexpectedFileExtension(_, _))),
             "should not be able to save synthesizer token to file with incorrect extension"
         );
+    }
+
+    #[test]
+    fn test_save_attachment_to_directory() {
+        let attachment = Attachment {
+            name: "test.txt".to_string(),
+            contents: b"hiya".to_vec(),
+        };
+        let destination_directory = TempDir::new().unwrap();
+        save_attachment_to_directory(&attachment, destination_directory.path()).unwrap();
+
+        let attachment_path = destination_directory.path().join("test.txt");
+        let contents = fs::read_to_string(attachment_path).unwrap();
+        assert_eq!(contents, "hiya".to_string());
     }
 }

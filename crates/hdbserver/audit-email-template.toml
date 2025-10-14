@@ -1,0 +1,39 @@
+from_email = "audit@securedna.org"
+from_name = "SecureDNA"
+body = '''
+You are receiving this email because the address {to_email} was configured
+as a recipient for SecureDNA audit emails on a synthesis token associated
+with {manufacturer_domain}:
+
+    Public key: {synth_token_public_key}
+    Model: {model}
+    Serial number: {serial_number}
+
+{event_description}
+
+Attached to this email is an encrypted, auditable record of the screening
+process, containing more information about the sequences matched by the
+order. You may want to store this file somewhere safe, and you can inspect
+it using the SecureDNA Inspector (<https://pages.securedna.org/inspect>).
+
+To view the encrypted results, you will need the "-audit.priv" file that
+was generated along with this synth token, and that file's passphrase.
+If you've lost these files, send mail to contact@securedna.org.
+'''
+
+[exemption_exercised]
+enabled = true
+subject = "SecureDNA audit notice: exemption token used"
+event_description = '''
+This token was just used to submit an order for a sequence of concern.
+Synthesis permission was GRANTED because of an exemption token attached
+to the request.
+'''
+
+[hazard_denied]
+enabled = true
+subject = "SecureDNA audit notice: hazard denied"
+event_description = '''
+This token was just used to attempt an order for a sequence of concern.
+Synthesis permission was DENIED.
+'''

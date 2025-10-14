@@ -1,10 +1,11 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 pub mod consolidate_windows;
 pub mod database;
 pub mod entry;
 pub mod exemption;
+pub mod hit_region;
 pub mod hlt;
 pub mod metadata;
 pub mod response;
@@ -12,10 +13,11 @@ pub mod shims;
 pub mod synthesis_permission;
 pub mod tags;
 
-pub use consolidate_windows::{ConsolidatedHazardResult, DebugSeqHdbResponse, HitRegion};
+pub use consolidate_windows::{ConsolidatedHazardResult, DebugSeqHdbResponse};
 pub use database::Database;
 pub use entry::Entry;
 pub use exemption::Exemptions;
+pub use hit_region::HitRegion;
 pub use hlt::{HazardLookupTable, HltEntry, HltId, HltLookupError};
 pub use metadata::{Metadata, MetadataDecodeError, Provenance};
 pub use response::{HdbOrganism, HdbResponse, HdbResponseError};

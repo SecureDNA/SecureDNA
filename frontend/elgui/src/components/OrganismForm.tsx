@@ -1,21 +1,27 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
 import { faWarning } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { type Result, type Sequence, ncbi } from "@securedna/frontend_common";
+import {
+  Input,
+  PrimaryButton,
+  RemoveButton,
+  type Result,
+  type Sequence,
+  ncbi,
+} from "@securedna/frontend_common";
 import type { FieldArrayRenderProps } from "formik";
 import { useEffect, useState } from "react";
 import anMap from "src/data/anmap.json";
 import type { SequenceIdentifierWithSource } from "src/types";
 import { useDebounce } from "use-debounce";
 
+import { LinkButton } from "@securedna/frontend_common";
 import { FastaField } from "./FastaField";
 import { FormInput } from "./FormInput";
-import { LinkButton } from "./LinkButton";
-import { RemoveButton } from "./RemoveButton";
 
 export interface OrganismFormProps {
   /// Index into the organism list.
@@ -118,8 +124,7 @@ export const AnInput = (props: AnInputProps) => {
     <div>
       <div className="flex">
         <div className="relative flex-1">
-          <input
-            className="flex-1 border rounded-l w-full leading-none p-2 outline-blue-500 -mr-1"
+          <Input
             placeholder="AN123.45"
             aria-label="Accession number"
             value={newAn}
@@ -128,14 +133,14 @@ export const AnInput = (props: AnInputProps) => {
             onChange={(e) => setNewAn(e.currentTarget.value)}
           />
         </div>
-        <button
-          className="bg-secondary enabled:hover:opacity-90 text-white disabled:bg-black/10 disabled:text-black/20 transition rounded-r px-4"
+        <PrimaryButton
+          className="rounded-l-none"
           type="button"
           disabled={isPending() || busy}
           onClick={addAn}
         >
           Add AN
-        </button>
+        </PrimaryButton>
       </div>
       <div className={error ? "text-red-500 " : ""}>
         {(isPending() ? "" : message) || "\xa0"}
@@ -158,7 +163,7 @@ export const OrganismForm = (props: OrganismFormProps) => {
         className="opaque"
         rel="noreferrer"
       >
-        <div className="hover:bg-primary font-mono font-thin tracking-tight flex items-center mr-1 mb-1 pl-2 rounded cursor-pointer">
+        <div className="hover:bg-primary bg-black/5 font-mono font-thin tracking-tight flex items-center mr-1 mb-1 pl-2 rounded-sm cursor-pointer">
           {an}{" "}
           <div className="flex px-1 rounded-lg ml-1 h-4 w-4 mr-1 hover:bg-secondary hover:text-white">
             <RemoveButton
@@ -182,6 +187,7 @@ export const OrganismForm = (props: OrganismFormProps) => {
         label="Name"
         name={`organisms.${index}.name`}
         suggestions={Object.keys(anMap)}
+        custom="organism"
         onAcceptSuggestion={(hazardName) => {
           let ans = (anMap as Record<string, string[]>)[hazardName];
           if (ans) {

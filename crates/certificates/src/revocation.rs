@@ -1,9 +1,9 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use serde::Deserialize;
 
-use crate::key_traits::HasAssociatedKey;
+use crate::key_traits::HasAssociatedSigningKey;
 use crate::{Id, Issued, PublicKey};
 
 #[derive(Default, Deserialize)]
@@ -37,7 +37,7 @@ impl RevocationList {
             || self.request_ids.contains(item.request_id())
     }
 
-    pub fn item_id_or_public_key_has_been_revoked<I: Issued + HasAssociatedKey>(
+    pub fn item_id_or_public_key_has_been_revoked<I: Issued + HasAssociatedSigningKey>(
         &self,
         item: &I,
     ) -> bool {

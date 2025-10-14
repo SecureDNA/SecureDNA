@@ -1,6 +1,7 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use wasm_bindgen::prelude::*;
@@ -11,11 +12,13 @@ use doprf_client::{
     server_selection::{
         ServerEnumerationSource, ServerSelectionConfig, ServerSelectionError, ServerSelector,
     },
+    ScreeningParams,
 };
-use http_client::{BaseApiClient, HttpsToHttpRewriter};
+use http_client::{service::util::force_http_if, BaseApiClient};
 use quickdna::{DnaSequence, FastaFile, NucleotideAmbiguous};
 use scep_client_helpers::ClientCerts;
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
 use shared_types::{requests::RequestId, server_selection::Tier};
 use synthclient::{
     api::Region,
@@ -24,6 +27,7 @@ use synthclient::{
         LimitConfiguration,
     },
 };
+use tokio::sync::Semaphore;
 
 const MAX_REQUEST_BP: usize = 1_000_000;
 
@@ -135,84 +139,117 @@ pub async fn screen(sequence: JsValue, config: IScreenConfig) -> Result<IApiResp
         }
     };
 
-    let api_client = {
-        let client = BaseApiClient::new(RequestId::new_unique_with_prefix("server-selection"));
-        if use_http {
-            HttpsToHttpRewriter::inject(client)
-        } else {
-            client
-        }
-    };
-    // TODO: it's really slow to do this every time, we should cache it between requests somewhow
-    let server_selector = retry_if::retry_if(
-        || {
-            async {
-                let selector = ServerSelector::new(
-                    ServerSelectionConfig {
-                        enumeration_source: enumeration_source.clone(),
-                        // TODO: since for now we're making the server selector fresh every
-                        // time, these fields don't matter
-                        soft_timeout: None,
-                        blocking_timeout: None,
-                        soft_extra_keyserver_threshold: None,
-                        soft_extra_hdb_threshold: None,
-                    },
-                    api_client.clone(),
-                )
-                .await?;
-                Ok::<Arc<ServerSelector>, ServerSelectionError>(Arc::new(selector))
+    let (service, worker1) = http_client::securedna_service_and_worker(request_id.clone())
+        .map_err(|_| format!("BUG: Generated invalid request ID: {request_id:?}"))?;
+    let service = force_http_if(service, use_http);
+    let api_client = BaseApiClient::from(service);
+
+    let selector_req_id = RequestId::new_unique_with_prefix("server-selection");
+    let (service, worker2) = http_client::securedna_service_and_worker(selector_req_id)
+        .map_err(|_| format!("BUG: Generated invalid selector request ID: {request_id:?}"))?;
+    let service = force_http_if(service, use_http);
+    let selector_api_client = BaseApiClient::from(service);
+
+    let check_fasta = async {
+        // TODO: it's really slow to do this every time, we should cache it between requests somewhow
+        let server_selector = retry_if::retry_if(
+            || {
+                async {
+                    let selector = ServerSelector::new(
+                        ServerSelectionConfig {
+                            enumeration_source: enumeration_source.clone(),
+                            // TODO: since for now we're making the server selector fresh every
+                            // time, these fields don't matter
+                            soft_timeout: None,
+                            blocking_timeout: None,
+                            soft_extra_keyserver_threshold: None,
+                            soft_extra_hdb_threshold: None,
+                        },
+                        selector_api_client.clone(),
+                    )
+                    .await?;
+                    Ok::<Arc<ServerSelector>, ServerSelectionError>(Arc::new(selector))
+                }
+            },
+            |_| true,
+        )
+        .await
+        .map_err(|e| format!("Server selection failed: {e}"))?;
+
+        #[cfg(not(test))]
+        let certs = ClientCerts::load_from_contents_with_prod_roots(
+            token_contents,
+            keypair_contents,
+            &keypair_passphrase,
+        );
+        #[cfg(test)]
+        let certs = ClientCerts::load_from_contents_with_test_roots(
+            token_contents,
+            keypair_contents,
+            &keypair_passphrase,
+        );
+        let certs = certs.map_err(|e| format!("Couldn't load certs: {e}"))?;
+        let version = securedna_versioning::version::get_version();
+
+        let fasta = match sequence.as_string() {
+            Some(fasta) => fasta,
+            None => {
+                let fasta_file: FastaFile<DnaSequence<NucleotideAmbiguous>> =
+                    serde_wasm_bindgen::from_value(sequence.clone())
+                        .map_err(|e| format!("Could not decode sequence object: {e:?}"))?;
+                fasta_file.to_string()
             }
-        },
-        |_| true,
-    )
-    .await
-    .map_err(|e| format!("Server selection failed: {e}"))?;
+        };
 
-    #[cfg(not(test))]
-    let certs = ClientCerts::load_from_contents_with_prod_roots(
-        token_contents,
-        keypair_contents,
-        &keypair_passphrase,
-    );
-    #[cfg(test)]
-    let certs = ClientCerts::load_from_contents_with_test_roots(
-        token_contents,
-        keypair_contents,
-        &keypair_passphrase,
-    );
-    let certs = certs.map_err(|e| format!("Couldn't load certs: {e}"))?;
-    let version = securedna_versioning::version::get_version();
+        let json_body = format!(r#"{{"fasta":{fasta:?}}}"#);
+        let fasta_sha3_256_hex = hex::encode(Sha3_256::new().chain_update(&json_body).finalize());
 
-    let config = CheckerConfiguration {
-        server_selector,
-        include_debug_info,
-        limit_config: LimitConfiguration {
-            memory_limit: None,
-            max_request_bp: MAX_REQUEST_BP,
-            limits: &limits,
-        },
-        metrics: None,
-        region,
-        use_http,
-        certs: Arc::new(certs),
-        provider_reference: Some(format!("wasm_bindings {request_id}")),
-        synthclient_version_hint: &format!("wasm_bindings {version}"),
-        ets: vec![], // TODO: support using ET for wasm screening?
-        server_version_handler: Default::default(), // don't check server versions in wasm
+        let config = CheckerConfiguration {
+            api_client,
+            server_selector,
+            limit_config: LimitConfiguration {
+                memory_limit: None,
+                max_request_bp: MAX_REQUEST_BP,
+                limits: &limits,
+            },
+            metrics: None,
+            synthclient_version_hint: &format!("wasm_bindings {version}"),
+            server_version_handler: Default::default(), // don't check server versions in wasm
+            params: ScreeningParams {
+                include_debug_info,
+                verifiable_screening: false,
+                region: region.into(),
+                certs: Arc::new(certs),
+                ets: vec![], // TODO: support using ET for wasm screening?
+                fasta_sha3_256_hex,
+                synthclient_version: format!("wasm_bindings {version}"),
+            },
+            provider_reference: Some(format!("wasm_bindings {request_id}")),
+            parallelism_per_request: NonZeroUsize::MIN, // 1
+            server_parallelism_limit: Arc::new(Semaphore::new(1)),
+        };
+
+        let result = match sequence.as_string() {
+            Some(unparsed) => {
+                check_fasta::<NucleotideAmbiguous>(&request_id, unparsed, &config).await
+            }
+            None => {
+                let fasta_file: FastaFile<DnaSequence<NucleotideAmbiguous>> =
+                    serde_wasm_bindgen::from_value(sequence)
+                        .map_err(|e| format!("Could not decode sequence object: {e:?}"))?;
+                check_parsed_fasta::<NucleotideAmbiguous>(&request_id, fasta_file, &config).await
+            }
+        };
+
+        // worker2 won't terminate while selector_api_client exists
+        drop(selector_api_client);
+
+        result.map_err(|e| format!("screening error: {e:?}"))
     };
 
-    let result = match sequence.as_string() {
-        Some(unparsed) => check_fasta::<NucleotideAmbiguous>(&request_id, unparsed, &config).await,
-        None => {
-            let fasta_file: FastaFile<DnaSequence<NucleotideAmbiguous>> =
-                serde_wasm_bindgen::from_value(sequence).unwrap();
-            check_parsed_fasta::<NucleotideAmbiguous>(&request_id, fasta_file, &config).await
-        }
-    };
+    let (response, (), ()) = futures::future::join3(check_fasta, worker1, worker2).await;
 
-    let response = result.map_err(|e| format!("screening error: {e:?}"))?;
-
-    match serde_wasm_bindgen::to_value(&response) {
+    match serde_wasm_bindgen::to_value(&response?) {
         Ok(r) => Ok(r.into()),
         Err(e) => Err(format!("error converting response: {e:?}")),
     }
@@ -221,7 +258,7 @@ pub async fn screen(sequence: JsValue, config: IScreenConfig) -> Result<IApiResp
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
 async fn screen_influenza() {
-    use scep_client_helpers::ClientCerts;
+    use scep_client_helpers::{ClientCerts, EncryptableKeypair};
     use synthclient::api::{ApiResponse, SynthesisPermission};
 
     // This is an arbitrary known sequence in our testhdb

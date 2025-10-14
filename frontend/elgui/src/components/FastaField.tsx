@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -9,11 +9,13 @@ import { useRef, useState } from "react";
 import { toast } from "react-hot-toast";
 import type { FastaFile } from "src/types";
 
-import { Button } from "./Button";
+import {
+  Button,
+  LinkButton,
+  PrimaryButton,
+  RemoveButton,
+} from "@securedna/frontend_common";
 import { FormTextArea } from "./FormInput";
-import { LinkButton } from "./LinkButton";
-import { PrimaryButton } from "./PrimaryButton";
-import { RemoveButton } from "./RemoveButton";
 
 export interface FastaFieldProps {
   source: string;
@@ -78,7 +80,7 @@ const FastaModal = (props: FastaModalProps) => {
  * Returns a human-readable rich-text string describing the records field of a
  * FastaFile. For example, `my_seq and 3 others (1,234 bp)`.
  */
-export function describeRecords(records: FastaFile["records"]): JSX.Element {
+function describeRecords(records: FastaFile["records"]): JSX.Element {
   if (!records.length) {
     return <>None</>;
   }
@@ -175,7 +177,7 @@ export const FastaField = (props: FastaFieldProps) => {
         </div>
       ) : (
         <div className="flex flex-row">
-          <div className="flex-1 text-center bg-primary/10 border-primary border px-2 py-2 rounded">
+          <div className="flex-1 text-center bg-primary/10 border-primary border px-2 py-2 rounded-sm">
             {description}
           </div>
           <div className="flex ml-2">

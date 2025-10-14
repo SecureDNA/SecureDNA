@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::Path;
@@ -13,6 +13,7 @@ pub use persistence::{
 use persistence::{
     params,
     rusqlite::{self, types::ToSqlOutput, ToSql},
+    statistics::TokenLimitRecord,
     tokio_rusqlite::{self, OptionalExtension},
     Migrations, OpenError, SqlCertificateId, SqlOffsetDateTime, SqlRegion, SqlSynthesisPermission,
     M,
@@ -30,6 +31,7 @@ pub async fn open_db(path: impl AsRef<Path>) -> Result<Connection, OpenError> {
         Migrations::from_iter([
             M::up(include_str!("migration-00.sql")),
             M::up(include_str!("migration-01.sql")),
+            M::up(include_str!("migration-02.sql")),
         ]),
     )
     .await
@@ -188,6 +190,47 @@ pub async fn insert_ratelimit_exceedance_at_time(
     Ok(())
 }
 
+pub async fn insert_audit_email_event(
+    conn: &Connection,
+    client_mid: Id,
+    email_address: String,
+    email_public_key: String,
+    error: Option<String>,
+) -> Result<(), tokio_rusqlite::Error> {
+    insert_audit_email_event_at_time(
+        conn,
+        client_mid,
+        email_address,
+        email_public_key,
+        error,
+        SqlOffsetDateTime::now_utc(),
+    )
+    .await
+}
+
+pub async fn insert_audit_email_event_at_time(
+    conn: &Connection,
+    client_mid: Id,
+    email_address: String,
+    email_public_key: String,
+    error: Option<String>,
+    timestamp_utc: impl Into<SqlOffsetDateTime>,
+) -> Result<(), tokio_rusqlite::Error> {
+    let timestamp_utc = timestamp_utc.into();
+    conn.call(move |conn| {
+        conn.execute(
+            r#"
+            INSERT INTO audit_email_events (client_mid, timestamp_utc, email_address, email_public_key, error)
+            VALUES (?1, ?2, ?3, ?4, ?5);
+            "#,
+            params![SqlCertificateId(client_mid), timestamp_utc, email_address, email_public_key, error],
+        )?;
+        Ok(())
+    })
+    .await?;
+    Ok(())
+}
+
 pub async fn query_client_screened_bp_in_last_day(
     conn: &Connection,
     client_mid: Id,
@@ -247,12 +290,20 @@ pub async fn query_orders_per_day_per_client(
     .await
 }
 
+pub async fn query_token_limits(
+    conn: &Connection,
+    start_date: impl Into<SqlOffsetDateTime>,
+    end_date: impl Into<SqlOffsetDateTime>,
+) -> Result<Vec<TokenLimitRecord>, tokio_rusqlite::Error> {
+    persistence::statistics::query_token_limits(conn, start_date, end_date, "screen_events").await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use certificates::{Issued, Organism};
-    use persistence::open_events::test_utils::make_synth_tokens;
+    use certificates::{key::ecies::EciesKeyPair, Issued, Organism};
+    use persistence::{open_events::test_utils::make_synth_tokens, statistics::TokenLimitData};
 
     #[tokio::test]
     async fn test_open_db() {
@@ -453,6 +504,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn insert_audit() {
+        let conn = open_db(":memory:").await.unwrap();
+
+        let certs = scep_client_helpers::certs::ClientCerts::load_test_certs();
+        let client_token = certs.token;
+        let client_mid = *client_token.token.issuance_id();
+
+        let kp = EciesKeyPair::new_random();
+        let public_key = kp.public_key().to_file_contents().unwrap();
+
+        insert_open_event(&conn, &client_token, 0).await.unwrap();
+        insert_audit_email_event(
+            &conn,
+            client_mid,
+            "test@example.org".to_owned(),
+            public_key,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let (saved_id, saved_error): (SqlCertificateId, Option<String>) = conn
+            .call(|conn| {
+                Ok(conn
+                    .query_row(
+                        "SELECT client_mid, error FROM audit_email_events",
+                        params![],
+                        |row| Ok((row.get_unwrap(0), row.get_unwrap(1))),
+                    )
+                    .unwrap())
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(saved_id.0, client_mid);
+        assert_eq!(saved_error, None);
+    }
+
+    #[tokio::test]
     async fn test_query_certs() {
         let conn = open_db(":memory:").await.unwrap();
         persistence::certs::test_utils::test_query_certs(conn).await;
@@ -482,6 +572,8 @@ mod tests {
         };
         let client_1_id = *client_1.token.issuance_id();
         let client_2_id = *client_2.token.issuance_id();
+
+        assert!(client_1_id != client_2_id);
 
         let et = &[];
 
@@ -614,5 +706,35 @@ mod tests {
         assert!(exceedances_per_day.contains(&(date.into(), client_1_id, 1)));
         assert!(exceedances_per_day.contains(&(date.into(), client_2_id, 1)));
         assert!(exceedances_per_day.contains(&(date_1.into(), client_1_id, 1)));
+
+        // Test query_token_limits
+        let limits = query_token_limits(&conn, date, date_3).await.unwrap();
+        assert_eq!(
+            limits,
+            vec![
+                TokenLimitRecord {
+                    unix_timestamp: (date_1 + persistence::Duration::hours(2)).unix_timestamp(),
+                    token_id: client_1_id,
+                    data: Some(TokenLimitData {
+                        rate_limit: 1000,
+                        email_addresses: vec![
+                            "int@example.com".to_owned(),
+                            "leaf@example.com".to_owned(),
+                        ]
+                    })
+                },
+                TokenLimitRecord {
+                    unix_timestamp: date_2.unix_timestamp(),
+                    token_id: client_2_id,
+                    data: Some(TokenLimitData {
+                        rate_limit: 1000,
+                        email_addresses: vec![
+                            "int@example.com".to_owned(),
+                            "leaf@example.com".to_owned(),
+                        ]
+                    })
+                }
+            ]
+        );
     }
 }

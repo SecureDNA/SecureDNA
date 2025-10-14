@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::{Path, PathBuf};
@@ -14,8 +14,8 @@ use minhttp::mpserver::{cli::ServerConfigSource, traits::RelativeConfig};
 #[derive(Debug, Parser)]
 #[clap(
     name = "keyserver",
-    about = "SecureDNA DOPRF Key Server",
-    version = crate_version!()
+    about = concat!("SecureDNA DOPRF Key Server ", crate_version!()),
+    version = crate_version!(),
 )]
 pub struct Opts {
     #[command(flatten)]
@@ -42,7 +42,8 @@ pub struct Config {
         short,
         long,
         env = "SECUREDNA_KEYSERVER_KEYSHARE",
-        help = "The keyshare, as a hexadecimal string."
+        help = "The keyshare, as a hexadecimal string.",
+        hide_env_values = true
     )]
     pub keyshare: KeyShare,
 
@@ -86,6 +87,15 @@ pub struct Config {
     )]
     #[serde(default = "Config::default_scep_json_size_limit")]
     pub scep_json_size_limit: u64,
+
+    #[clap(
+        long,
+        help = "Size limit for window/hash bodies in SCEP.",
+        env = "SECUREDNA_KEYSERVER_SCEP_HASH_LIMIT",
+        default_value_t = Config::default_scep_hash_limit()
+    )]
+    #[serde(default = "Config::default_scep_hash_limit")]
+    pub scep_hash_limit: u64,
 
     #[clap(
         long,
@@ -148,7 +158,11 @@ impl Config {
     }
 
     pub fn default_scep_json_size_limit() -> u64 {
-        100000
+        100_000
+    }
+
+    pub fn default_scep_hash_limit() -> u64 {
+        1_000_000
     }
 
     pub fn default_event_store_path() -> PathBuf {

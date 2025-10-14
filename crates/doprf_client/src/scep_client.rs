@@ -1,33 +1,36 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::convert::Infallible;
+use std::future::Future;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::stream::FuturesUnordered;
-use futures::TryStreamExt;
+use futures::{Stream, StreamExt, TryStream, TryStreamExt};
+use scep_client_helpers::scep_client::{HdbOpenParams, ScepClientOpenCommon};
 use shared_types::et::WithOtps;
 
 use crate::error::DoprfError;
 use crate::retry_if;
 use crate::server_selection::{bad_flag::ServerBadFlag, SelectedHdb, SelectedKeyserver};
+use crate::splice::BatchedQueries;
 use certificates::{DatabaseTokenGroup, ExemptionTokenGroup, KeyserverTokenGroup, TokenBundle};
 use doprf::party::{KeyserverId, KeyserverIdSet};
-use doprf::prf::{CompletedHashValue, HashPart, Query};
+use doprf::prf::{CompressedCompletedHashValue, CompressedHashPart};
 use doprf::tagged::TaggedHash;
+use hdb_api::HdbScreeningResult;
+use http_client::service::util::BoxedError;
 use http_client::BaseApiClient;
-use packed_ristretto::PackedRistrettos;
 use scep::states::OpenedClientState;
 use scep_client_helpers::{ClientCerts, ScepClient};
-use shared_types::hdb::HdbScreeningResult;
-use shared_types::synthesis_permission::Region;
 
 #[derive(Clone)]
 pub struct ClientConfig {
     pub api_client: BaseApiClient,
     pub certs: Arc<ClientCerts>,
     pub version_hint: String,
-    pub debug_info: bool,
 }
 
 pub struct HdbClient {
@@ -37,15 +40,11 @@ pub struct HdbClient {
 }
 
 impl HdbClient {
-    #[allow(clippy::too_many_arguments)]
     pub async fn open(
         server: SelectedHdb,
         config: ClientConfig,
-        nucleotide_total_count: u64,
-        last_server_version: Option<u64>,
-        keyserver_id_set: KeyserverIdSet,
-        region: Region,
-        with_exemption: bool,
+        common_params: ScepClientOpenCommon,
+        hdb_params: HdbOpenParams,
     ) -> Result<Self, DoprfError> {
         let client = ScepClient::<DatabaseTokenGroup>::new(
             config.api_client,
@@ -57,14 +56,7 @@ impl HdbClient {
         let state = retry_with_timeout_and_mark_bad(
             || async {
                 Ok(client
-                    .open(
-                        nucleotide_total_count,
-                        last_server_version,
-                        keyserver_id_set.clone(),
-                        config.debug_info,
-                        region,
-                        with_exemption,
-                    )
+                    .open(common_params.clone(), hdb_params.clone())
                     .await?)
             },
             &server.bad_flag,
@@ -78,62 +70,44 @@ impl HdbClient {
         })
     }
 
-    /// Post packed `TaggedHash`es to the HDB, and return the HDB response set
-    pub async fn query(
+    pub async fn query<H, EH>(
         self,
-        hashes: &PackedRistrettos<TaggedHash>,
-    ) -> Result<HdbScreeningResult, DoprfError> {
-        let hash_total_count = hashes
-            .len()
-            .try_into()
-            .map_err(|_| DoprfError::SequencesTooBig)?;
-
-        retry_with_timeout_and_mark_bad(
-            || async {
-                Ok(self
-                    .client
-                    .authenticate(self.state.clone(), hash_total_count)
-                    .await?)
-            },
-            &self.server.bad_flag,
-        )
-        .await?;
-
-        retry_with_timeout_and_mark_bad(
-            || async { Ok(self.client.screen(hashes).await?) },
-            &self.server.bad_flag,
-        )
-        .await
-    }
-
-    /// Post packed `CompletedHashValue`s to the HDB, and return the HDB response set
-    pub async fn query_with_ets(
-        self,
-        hashes: &PackedRistrettos<TaggedHash>,
+        hashes: H,
+        total_hashes: u64,
         ets: &[WithOtps<TokenBundle<ExemptionTokenGroup>>],
-        et_hashes: PackedRistrettos<CompletedHashValue>,
-    ) -> Result<HdbScreeningResult, DoprfError> {
-        let hash_total_count = hashes
-            .len()
-            .try_into()
-            .map_err(|_| DoprfError::SequencesTooBig)?;
-
-        retry_with_timeout_and_mark_bad(
+        et_hashes: EH,
+        total_et_hashes: u64,
+    ) -> Result<HdbScreeningResult, DoprfError>
+    where
+        H: TryStream + Send + 'static,
+        H::Ok: Deref<Target = [TaggedHash]>,
+        H::Error: Into<BoxedError> + Send + Sync,
+        EH: TryStream + Send + 'static,
+        EH::Ok: Deref<Target = [CompressedCompletedHashValue]>,
+        EH::Error: Into<BoxedError> + Send + Sync,
+    {
+        let session_id = retry_with_timeout_and_mark_bad(
             || async {
                 Ok(self
                     .client
-                    .authenticate(self.state.clone(), hash_total_count)
+                    .authenticate(self.state.clone(), total_hashes)
                     .await?)
             },
             &self.server.bad_flag,
         )
         .await?;
 
-        retry_with_timeout_and_mark_bad(
-            || async { Ok(self.client.screen_with_ets(hashes, ets, &et_hashes).await?) },
-            &self.server.bad_flag,
-        )
-        .await
+        Ok(self
+            .client
+            .screen_streamed(
+                session_id,
+                hashes,
+                total_hashes,
+                ets,
+                et_hashes,
+                total_et_hashes,
+            )
+            .await?)
     }
 
     pub fn domain(&self) -> &str {
@@ -155,9 +129,7 @@ impl KeyserverClient {
     pub async fn open(
         server: SelectedKeyserver,
         config: ClientConfig,
-        nucleotide_total_count: u64,
-        last_server_version: Option<u64>,
-        keyserver_id_set: KeyserverIdSet,
+        common_params: ScepClientOpenCommon,
     ) -> Result<Self, DoprfError> {
         let client = ScepClient::<KeyserverTokenGroup>::new(
             config.api_client,
@@ -167,17 +139,7 @@ impl KeyserverClient {
         );
 
         let state = retry_with_timeout_and_mark_bad(
-            || async {
-                Ok(client
-                    .open(
-                        nucleotide_total_count,
-                        last_server_version,
-                        keyserver_id_set.clone(),
-                        server.id,
-                        config.debug_info,
-                    )
-                    .await?)
-            },
+            || async { Ok(client.open(common_params.clone(), server.id).await?) },
             &server.bad_flag,
         )
         .await?;
@@ -192,10 +154,14 @@ impl KeyserverClient {
     /// Post packed `Query`s to the given keyserver, and return the response of packed `HashPart`s
     pub async fn query(
         self,
-        hash_total_count: u64,
-        queries: &PackedRistrettos<Query>,
-    ) -> Result<PackedRistrettos<HashPart>, DoprfError> {
-        retry_with_timeout_and_mark_bad(
+        queries: BatchedQueries,
+    ) -> Result<
+        impl Stream<Item = Result<CompressedHashPart, DoprfError>> + Send + Unpin + 'static,
+        DoprfError,
+    > {
+        let hash_total_count = queries.remaining_queries();
+
+        let session_id = retry_with_timeout_and_mark_bad(
             || async {
                 Ok(self
                     .client
@@ -206,11 +172,19 @@ impl KeyserverClient {
         )
         .await?;
 
-        retry_with_timeout_and_mark_bad(
-            || async { Ok(self.client.keyserve(queries).await?) },
-            &self.server.bad_flag,
-        )
-        .await
+        let queries = queries.map(Ok::<_, Infallible>);
+        let chunks = self
+            .client
+            .keyserve_stream(session_id, hash_total_count, queries)
+            .await?;
+        let hash_parts = chunks
+            .map_ok(|chunk| futures::stream::iter(chunk.map(Ok)))
+            .try_flatten();
+        Ok(hash_parts)
+    }
+
+    pub fn keyserver_id(&self) -> KeyserverId {
+        self.server.id
     }
 
     pub fn domain(&self) -> &str {
@@ -233,6 +207,7 @@ impl KeyserverSetClient {
         config: ClientConfig,
         nucleotide_total_count: u64,
         keyserver_id_set: KeyserverIdSet,
+        debug_info: bool,
     ) -> Result<Self, DoprfError> {
         let clients = servers
             .into_iter()
@@ -240,9 +215,12 @@ impl KeyserverSetClient {
                 KeyserverClient::open(
                     s,
                     config.clone(),
-                    nucleotide_total_count,
-                    last_server_version,
-                    keyserver_id_set.clone(),
+                    ScepClientOpenCommon {
+                        nucleotide_total_count,
+                        last_server_version,
+                        keyserver_id_set: keyserver_id_set.clone(),
+                        debug_info,
+                    },
                 )
             })
             .collect::<FuturesUnordered<_>>()
@@ -251,31 +229,32 @@ impl KeyserverSetClient {
         Ok(Self { clients })
     }
 
-    /// Query all keyservers in parallel, returning an error on first failure
-    pub async fn query(
-        self,
-        hash_total_count: u64,
-        queries: &PackedRistrettos<Query>,
-    ) -> Result<Vec<(KeyserverId, PackedRistrettos<HashPart>)>, DoprfError> {
+    pub fn keyserve_fns(self) -> Vec<(KeyserverId, impl KeyserveFn)> {
         self.clients
             .into_iter()
-            .map(|client| {
-                let client_id = client.server.id;
-                async move {
-                    client
-                        .query(hash_total_count, queries)
-                        .await
-                        .map(|hash_parts| (client_id, hash_parts))
-                }
-            })
-            .collect::<FuturesUnordered<_>>()
-            .try_collect()
-            .await
+            .map(|ks_client| (ks_client.keyserver_id(), |q| ks_client.query(q)))
+            .collect()
     }
 
     pub fn clients(&self) -> impl Iterator<Item = &KeyserverClient> {
         self.clients.iter()
     }
+}
+
+// Workaround for lack of nested existential types
+pub trait KeyserveFn: FnOnce(BatchedQueries) -> Self::Future {
+    type Future: Future<Output = Result<Self::HashParts, DoprfError>> + Send;
+    type HashParts: Stream<Item = Result<CompressedHashPart, DoprfError>> + Send + Unpin + 'static;
+}
+
+impl<F, Fut, HP> KeyserveFn for F
+where
+    F: FnOnce(BatchedQueries) -> Fut,
+    Fut: Future<Output = Result<HP, DoprfError>> + Send,
+    HP: Stream<Item = Result<CompressedHashPart, DoprfError>> + Send + Unpin + 'static,
+{
+    type Future = Fut;
+    type HashParts = HP;
 }
 
 /// Helper for hdb and keyserver api clients: retry the given future with our
@@ -289,10 +268,24 @@ where
     Fut: futures::Future<Output = Result<Val, DoprfError>>,
 {
     const TIMEOUT: Duration = Duration::from_secs(120);
+
+    let mk_future = || retry_if::with_timeout(TIMEOUT, mk_future());
+
+    retry_and_mark_bad(mk_future, server_bad_flag).await
+}
+
+/// Helper for hdb and keyserver api clients: retry the given future with our
+/// retry schedule, and mark the server error flag if we don't get a
+/// response within the given number of retries.
+async fn retry_and_mark_bad<Fut, Val>(
+    mut mk_future: impl FnMut() -> Fut,
+    server_bad_flag: &ServerBadFlag,
+) -> Result<Val, DoprfError>
+where
+    Fut: futures::Future<Output = Result<Val, DoprfError>>,
+{
     // this is 4 tries overall, 1 try + 3 retries. confusing...
     let policy = retry_if::retry_policy_jittered_fibonacci().with_max_retries(3);
-
-    let mut mk_future = || retry_if::with_timeout(TIMEOUT, mk_future());
 
     // we want to return the first error we get, since with SCEP sessions that's most likely
     // the root cause (since SCEP drops the session on error, retrying an SCEP-originated

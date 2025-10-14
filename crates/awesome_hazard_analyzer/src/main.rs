@@ -1,21 +1,19 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 mod log;
+mod output;
 
 use std::collections::HashSet;
 use std::fs;
-use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{anyhow, Context, Result};
-use clap::{crate_version, Parser};
+use clap::{crate_version, Args, Parser};
 use csv::Writer;
-use flate2::write::GzEncoder;
-use flate2::Compression;
 use itertools::Itertools;
 use rayon::prelude::*;
 use serde::Serialize;
@@ -23,19 +21,21 @@ use shared_types::hash::{HashSpec, HashTypeDescriptor};
 use time::format_description::well_known::Iso8601;
 use tracing::{info, warn};
 
-use crate::log::{init_log, log_level_from_count};
 use doprf::prf::{KeyShare, Query};
 use doprf_client::windows::Windows;
 use hdb::consolidate_windows::HashId;
 use hdb::response::HdbOrganism;
 use hdb::shims::genhdb::open_file_maybe_gz;
 use hdb::{entry_to_response, Database, HazardLookupTable};
-use hdb::{ConsolidatedHazardResult, DebugSeqHdbResponse, Provenance};
+use hdb::{ConsolidatedHazardResult, DebugSeqHdbResponse};
 use quickdna::{
     BaseSequence, DnaSequence, DnaSequenceAmbiguous, FastaParseSettings, FastaParser, FastaRecord,
     NucleotideAmbiguous, TranslationTable,
 };
 use shared_types::synthesis_permission::{Region, SynthesisPermission};
+
+use crate::log::{init_log, log_level_from_count};
+use crate::output::DebugOutputSink;
 
 fn main() -> anyhow::Result<()> {
     let opts = Opts::parse();
@@ -58,11 +58,17 @@ pub struct Opts {
     #[clap(long, help = "HDB directory")]
     pub hdb_dir: PathBuf,
 
-    #[clap(long, env = "SECUREDNA_AHA_SECRET_KEY", help = "Generator secret key")]
-    pub secret_key: KeyShare,
+    #[command(flatten)]
+    pub secret_key_opts: SecretKeyOpts,
 
-    #[clap(long, required = false, help = "Write debug files")]
-    pub debug: bool,
+    #[clap(
+        long,
+        required = false,
+        help = "Write debug files",
+        num_args(0..=1),
+        default_missing_value = "tarred",
+    )]
+    pub debug: Option<DebugOutputSinkKind>,
 
     #[clap(long, required = false, help = "Write CSV summary")]
     pub summary: bool,
@@ -82,26 +88,85 @@ pub struct Opts {
 
     #[clap(long, default_value_t = NonZeroUsize::MIN, help = "Max expansions per window")]
     pub expansions_limit: NonZeroUsize,
+
+    #[clap(
+        long,
+        required = false,
+        help = "Output unconsolidated hits",
+        num_args(0..=1),
+        default_missing_value = "tarred",
+    )]
+    pub unconsolidated: Option<DebugOutputSinkKind>,
 }
 
-pub struct AhaCheckerConfiguration {
-    pub debug: bool,
+#[derive(Debug, Args)]
+#[group(required = true, multiple = false)]
+pub struct SecretKeyOpts {
+    #[clap(
+        long,
+        env = "SECUREDNA_AHA_SECRET_KEY",
+        hide_env_values = true,
+        help = "Secret key"
+    )]
+    pub secret_key: Option<KeyShare>,
+
+    #[clap(long, help = "Path to load secret key")]
+    pub secret_key_path: Option<PathBuf>,
+}
+
+impl SecretKeyOpts {
+    fn read(&self) -> std::io::Result<KeyShare> {
+        match (self.secret_key, &self.secret_key_path) {
+            (Some(secret_key), None) => Ok(secret_key),
+            (None, Some(secret_key_path)) => {
+                let secret_key = fs::read_to_string(secret_key_path)?;
+                secret_key
+                    .trim()
+                    .parse()
+                    .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+            }
+            _ => unreachable!("clap should prevent this"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum DebugOutputSinkKind {
+    Directory,
+    Tarred,
+}
+
+impl DebugOutputSinkKind {
+    fn new_output_sink(&self, path: &str) -> std::io::Result<DebugOutputSink> {
+        match self {
+            Self::Directory => DebugOutputSink::new_directory(path),
+            Self::Tarred => DebugOutputSink::new_tarred(path),
+        }
+    }
+}
+
+pub struct AhaCheckerConfiguration<'a> {
+    pub debug_output_sinks: Option<&'a DebugOutputSinks>,
     pub summary: bool,
     pub generate_dna_windows: bool,
     pub generate_runt_windows: bool,
     pub generate_aa_windows: bool,
     pub max_expansions_per_window: NonZeroUsize,
+    pub unconsolidated_output_sink: Option<&'a DebugOutputSink>,
+    pub max_filename_len: usize,
 }
 
-impl Default for AhaCheckerConfiguration {
+impl Default for AhaCheckerConfiguration<'_> {
     fn default() -> Self {
         AhaCheckerConfiguration {
-            debug: false,
+            debug_output_sinks: None,
             summary: true,
             generate_dna_windows: true,
             generate_runt_windows: true,
             generate_aa_windows: true,
             max_expansions_per_window: NonZeroUsize::MIN,
+            unconsolidated_output_sink: None,
+            max_filename_len: usize::MAX,
         }
     }
 }
@@ -264,6 +329,7 @@ impl SummaryLine {
 /// Output of `ConsolidatedHazardResult`, but with
 /// - hdb response un-nested
 /// - field names aligned with synthclient
+///
 /// so that output looks more like api response, but without losing "debug"-type info
 #[derive(Debug, Serialize)]
 struct DebugOutput {
@@ -290,10 +356,39 @@ pub struct HitRegion {
 
 // To help disambiguate the with_rs and no_rs dirs, as Rust doesn't have named args and it's easy
 // to get the order wrong.
-struct DebugDirs {
-    with_rs: String,
-    no_rs: String,
+pub struct DebugOutputSinks {
+    with_rs: DebugOutputSink,
+    no_rs: DebugOutputSink,
+    overlap: DebugOutputSink,
 }
+
+impl DebugOutputSinks {
+    fn new(kind: DebugOutputSinkKind, path: impl AsRef<str>) -> anyhow::Result<Self> {
+        // these are the directories the debug .gz files are stored in. One for with rs, one
+        // with no rs, one for overlaps
+        let path = path.as_ref();
+        let with_rs = format!("{path}.with-rs");
+        let no_rs = format!("{path}.no-rs");
+        let overlap = format!("{path}.overlap");
+        Ok(DebugOutputSinks {
+            with_rs: (kind.new_output_sink(&with_rs))
+                .with_context(|| format!("creating debug output {with_rs}"))?,
+            no_rs: (kind.new_output_sink(&no_rs))
+                .with_context(|| format!("creating debug output {no_rs}"))?,
+            overlap: (kind.new_output_sink(&overlap))
+                .with_context(|| format!("creating debug output {overlap}"))?,
+        })
+    }
+
+    fn close(self) -> std::io::Result<()> {
+        self.with_rs.close()?;
+        self.no_rs.close()?;
+        self.overlap.close()?;
+        Ok(())
+    }
+}
+
+const DEBUG_SUFFIX: &str = ".debug";
 
 /// Check a single FASTA record.
 /// Returns Some(header), if the record is NOT a hazard
@@ -304,7 +399,6 @@ fn check_one_record(
     hlt: &HazardLookupTable,
     secret_key: &KeyShare,
     record: FastaRecord<DnaSequence<NucleotideAmbiguous>>,
-    debug_dirs: Option<&DebugDirs>,
     config: AhaCheckerConfiguration,
 ) -> anyhow::Result<(Option<String>, Option<SummaryLine>)> {
     if record.contents.is_empty() {
@@ -319,6 +413,8 @@ fn check_one_record(
     if config.generate_runt_windows {
         htdv.push(HashTypeDescriptor::dna_runt_cech());
     }
+    let aa_fw_htd = htdv.len(); // if !config.generate_aa_windows, this won't match any htd_index
+    let aa_rc_htd = aa_fw_htd + 1; // ditto
     if config.generate_aa_windows {
         htdv.push(HashTypeDescriptor::aa_fw());
         htdv.push(HashTypeDescriptor::aa_rc());
@@ -370,6 +466,8 @@ fn check_one_record(
         .collect::<Result<Vec<_>, _>>()?;
 
     // make consolidated responses (from region=None hdb responses)
+    // Note that from AHA we always pass debug=true to hdb::consolidate_windows
+    // This is not to be confused with the config.debug AHA flag whose value may change
     let consolidation =
         hdb::consolidate_windows::consolidate_windows(hdb_responses.into_iter(), &hash_spec, true)?;
 
@@ -378,8 +476,10 @@ fn check_one_record(
     // is used for creating the summary line, and doing general counts. It is _not_ used for debug
     // output of AHA.
 
-    let consolidated_responses_debug = consolidation.debug_hdb_responses.unwrap();
-    let num_hits_no_rs = consolidated_responses_debug
+    // As AHA always recieves debug info from hdb::consolidate_windows, we can unwrap here
+    let consolidation_debug = consolidation.debug.unwrap();
+    let unconsolidated_responses = consolidation_debug.unconsolidated_responses;
+    let num_hits_no_rs = unconsolidated_responses
         .iter()
         .filter(|doprf_hazard_result| !doprf_hazard_result.hdb_response.reverse_screened)
         .count();
@@ -388,6 +488,67 @@ fn check_one_record(
         "Found {} hazard matches for {}",
         num_hits_no_rs, record.header
     );
+
+    let file_id = file_id(&record.header, config.max_filename_len);
+
+    // Write all unconsolidated hits
+    if let Some(output_sink) = config.unconsolidated_output_sink {
+        if let Err(e) = output_sink.output(&file_id, unconsolidated_responses.iter()) {
+            warn!(
+                "err on write unconsolidated hits file for {}: {:#}",
+                record.header, e
+            );
+        }
+    }
+
+    // We write all consolidated hits, even if the hits are completely rs'd.
+    // However, we will not write a particular file if that file would be empty.
+    if let Some(debug_output_sinks) = config.debug_output_sinks {
+        let filename = format!("{file_id}{DEBUG_SUFFIX}");
+
+        let sequence_length = record.contents.len();
+        let sequence = record.contents.as_slice();
+        let to_debug_output = |r: &ConsolidatedHazardResult| DebugOutput {
+            hit_regions: hit_regions_with_seq(&r.hit_regions, sequence, aa_fw_htd, aa_rc_htd),
+            most_likely_organism: r.hdb_response.most_likely_organism.clone(),
+            organisms: r.hdb_response.organisms.clone(),
+            provenance: r.hdb_response.provenance,
+            an_likelihood: r.hdb_response.an_likelihood,
+            reverse_screened: r.hdb_response.reverse_screened,
+            window_gap: r.hdb_response.window_gap,
+            sequence_length,
+        };
+
+        if let Err(e) = debug_output_sinks.with_rs.output(
+            &filename,
+            consolidation
+                .results
+                .iter()
+                .filter(|r| is_rs(r))
+                .map(to_debug_output),
+        ) {
+            warn!("err on write debug file for {}: {:#}", record.header, e);
+        }
+        if let Err(e) = debug_output_sinks.no_rs.output(
+            &filename,
+            consolidation
+                .results
+                .iter()
+                .filter(|r| !is_rs(r))
+                .map(to_debug_output),
+        ) {
+            warn!("err on write debug file for {}: {:#}", record.header, e);
+        }
+        if let Err(e) = debug_output_sinks.overlap.output(
+            &filename,
+            consolidation_debug
+                .removed_overlaps
+                .iter()
+                .map(to_debug_output),
+        ) {
+            warn!("err on write debug file for {}: {:#}", record.header, e);
+        }
+    }
 
     // Calculate synthesis_permission for each region
     let entries = || hdb_entries.iter().map(|(_, e)| *e);
@@ -398,42 +559,11 @@ fn check_one_record(
         eu: calculate_synthesis_permission(entries(), Region::Eu, hlt)?,
     };
 
-    // We write all hits, even if the hits are completely rs'd.
-    // However, we will not write a particular file if that file would be empty.
-    if config.debug {
-        let debug_dirs = debug_dirs.expect("bug: debug dirs not passed with config.debug = true");
-        let debug_dir_with_rs = &debug_dirs.with_rs;
-        let debug_dir_no_rs = &debug_dirs.no_rs;
-
-        // Only replace `/`, which is not a valid filename char. Otherwise preserve header to make
-        // search easier
-        let file_id = record.header.replace('/', "_");
-        let filename_with_rs = format!("./{debug_dir_with_rs}/{file_id}.debug.gz");
-        let filename_no_rs = format!("./{debug_dir_no_rs}/{file_id}.debug.gz");
-
-        if let Err(e) = write_debug(
-            &filename_with_rs,
-            record.contents.len(),
-            consolidation.results.iter().filter(|r| is_rs(r)),
-            record.contents.as_slice(),
-        ) {
-            warn!("err on write debug file for {}: {:#}", record.header, e);
-        }
-        if let Err(e) = write_debug(
-            &filename_no_rs,
-            record.contents.len(),
-            consolidation.results.iter().filter(|r| !is_rs(r)),
-            record.contents.as_slice(),
-        ) {
-            warn!("err on write debug file for {}: {:#}", record.header, e);
-        }
-    }
-
     let csv_summary: Option<SummaryLine> = config.summary.then(|| {
         SummaryLine::new_with_responses(
             permissions,
             record.header.clone(),
-            &consolidated_responses_debug,
+            &unconsolidated_responses,
         )
     });
 
@@ -444,6 +574,27 @@ fn check_one_record(
     } else {
         Ok((None, csv_summary))
     }
+}
+
+fn file_id(header: &str, max_filename_len: usize) -> String {
+    // Only replace `/`, which is not a valid filename char. Otherwise preserve header to make
+    // search easier
+    let mut file_id = header.replace('/', "_");
+
+    // I'd like --unconsolidated and --debug output to have filenames that are consistent with
+    // one another, so let's choose a max len that works if there's a .debug suffix.
+    let max_filename_len = max_filename_len.saturating_sub(DEBUG_SUFFIX.len());
+
+    if file_id.len() > max_filename_len {
+        let ellipsis = "|{...}"; // In practice |{ doesn't show up in actual headers
+        let target_len = max_filename_len.saturating_sub(ellipsis.len());
+        // This is ignorant of graphemes, but realistically file_id is probably ASCII so...
+        if let Some(i) = (0..target_len + 1).rposition(|i| file_id.is_char_boundary(i)) {
+            file_id.replace_range(i.., ellipsis);
+        }
+    };
+
+    file_id
 }
 
 /// Calculate merged synthesis_permission for the given region from the HDB entries
@@ -464,54 +615,24 @@ fn is_rs(r: &ConsolidatedHazardResult) -> bool {
     r.hdb_response.reverse_screened
 }
 
-// Creates file, if needed, and then writes the debug output
-// This helper fn makes it easier to write with-rs and no-rs separately, and
-// avoid creating an unnecessary file
-fn write_debug<'a>(
-    filename: &str,
-    sequence_length: usize,
-    consolidated_responses: impl Iterator<Item = &'a ConsolidatedHazardResult> + Clone,
-    seq: &[NucleotideAmbiguous],
-) -> Result<()> {
-    if consolidated_responses.clone().count() == 0 {
-        // early return to avoid creating an empty file
-        return Ok(());
-    };
-
-    let f = File::create(filename)?;
-    let mut f = GzEncoder::new(BufWriter::new(f), Compression::default());
-    for r in consolidated_responses {
-        let output = DebugOutput {
-            hit_regions: hit_regions_with_seq(&r.hit_regions, seq, r.hdb_response.provenance),
-            most_likely_organism: r.hdb_response.most_likely_organism.clone(),
-            organisms: r.hdb_response.organisms.clone(),
-            provenance: r.hdb_response.provenance,
-            an_likelihood: r.hdb_response.an_likelihood,
-            reverse_screened: r.hdb_response.reverse_screened,
-            window_gap: r.hdb_response.window_gap,
-            sequence_length,
-        };
-        serde_json::to_writer(&mut f, &output)?;
-        writeln!(&mut f)?;
-    }
-    f.finish()?.flush()?;
-
-    Ok(())
-}
-
 fn hit_regions_with_seq(
     hit_regions: &[hdb::HitRegion],
     seq: &[NucleotideAmbiguous],
-    provenance: Provenance,
+    aa_fw_htd: usize,
+    aa_rc_htd: usize,
 ) -> Vec<HitRegion> {
     hit_regions
         .iter()
         .map(|hr| {
             let seq = DnaSequenceAmbiguous::new(seq[hr.seq_range_start..hr.seq_range_end].to_vec());
-            let seq = if provenance.is_dna() {
-                seq.to_string()
-            } else {
+            let seq = if hr.htd_index == aa_fw_htd {
                 seq.translate(TranslationTable::Ncbi1).to_string()
+            } else if hr.htd_index == aa_rc_htd {
+                seq.reverse_complement()
+                    .translate(TranslationTable::Ncbi1)
+                    .to_string()
+            } else {
+                seq.to_string()
             };
             HitRegion {
                 seq,
@@ -536,7 +657,10 @@ fn run(opts: &Opts) -> anyhow::Result<()> {
         .unwrap();
 
     info!("Starting up...");
-    info!("Using DB {:?}", opts.hdb_dir);
+    info!("Using DB at path: {:?}", opts.hdb_dir);
+    let build_info = fs::read_to_string(opts.hdb_dir.join("BUILD_INFO.json"))?;
+    let build_info = build_info.replace("\n", "");
+    info!("Using DB with BUILD_INFO.json: {}", build_info);
 
     let database = Database::open(opts.hdb_dir.clone()).expect("failed to open database");
     let hlt = HazardLookupTable::read(&opts.hdb_dir).expect("failed to open HLT");
@@ -547,19 +671,24 @@ fn run(opts: &Opts) -> anyhow::Result<()> {
             .allow_preceding_comment(false),
     );
 
-    let debug_dirs = opts
-        .debug
-        .then(|| -> anyhow::Result<_> {
-            // these are the directories the debug .gz files are stored in. One for with rs, one
-            // with no rs
-            let with_rs = format!("./debug-output-{start_time_str}.with-rs");
-            let no_rs = format!("./debug-output-{start_time_str}.no-rs");
-            fs::create_dir_all(&with_rs)
-                .with_context(|| format!("creating debug dir {with_rs}"))?;
-            fs::create_dir_all(&no_rs).with_context(|| format!("creating debug dir {no_rs}"))?;
-            Ok(DebugDirs { with_rs, no_rs })
-        })
-        .transpose()?;
+    let max_filename_len =
+        DebugOutputSink::max_filename_len(".").context("couldn't query max filename length")?;
+
+    let unconsolidated_output_sink = match &opts.unconsolidated {
+        Some(kind) => {
+            let dir = format!("unconsolidated-hits-{start_time_str}");
+            Some(kind.new_output_sink(&dir)?)
+        }
+        None => None,
+    };
+
+    let debug_output_sinks = match &opts.debug {
+        Some(kind) => {
+            let debug_path = format!("./debug-output-{start_time_str}");
+            Some(DebugOutputSinks::new(*kind, debug_path)?)
+        }
+        None => None,
+    };
 
     if !opts.hazard_path.exists() {
         return Err(anyhow!("Hazard path does not exist"));
@@ -595,6 +724,8 @@ fn run(opts: &Opts) -> anyhow::Result<()> {
         info!("Skipping generation of DNA windows");
     }
 
+    let secret_key = opts.secret_key_opts.read()?;
+
     for hazard_file in paths {
         let now = Instant::now();
 
@@ -609,16 +740,17 @@ fn run(opts: &Opts) -> anyhow::Result<()> {
                 check_one_record(
                     &database,
                     &hlt,
-                    &opts.secret_key,
+                    &secret_key,
                     r,
-                    debug_dirs.as_ref(),
                     AhaCheckerConfiguration {
-                        debug: opts.debug,
+                        debug_output_sinks: debug_output_sinks.as_ref(),
                         summary: opts.summary,
                         generate_dna_windows: !opts.no_dna,
                         generate_runt_windows: !opts.no_runts,
                         generate_aa_windows: !opts.no_aa,
                         max_expansions_per_window: opts.expansions_limit,
+                        unconsolidated_output_sink: unconsolidated_output_sink.as_ref(),
+                        max_filename_len,
                     },
                 )
             })
@@ -642,6 +774,10 @@ fn run(opts: &Opts) -> anyhow::Result<()> {
             hazard_file.as_path(),
             now.elapsed()
         );
+    }
+
+    if let Some(debug_output_sinks) = debug_output_sinks {
+        debug_output_sinks.close()?;
     }
 
     Ok(())
@@ -693,7 +829,6 @@ mod tests {
             &hlt,
             &ks,
             r,
-            None,
             AhaCheckerConfiguration {
                 summary: false,
                 ..Default::default()
@@ -719,7 +854,6 @@ GGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
             &hlt,
             &ks,
             r,
-            None,
             AhaCheckerConfiguration {
                 summary: false,
                 ..Default::default()
@@ -743,7 +877,6 @@ ACGT",
             &hlt,
             &ks,
             r,
-            None,
             AhaCheckerConfiguration {
                 summary: false,
                 ..Default::default()
@@ -768,7 +901,6 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 &hlt,
                 &ks,
                 r,
-                None,
                 AhaCheckerConfiguration {
                     summary: false,
                     ..Default::default()
@@ -788,15 +920,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
         );
 
         assert_eq!(
-            check_one_record(
-                &database,
-                &hlt,
-                &ks,
-                r,
-                None,
-                AhaCheckerConfiguration::default(),
-            )
-            .unwrap(),
+            check_one_record(&database, &hlt, &ks, r, AhaCheckerConfiguration::default()).unwrap(),
             (
                 Some("Nonmatching".into()),
                 Some(SummaryLine {
@@ -835,7 +959,6 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 &hlt,
                 &ks,
                 r.clone(),
-                None,
                 AhaCheckerConfiguration::default(),
             )
             .unwrap(),
@@ -871,12 +994,11 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 &hlt,
                 &ks,
                 r.clone(),
-                None,
                 AhaCheckerConfiguration {
                     generate_runt_windows: false,
                     generate_aa_windows: false,
                     ..Default::default()
-                }
+                },
             )
             .unwrap(),
             (
@@ -913,12 +1035,11 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                 &hlt,
                 &ks,
                 r,
-                None,
                 AhaCheckerConfiguration {
                     generate_dna_windows: false,
                     generate_runt_windows: false,
                     ..Default::default()
-                }
+                },
             )
             .unwrap(),
             (

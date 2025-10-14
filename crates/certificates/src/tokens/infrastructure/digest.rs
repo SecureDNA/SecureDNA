@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt::Display;
@@ -10,12 +10,13 @@ use crate::shared_components::common::CompatibleIdentity;
 use crate::shared_components::digest::{INDENT, INDENT2};
 use crate::{
     DatabaseToken, DatabaseTokenRequest, Expiration, HltToken, HltTokenRequest, Id, KeyserverToken,
-    KeyserverTokenRequest, PublicKey, Signature,
+    KeyserverTokenRequest, PublicKey, Signature, VerifierToken, VerifierTokenRequest,
 };
 
 use super::database::{DatabaseTokenRequestVersion, DatabaseTokenVersion};
 use super::hlt::{HltTokenRequestVersion, HltTokenVersion};
 use super::keyserver::{KeyserverTokenRequestVersion, KeyserverTokenVersion};
+use super::verifier::{VerifierTokenRequestVersion, VerifierTokenVersion};
 
 #[derive(Serialize)]
 pub struct DatabaseTokenRequestDigest {
@@ -91,6 +92,95 @@ impl<K> From<DatabaseToken<K>> for DatabaseTokenDigest {
 impl Display for DatabaseTokenDigest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{} Database Token", self.version)?;
+        writeln!(f, "{:INDENT$}Issuance ID:", "")?;
+        writeln!(f, "{:INDENT2$}{}", "", self.issuance_id)?;
+        writeln!(f, "{:INDENT$}Request ID:", "")?;
+        writeln!(f, "{:INDENT2$}{}", "", self.request_id)?;
+        writeln!(f, "{:INDENT$}Public Key:", "")?;
+        writeln!(f, "{:INDENT2$}{}", "", self.public_key)?;
+        writeln!(f, "{:INDENT$}Issued by:", "")?;
+        writeln!(f, "{:INDENT2$}{}", "", self.issued_by)?;
+        writeln!(f, "{}", self.expiration)?;
+        writeln!(f, "{:INDENT$}Signature:", "")?;
+        write!(f, "{:INDENT2$}{}", "", self.signature)?;
+        Ok(())
+    }
+}
+
+#[derive(Serialize)]
+pub struct VerifierTokenRequestDigest {
+    version: String,
+    request_id: Id,
+    public_key: PublicKey,
+}
+
+impl From<VerifierTokenRequest> for VerifierTokenRequestDigest {
+    fn from(value: VerifierTokenRequest) -> Self {
+        match value.version {
+            VerifierTokenRequestVersion::V1(r) => {
+                let version = "V1".to_string();
+                let request_id = r.request_id;
+                let public_key = r.public_key;
+                VerifierTokenRequestDigest {
+                    version,
+                    request_id,
+                    public_key,
+                }
+            }
+        }
+    }
+}
+
+impl Display for VerifierTokenRequestDigest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{} Verifier Token Request", self.version)?;
+        writeln!(f, "{:INDENT$}Request ID:", "")?;
+        writeln!(f, "{:INDENT2$}{}", "", self.request_id)?;
+        writeln!(f, "{:INDENT$}Public Key:", "")?;
+        write!(f, "{:INDENT2$}{}", "", self.public_key)?;
+        Ok(())
+    }
+}
+
+#[derive(Serialize)]
+pub struct VerifierTokenDigest {
+    version: String,
+    request_id: Id,
+    issuance_id: Id,
+    public_key: PublicKey,
+    issued_by: CompatibleIdentity,
+    expiration: Expiration,
+    signature: Signature,
+}
+
+impl<K> From<VerifierToken<K>> for VerifierTokenDigest {
+    fn from(value: VerifierToken<K>) -> Self {
+        match value.version {
+            VerifierTokenVersion::V1(t) => {
+                let version = "V1".to_string();
+                let request_id = t.data.request.request_id;
+                let issuance_id = t.data.issuer_fields.issuance_id;
+                let public_key = t.data.request.public_key;
+                let expiration = t.data.issuer_fields.expiration;
+                let signature = t.signature;
+                let issued_by = t.data.issuer_fields.identity;
+                VerifierTokenDigest {
+                    version,
+                    request_id,
+                    issuance_id,
+                    public_key,
+                    expiration,
+                    signature,
+                    issued_by,
+                }
+            }
+        }
+    }
+}
+
+impl Display for VerifierTokenDigest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{} Verifier Token", self.version)?;
         writeln!(f, "{:INDENT$}Issuance ID:", "")?;
         writeln!(f, "{:INDENT2$}{}", "", self.issuance_id)?;
         writeln!(f, "{:INDENT$}Request ID:", "")?;
@@ -297,24 +387,23 @@ impl Display for KeyserverTokenDigest {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod test {
-    use doprf::party::KeyserverId;
-
     use crate::test_helpers::{
         expected_database_token_display, expected_hlt_token_display,
         expected_keyserver_token_display,
     };
     use crate::{
         test_helpers::create_leaf_cert, DatabaseTokenRequest, Digestible, Expiration,
-        Infrastructure, Issued, KeyPair,
+        Infrastructure, Issued, SigningKeyPair,
     };
     use crate::{HltTokenRequest, KeyserverTokenRequest};
+    use doprf::party::KeyserverId;
 
     #[test]
     fn digest_display_for_database_token_matches_expected_display() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = DatabaseTokenRequest::v1_token_request(kp.public_key());
 
         let token = cert
@@ -331,7 +420,7 @@ mod test {
     #[test]
     fn digest_display_for_hlt_token_matches_expected_display() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = HltTokenRequest::v1_token_request(kp.public_key());
 
         let token = cert.issue_hlt_token(req, Expiration::default()).unwrap();
@@ -346,7 +435,7 @@ mod test {
     #[test]
     fn digest_display_for_keyserver_token_matches_expected_display() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = KeyserverTokenRequest::v1_token_request(
             kp.public_key(),
             KeyserverId::try_from(1).unwrap(),

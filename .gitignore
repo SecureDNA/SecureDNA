@@ -37,3 +37,7 @@ out/
 
 # tsgen results
 **/all_bindings.ts
+
+# aider
+.aider*
+.env

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt::Display;
@@ -175,20 +175,21 @@ impl Display for SynthesizerTokenDigest {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod test {
     use crate::{
         test_helpers::{create_leaf_cert, expected_synthesizer_token_display},
-        Digestible, Expiration, Issued, KeyPair, Manufacturer, SynthesizerTokenRequest,
+        Digestible, Domain, Expiration, Issued, Manufacturer, SigningKeyPair,
+        SynthesizerTokenRequest,
     };
 
     #[test]
     fn digest_display_for_synthesizer_token_without_audit_recipient_matches_expected_display() {
         let cert = create_leaf_cert::<Manufacturer>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = SynthesizerTokenRequest::v1_token_request(
             kp.public_key(),
-            "maker.synth",
+            Domain::try_new("maker.synth").unwrap(),
             "XL",
             "10AK",
             10_000u64,

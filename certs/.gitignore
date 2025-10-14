@@ -1,0 +1,7 @@
+# Our workflow shouldn't add any of these files in the first place,
+# but just in case, ensure they won't get committed.  Note that
+# this `.gitignore` should *not* be added to the `test/certs`
+# directory, since the whole point there is to also commit
+# everything required to generate new certs for tests.
+*.priv
+*.passphrase

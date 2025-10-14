@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -132,7 +132,9 @@ export const GroupVisualization = (props: GroupVisualizationProps) => {
   const length = group.sequence_length;
   const increment = notchIncrement(length);
   const indices = [];
-  for (let i = 0; i < length; i += increment) {
+  // The factor 0.95 avoids a notch right before the end of the strip:
+  // it'll clash with the notch we always put exactly at the end.
+  for (let i = 0; i < 0.95 * length; i += increment) {
     indices.push(i);
   }
   indices.push(length);
@@ -145,7 +147,7 @@ export const GroupVisualization = (props: GroupVisualizationProps) => {
           left: `${percentage}%`,
           transform: "translate(-50%, -1rem)",
         }}
-        className="opacity-50 text-xs text-center absolute inline-block translate"
+        className="text-xs text-center absolute inline-block translate"
       >
         {i.toLocaleString()}
       </div>
@@ -157,7 +159,7 @@ export const GroupVisualization = (props: GroupVisualizationProps) => {
       <h3 className="text-xl mb-6">
         Hits in record{" "}
         {group.fasta_header.trim() ? (
-          <span className="text-primary font-bold">{group.fasta_header}</span>
+          <span className="font-bold">{group.fasta_header}</span>
         ) : (
           ""
         )}{" "}
@@ -167,8 +169,8 @@ export const GroupVisualization = (props: GroupVisualizationProps) => {
       <div
         className={
           compact
-            ? "select-none cursor-pointer relative bg-black/5 rounded h-12 w-full mb-2"
-            : "select-none cursor-pointer relative bg-black/5 rounded h-16 w-[800px] mb-2"
+            ? "select-none cursor-pointer relative bg-black/5 rounded-sm h-12 w-full mb-2"
+            : "select-none cursor-pointer relative bg-black/5 rounded-sm h-16 w-[800px] mb-2"
         }
       >
         {markers}
@@ -219,7 +221,7 @@ export const GroupVisualization = (props: GroupVisualizationProps) => {
             onMouseLeave={setHovered.bind(this, "")}
             onFocus={setHovered.bind(this, an)}
             onBlur={setHovered.bind(this, "")}
-            className="px-1 text-primary font-bold cursor-pointer hover:underline"
+            className="px-1 font-bold cursor-pointer hover:underline"
             target="_blank"
             href={ncbi.url(an)}
             rel="noreferrer"

@@ -1,11 +1,14 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
-import type { ExemptionTokenRequest, Result } from "@securedna/frontend_common";
+import {
+  DragUpload,
+  type ExemptionTokenRequest,
+  type Result,
+} from "@securedna/frontend_common";
 import { useCallback } from "react";
-import { DragUpload } from "src/components/DragUpload";
 import { etrPemToJsObject } from "src/util/sign_etr";
 import { useApprovalStore } from "./store";
 
@@ -31,13 +34,13 @@ const UploadPage = () => {
   const handleFile = (result: ArrayBuffer | undefined) => {
     if (result) {
       const pem = new Uint8Array(result);
-      try {
-        const json = etrPemToJsObject(pem);
-        upload(json, { ok: true, value: pem });
-      } catch (e) {
+      const decoded = etrPemToJsObject(pem);
+      if (decoded.ok) {
+        upload(decoded.value, { ok: true, value: pem });
+      } else {
         upload(undefined, {
           ok: false,
-          error: `Could not parse exemption token request file: ${e}`,
+          error: `Could not parse exemption token request file: ${decoded.error}`,
         });
       }
     } else {

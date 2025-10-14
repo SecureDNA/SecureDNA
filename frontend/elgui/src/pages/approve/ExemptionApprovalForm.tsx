@@ -1,10 +1,10 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
+import { EtrSummary, Page } from "@securedna/frontend_common";
 import { AnimatePresence, motion } from "framer-motion";
-import { EtrSummary, Page } from "src/components";
 import OverviewPage from "./OverviewPage";
 import ScreeningPage from "./ScreeningPage";
 import SigningPage from "./SigningPage";

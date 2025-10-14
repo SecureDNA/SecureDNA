@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for creating certificate requests.
@@ -16,15 +16,16 @@ use crate::certificate::{
 use crate::{
     certificate::inner::{Intermediate1, Leaf1, Root1},
     digest::Digestible,
+    key::signing::PublicKey,
     key_state::{KeyAvailable, KeyMismatchError, KeyUnavailable},
-    keypair::PublicKey,
     pem::PemTaggable,
     shared_components::{
         common::{Description, Id},
         role::Role,
     },
-    Exemption, HierarchyKind, Infrastructure, IssuerAdditionalFields, KeyPair, Manufacturer,
+    Exemption, HierarchyKind, Infrastructure, IssuerAdditionalFields, Manufacturer, SigningKeyPair,
 };
+use crate::{Attachment, Authenticator};
 
 use super::{Certificate, IssuanceError, RequestDigest};
 
@@ -59,6 +60,10 @@ impl<K> CertificateRequest<Exemption, K> {
     pub fn blinding_allowed(&self) -> bool {
         self.version.blinding_allowed()
     }
+
+    pub fn totp_token_name(&self) -> Option<String> {
+        self.version.totp_token_name()
+    }
 }
 
 impl<R, K> Serialize for CertificateRequest<R, K>
@@ -92,7 +97,7 @@ where
     }
     pub fn load_key(
         self,
-        keypair: KeyPair,
+        keypair: SigningKeyPair,
     ) -> Result<CertificateRequest<R, KeyAvailable>, KeyMismatchError> {
         let public_key = self.public_key();
         let key_state = KeyUnavailable::load_key(keypair, public_key)?;
@@ -203,8 +208,10 @@ pub struct RequestBuilder<R> {
     pub description: Option<Description>,
     pub emails_to_notify: Vec<String>,
     pub allow_blinding: bool,
+    pub attachments: Vec<Attachment>,
     pub hierarchy: HierarchyKind,
     pub role: PhantomData<R>,
+    pub auth_token: Option<Authenticator>,
 }
 
 impl<R> RequestBuilder<R> {
@@ -216,6 +223,8 @@ impl<R> RequestBuilder<R> {
             role: PhantomData::<R>,
             emails_to_notify: vec![],
             allow_blinding: false,
+            attachments: vec![],
+            auth_token: None,
         }
     }
 
@@ -248,6 +257,16 @@ impl RequestBuilder<Exemption> {
         self.allow_blinding = allow;
         self
     }
+
+    pub fn attachments(mut self, attachments: Vec<Attachment>) -> Self {
+        self.attachments.extend(attachments);
+        self
+    }
+
+    pub fn with_totp_token_name(mut self, totp_token_name: String) -> Self {
+        self.auth_token = Some(Authenticator::Totp(totp_token_name));
+        self
+    }
 }
 
 pub trait Builder {
@@ -267,6 +286,8 @@ impl Builder for RequestBuilder<Exemption> {
                     self.public_key,
                     self.emails_to_notify,
                     self.allow_blinding,
+                    self.attachments,
+                    None,
                 );
                 let inner = RequestInner::<Root1, Exemption, ExemptionSubject1>::new(subject);
                 ExemptionRequestVersion::RootV1(inner)
@@ -277,6 +298,8 @@ impl Builder for RequestBuilder<Exemption> {
                     self.public_key,
                     self.emails_to_notify,
                     self.allow_blinding,
+                    self.attachments,
+                    None,
                 );
                 let inner =
                     RequestInner::<Intermediate1, Exemption, ExemptionSubject1>::new(subject);
@@ -288,6 +311,8 @@ impl Builder for RequestBuilder<Exemption> {
                     self.public_key,
                     self.emails_to_notify,
                     self.allow_blinding,
+                    self.attachments,
+                    self.auth_token,
                 );
                 let inner = RequestInner::<Leaf1, Exemption, ExemptionSubject1>::new(subject);
                 ExemptionRequestVersion::LeafV1(inner)
@@ -350,22 +375,21 @@ impl Builder for RequestBuilder<Manufacturer> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use crate::{
         asn::{FromASN1DerBytes, ToASN1DerBytes},
         certificate::outer::{Certificate, CertificateRequest, RequestBuilder},
         error::DecodeError,
         key_state::KeyUnavailable,
-        pem::PemDecodable,
-        pem::PemEncodable,
+        pem::{PemDecodable, PemEncodable},
         shared_components::role::{Exemption, Infrastructure, Manufacturer},
-        Builder, Issued, IssuerAdditionalFields, KeyPair,
+        Builder, Issued, IssuerAdditionalFields, SigningKeyPair,
     };
 
     #[test]
     fn can_load_private_key_on_root_cert_request() {
-        let kp: KeyPair = KeyPair::new_random();
+        let kp: SigningKeyPair = SigningKeyPair::new_random();
         RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -374,8 +398,8 @@ mod tests {
 
     #[test]
     fn cannot_load_incorrect_private_key_on_cert_request() {
-        let kp_1 = KeyPair::new_random();
-        let kp_2 = KeyPair::new_random();
+        let kp_1 = SigningKeyPair::new_random();
+        let kp_2 = SigningKeyPair::new_random();
 
         RequestBuilder::<Exemption>::root_v1_builder(kp_1.public_key())
             .build()
@@ -387,7 +411,7 @@ mod tests {
 
     #[test]
     fn can_self_sign_root_cert() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
             .load_key(kp)
@@ -398,7 +422,7 @@ mod tests {
 
     #[test]
     fn self_signed_root_cert_has_issuer_field_set_correctly() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let expected_public_key = kp.public_key();
         let cert = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key())
             .build()
@@ -412,7 +436,7 @@ mod tests {
 
     #[test]
     fn can_encode_and_decode_exemption_cert_request() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Exemption>::root_v1_builder(kp.public_key()).build();
 
         let encoded = req.to_pem().unwrap();
@@ -424,7 +448,7 @@ mod tests {
 
     #[test]
     fn cannot_decode_request_with_mismatching_pem_role_tag() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = RequestBuilder::<Infrastructure>::root_v1_builder(kp.public_key()).build();
 
         let encoded = req.to_pem().unwrap();
@@ -435,7 +459,7 @@ mod tests {
 
     #[test]
     fn cannot_der_decode_request_from_incorrect_role() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let root_req = RequestBuilder::<Manufacturer>::root_v1_builder(kp.public_key()).build();
 
         let data = root_req.to_der().unwrap();

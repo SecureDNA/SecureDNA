@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -14,8 +14,8 @@ export function DownloadedMarker(props: { downloaded: boolean }) {
     </div>
   ) : (
     <div className="inline-block relative w-6 ml-1">
-      <div className="absolute w-2 h-2 bg-red animate-ping rounded left-1" />
-      <div className="absolute w-2 h-2 bg-red rounded left-1" />
+      <div className="absolute w-2 h-2 bg-red animate-ping rounded-sm left-1" />
+      <div className="absolute w-2 h-2 bg-red rounded-sm left-1" />
       <FontAwesomeIcon icon={faDownload} className="" />
     </div>
   );

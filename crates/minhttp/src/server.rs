@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! [`Server`]-related things
@@ -20,7 +20,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::select;
 use tokio::sync::{watch, Semaphore};
 use tokio::time::sleep;
-use tracing::{error, info, info_span, warn, Instrument, Span};
+use tracing::{error, error_span, info, warn, Instrument, Span};
 
 use crate::nursery::Nursery;
 use crate::response::GenericResponse;
@@ -362,7 +362,9 @@ impl<'a, R, C, F, D> Callbacks<'a, R, C, F, D> {
                     }
                 };
 
-                let connection_span = info_span!("connection", addr=%peer_addr);
+                // must use error_span instead of info_span so that this info will show up in
+                // logs even when `RUST_LOG=ERROR` (our logging default).
+                let connection_span = error_span!("connection", addr=%peer_addr);
                 async {
                     info!("Connected.");
                     let log_guard = Guard(Some(|| info!("Disconnected.")));

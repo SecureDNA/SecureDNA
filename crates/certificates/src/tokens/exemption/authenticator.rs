@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{fmt::Display, str::FromStr};
@@ -182,7 +182,7 @@ impl Display for Authenticator {
 #[error("Invalid, contained non modhex character {0})")]
 pub struct ParseModhexCharacterError(char);
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod tests {
 
     use crate::asn::{FromASN1DerBytes, ToASN1DerBytes};

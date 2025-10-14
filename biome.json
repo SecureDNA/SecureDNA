@@ -4,6 +4,7 @@
     "ignore": [
       "**/*.js",
       "**/*.cjs",
+      "**/*.css",
       "common/lib",
       "**/dist",
       "all_bindings.ts",

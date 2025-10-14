@@ -1,9 +1,11 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use doprf::party::KeyserverId;
+use hdb_api::ConsolidatedHazardResult;
 use serde::{Deserialize, Serialize};
-use shared_types::{et::WithOtps, hdb::ConsolidatedHazardResult};
+use shared_types::deserialize::bool_or_string;
+use shared_types::et::WithOtps;
 
 use super::{
     error::{ApiError, ApiWarning},
@@ -26,6 +28,9 @@ pub struct RequestCommon {
     /// hazards.
     #[serde(default)]
     pub ets: Vec<WithOtps<String>>,
+    /// Whether verifiable screening is requested
+    #[serde(default, deserialize_with = "bool_or_string")]
+    pub verifiable_screening: bool,
 }
 
 /// Region jurisdictions for handling requests. Controls e.g. what rules to use for setting
@@ -43,7 +48,6 @@ pub enum Region {
     #[serde(alias = "prc", alias = "PRC")]
     Prc,
     /// Check all regions. This is the default. It means:
-    ///
     /// - Synthesis is granted only if the organism is safe in all regions.
     /// - Synthesis is denied if the organism is controlled in *any* region.
     #[serde(alias = "all", alias = "ALL")]
@@ -94,7 +98,7 @@ pub struct CheckNcbiRequest {
     pub common: RequestCommon,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 // tsgen
 pub struct ApiResponse {
     /// Whether the input was granted or denied.
@@ -105,6 +109,9 @@ pub struct ApiResponse {
     /// Hits for each input record.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hits_by_record: Vec<FastaRecordHits>,
+    /// Verifiable screening info, if requested
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verifiable: Option<VerifiableApiResponse>,
     /// Any non-fatal warnings about the request.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<ApiWarning>,
@@ -114,6 +121,25 @@ pub struct ApiResponse {
     /// Additional debug info, if requested.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub debug_info: Option<DebugInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+// tsgen
+pub struct VerifiableApiResponse {
+    pub synthclient_version: String,
+    pub response_json: String,
+    pub signature: String,
+    pub public_key: String,
+    pub history: String,
+    /// The SHA3-256 hash over the concatenation of:
+    ///
+    /// * `synthclient_version`
+    /// * `response_json`
+    /// * `signature`
+    /// * `public_key`
+    /// * `history`
+    /// * `fasta_sha3_256_hex`, a lowercase hex-encoded SHA3-256 hash digest of the JSON posted to synthclient.
+    pub sha3_256: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,7 +172,7 @@ impl From<SynthesisPermission> for shared_types::synthesis_permission::Synthesis
 }
 
 // Hits for one FastaRecord within a FastaFile
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 // tsgen
 pub struct FastaRecordHits {
     pub fasta_header: String,
@@ -156,7 +182,7 @@ pub struct FastaRecordHits {
 }
 
 /// An organism matched in a hit.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 // tsgen
 pub struct HitOrganism {
     pub name: String,
@@ -170,8 +196,8 @@ pub struct HitOrganism {
 /// Includes:
 /// - metadata
 /// - a list of hit regions, each of which describes which portion of the sequence matched the
-/// hazard.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+///   hazard.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 // tsgen
 pub struct HazardHits {
     #[serde(rename = "type")]
@@ -193,7 +219,7 @@ pub enum HitType {
 }
 
 /// Indexes marking the beginning and end of the hit region, in bp.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 // tsgen
 pub struct HitRegion {
     pub seq: String,
@@ -242,9 +268,14 @@ impl HazardHits {
 #[cfg(test)]
 mod tests {
     use assert_json_diff::assert_json_eq;
+    use certificates::{
+        test_helpers::create_et_bundle_with_custom_expiry, Clock, Expiration, FixedClock,
+        SystemClock,
+    };
     use quickdna::{DnaSequence, FastaParser, Nucleotide};
     use serde_json::json;
 
+    use crate::api::error::BAD_NUCLEOTIDE_HINT;
     use crate::parsefasta::CheckFastaError;
 
     use super::*;
@@ -266,11 +297,11 @@ mod tests {
             ),
             CheckFastaRequest {
                 fasta: "hello i am dna".into(),
-                #[allow(deprecated)]
                 common: RequestCommon {
                     region: Region::All,
                     ets: vec![],
                     provider_reference: None,
+                    verifiable_screening: false,
                 },
             }
         )
@@ -290,11 +321,11 @@ mod tests {
             ),
             CheckFastaRequest {
                 fasta: "hello i am dna".into(),
-                #[allow(deprecated)]
                 common: RequestCommon {
                     region: Region::All,
                     provider_reference: None,
                     ets: vec![],
+                    verifiable_screening: false,
                 },
             }
         )
@@ -314,11 +345,11 @@ mod tests {
             ),
             CheckFastaRequest {
                 fasta: "hello i am dna".into(),
-                #[allow(deprecated)]
                 common: RequestCommon {
                     region: Region::All,
                     ets: vec![],
                     provider_reference: Some("arbitrary test #5824".into()),
+                    verifiable_screening: false,
                 }
             }
         )
@@ -338,11 +369,59 @@ mod tests {
             ),
             CheckNcbiRequest {
                 id: "FOO_78284".into(),
-                #[allow(deprecated)]
                 common: RequestCommon {
                     region: Region::All,
                     ets: vec![],
                     provider_reference: Some("arbitrary test #5824".into()),
+                    verifiable_screening: false,
+                }
+            }
+        )
+    }
+
+    #[test]
+    fn check_vs_request() {
+        assert_eq!(
+            parse::<CheckNcbiRequest>(
+                r#"
+                    {
+                    "id": "FOO_78284",
+                    "region": "all",
+                    "verifiable_screening": true
+                    }
+                "#
+            ),
+            CheckNcbiRequest {
+                id: "FOO_78284".into(),
+                common: RequestCommon {
+                    region: Region::All,
+                    ets: vec![],
+                    provider_reference: None,
+                    verifiable_screening: true,
+                }
+            }
+        )
+    }
+
+    #[test]
+    fn check_vs_stringy_request() {
+        assert_eq!(
+            parse::<CheckFastaRequest>(
+                r#"
+                    {
+                        "fasta": "actg",
+                        "region": "all",
+                        "verifiable_screening": "true"
+                    }
+                "#
+            ),
+            CheckFastaRequest {
+                fasta: "actg".into(),
+                common: RequestCommon {
+                    region: Region::All,
+                    ets: vec![],
+                    provider_reference: None,
+                    verifiable_screening: true,
                 }
             }
         )
@@ -354,6 +433,7 @@ mod tests {
             ApiResponse {
                 synthesis_permission: SynthesisPermission::Granted,
                 hits_by_record: vec![],
+                verifiable: None,
                 warnings: vec![],
                 errors: vec![],
                 debug_info: None,
@@ -402,6 +482,7 @@ mod tests {
                         ],
                     }]
                 }],
+                verifiable: None,
                 warnings: vec![],
                 errors: vec![],
                 debug_info: None,
@@ -452,14 +533,20 @@ mod tests {
     }
 
     #[test]
-    fn basic_warning() {
+    fn upcoming_token_expiry_warning() {
+        const SECONDS_PER_DAY: i64 = 86400;
+        let sixty_days_ago = FixedClock {
+            unix_timestamp: SystemClock.unix_timestamp() - 60 * SECONDS_PER_DAY,
+        };
+        let duration_days = 65;
+        let expiry = Expiration::expiring_in_days_from(&sixty_days_ago, duration_days).unwrap();
+        let (bundle, _) = create_et_bundle_with_custom_expiry(expiry);
         assert_json_eq!(
             ApiResponse {
                 synthesis_permission: SynthesisPermission::Granted,
                 hits_by_record: vec![],
-                warnings: vec![ApiWarning::exemption_certificate_expiring_soon(
-                    "1970-01-01"
-                )],
+                verifiable: None,
+                warnings: vec![ApiWarning::certificate_expiring_soon(bundle.token.into())],
                 errors: vec![],
                 debug_info: None,
                 provider_reference: Some("my_reference".to_owned()),
@@ -469,7 +556,7 @@ mod tests {
                 "warnings": [
                     {
                         "diagnostic": "certificate_expiring_soon",
-                        "additional_info": "The provided exemption certificate is expiring soon, at 1970-01-01."
+                        "additional_info": "The exemption token belonging to 'some researcher, email@example.com' is expiring in less than 5 days."
                     }
                 ],
                 "provider_reference": "my_reference"
@@ -494,6 +581,7 @@ ATCGATAoopsATCGATCGATCGATCGA
             ApiResponse {
                 synthesis_permission: SynthesisPermission::Denied,
                 hits_by_record: vec![],
+                verifiable: None,
                 warnings: vec![],
                 errors: vec![err.into()],
                 debug_info: None,
@@ -504,7 +592,8 @@ ATCGATAoopsATCGATCGATCGATCGA
                 "errors": [
                     {
                         "diagnostic": "invalid_input",
-                        "additional_info": "Error parsing FASTA: error parsing record: bad nucleotide: 'o'",
+                        "additional_info": format!("Error parsing FASTA: error parsing record: \
+                            bad nucleotide: 'o'\n\n{BAD_NUCLEOTIDE_HINT}"),
                         "line_number_range": [4, 4]
                     }
                 ],
@@ -519,6 +608,7 @@ ATCGATAoopsATCGATCGATCGATCGA
             ApiResponse {
                 synthesis_permission: SynthesisPermission::Denied,
                 hits_by_record: vec![],
+                verifiable: None,
                 warnings: vec![],
                 errors: vec![ApiError::not_found("/foo")],
                 debug_info: None,

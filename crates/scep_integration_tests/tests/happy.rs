@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -6,11 +6,13 @@ use std::sync::Arc;
 use certificates::{DatabaseTokenGroup, ExemptionTokenGroup, KeyserverTokenGroup, TokenBundle};
 use doprf::{
     party::KeyserverId,
-    prf::Query,
+    prf::{CompressedQuery, Query},
     tagged::{HashTag, TaggedHash},
 };
 use doprf_client::packed_ristretto::PackedRistrettos;
-use scep_client_helpers::ClientCerts;
+use hdb_api::{BaseHdbScreeningResult, ConsolidatedHazardResult, HdbScreeningResult};
+use scep::types::VerifiableScreeningRequested;
+use scep_client_helpers::{scep_client::HdbOpenParams, ClientCerts, ScepClientOpenCommon};
 use scep_integration_tests::{
     make_certs::{make_certs, MakeCertsOptions},
     mock_screening::{
@@ -22,8 +24,8 @@ use scep_integration_tests::{
 use shared_types::{
     et::WithOtps,
     hash::HashSpec,
-    hdb::{ConsolidatedHazardResult, HdbScreeningResult},
     requests::RequestId,
+    server_versions::HdbVersion,
     synthesis_permission::{Region, SynthesisPermission},
 };
 use tracing::info;
@@ -79,7 +81,7 @@ async fn test_scenario(scenario: Scenario) {
         certs.synth_keypair.clone(),
     ));
     let request_id = RequestId::new_unique();
-    let http_client = http_client::BaseApiClient::new(request_id);
+    let http_client = http_client::BaseApiClient::new(request_id).unwrap();
     let keyserver_client = scep_client_helpers::ScepClient::<KeyserverTokenGroup>::new(
         http_client.clone(),
         format!("http://localhost:{keyserver_port}"),
@@ -89,29 +91,34 @@ async fn test_scenario(scenario: Scenario) {
 
     let opened_state = keyserver_client
         .open(
-            1,
-            None,
-            vec![
-                KeyserverId::try_from(1).unwrap(),
-                KeyserverId::try_from(2).unwrap(),
-                KeyserverId::try_from(3).unwrap(),
-            ]
-            .into(),
+            ScepClientOpenCommon {
+                nucleotide_total_count: 1,
+                last_server_version: None,
+                keyserver_id_set: vec![
+                    KeyserverId::try_from(1).unwrap(),
+                    KeyserverId::try_from(2).unwrap(),
+                    KeyserverId::try_from(3).unwrap(),
+                ]
+                .into(),
+                debug_info: false,
+            },
             MakeCertsOptions::default().keyserver_id,
-            false,
         )
         .await
         .unwrap();
 
     info!("keyserver opened_state = {opened_state:#?}");
 
-    keyserver_client
+    let session_id = keyserver_client
         .authenticate(opened_state, hash_total_count)
         .await
         .unwrap();
 
     let response = keyserver_client
-        .keyserve(&PackedRistrettos::<Query>::new(input_hashes.clone()))
+        .keyserve(
+            session_id,
+            &PackedRistrettos::<CompressedQuery>::new(input_hashes.clone()),
+        )
         .await
         .unwrap();
 
@@ -135,24 +142,31 @@ async fn test_scenario(scenario: Scenario) {
 
     let opened_state = hdb_client
         .open(
-            1,
-            None,
-            vec![
-                KeyserverId::try_from(1).unwrap(),
-                KeyserverId::try_from(2).unwrap(),
-                KeyserverId::try_from(3).unwrap(),
-            ]
-            .into(),
-            false,
-            Region::All,
-            scenario.exemptions.is_some(),
+            ScepClientOpenCommon {
+                nucleotide_total_count: 1,
+                last_server_version: None,
+                keyserver_id_set: vec![
+                    KeyserverId::try_from(1).unwrap(),
+                    KeyserverId::try_from(2).unwrap(),
+                    KeyserverId::try_from(3).unwrap(),
+                ]
+                .into(),
+                debug_info: false,
+            },
+            HdbOpenParams {
+                region: Region::All,
+                with_exemption: scenario.exemptions.is_some(),
+                verifiable: VerifiableScreeningRequested::NotRequested,
+                fasta_sha3_256_hex: "".to_owned(),
+                synthclient_version: "".to_owned(),
+            },
         )
         .await
         .unwrap();
 
     info!("hdb opened_state = {opened_state:#?}");
 
-    hdb_client
+    let session_id = hdb_client
         .authenticate(opened_state, hash_total_count)
         .await
         .unwrap();
@@ -161,7 +175,7 @@ async fn test_scenario(scenario: Scenario) {
         PackedRistrettos::from_iter(response.iter_encoded().enumerate().map(|(i, hash)| {
             TaggedHash {
                 tag: HashTag::new(i == 0, 0, i),
-                hash: (*hash).try_into().unwrap(),
+                hash: hash.into(),
             }
         }));
 
@@ -169,7 +183,7 @@ async fn test_scenario(scenario: Scenario) {
     // launch hdbserver with --yubico-api-client-id allow_all.
     let otp = "123456".to_owned();
     let screen_response = match scenario.exemptions {
-        None => hdb_client.screen(&tagged_hashes).await.unwrap(),
+        None => hdb_client.screen(session_id, &tagged_hashes).await.unwrap(),
         Some((et, et_hashes)) => {
             let ets = vec![WithOtps {
                 et,
@@ -177,7 +191,7 @@ async fn test_scenario(scenario: Scenario) {
                 issuer_otp: None,
             }];
             hdb_client
-                .screen_with_ets(&tagged_hashes, &ets, &et_hashes.into())
+                .screen_with_ets(session_id, &tagged_hashes, &ets, &et_hashes.into())
                 .await
                 .unwrap()
         }
@@ -204,11 +218,16 @@ pub async fn smoketest() {
             Query::hash_from_bytes_for_tests_only(&[4]).into(),
         ],
         exemptions: None,
-        expected_result: HdbScreeningResult {
+        expected_result: HdbScreeningResult::base(BaseHdbScreeningResult {
             results: vec![],
             debug_hdb_responses: None,
             provider_reference: None,
-        },
+            timestamp: "2024-05-29T12:00:00Z".to_string(),
+            hdb_version: HdbVersion {
+                server_version: "foo".to_owned(),
+                hdb_timestamp: None,
+            },
+        }),
     })
     .await
 }
@@ -218,7 +237,7 @@ pub async fn test_hazard_denied() {
     test_scenario(Scenario {
         screen_hashes: vec![mock_hazard_query().into()],
         exemptions: None,
-        expected_result: HdbScreeningResult {
+        expected_result: HdbScreeningResult::base(BaseHdbScreeningResult {
             results: vec![ConsolidatedHazardResult {
                 record: 0,
                 hit_regions: vec![],
@@ -231,7 +250,12 @@ pub async fn test_hazard_denied() {
             }],
             debug_hdb_responses: None,
             provider_reference: None,
-        },
+            timestamp: "2024-05-29T12:00:00Z".to_string(),
+            hdb_version: HdbVersion {
+                server_version: "foo".to_owned(),
+                hdb_timestamp: None,
+            },
+        }),
     })
     .await
 }
@@ -242,7 +266,7 @@ pub async fn test_hazard_exempt_organism() {
     test_scenario(Scenario {
         screen_hashes: vec![mock_hazard_query().into()],
         exemptions: Some((et, vec![])),
-        expected_result: HdbScreeningResult {
+        expected_result: HdbScreeningResult::base(BaseHdbScreeningResult {
             results: vec![ConsolidatedHazardResult {
                 record: 0,
                 hit_regions: vec![],
@@ -255,7 +279,12 @@ pub async fn test_hazard_exempt_organism() {
             }],
             debug_hdb_responses: None,
             provider_reference: None,
-        },
+            timestamp: "2024-05-29T12:00:00Z".to_string(),
+            hdb_version: HdbVersion {
+                server_version: "foo".to_owned(),
+                hdb_timestamp: None,
+            },
+        }),
     })
     .await
 }
@@ -267,7 +296,7 @@ pub async fn test_hazard_exempt_hash() {
     test_scenario(Scenario {
         screen_hashes: vec![mock_hazard_query().into()],
         exemptions: Some((et, et_hashes)),
-        expected_result: HdbScreeningResult {
+        expected_result: HdbScreeningResult::base(BaseHdbScreeningResult {
             results: vec![ConsolidatedHazardResult {
                 record: 0,
                 hit_regions: vec![],
@@ -280,7 +309,12 @@ pub async fn test_hazard_exempt_hash() {
             }],
             debug_hdb_responses: None,
             provider_reference: None,
-        },
+            timestamp: "2024-05-29T12:00:00Z".to_string(),
+            hdb_version: HdbVersion {
+                server_version: "foo".to_owned(),
+                hdb_timestamp: None,
+            },
+        }),
     })
     .await;
 }

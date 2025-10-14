@@ -24,3 +24,9 @@ use_test_roots_do_not_use_this_in_prod = true
 # Use http (instead of https) for all requests to internal servers (hdb and keyservers).
 # Useful for local development, will not work with securedna.org servers.
 use_http = true
+
+# When true, `/screen` will require captchas
+require_captcha = false
+
+# When set, request-response JSON pairs for requests with `verifiable_screening` enabled will be stored in timestamped subdirectories of this directory.
+# store_verifiable_results = "./verifiable_results/"

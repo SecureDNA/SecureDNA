@@ -9,19 +9,19 @@ resolver = "2"
 
 [workspace.package]
 license = "MIT OR Apache-2.0"
-version = "1.0.8"
+version = "1.1.0"
 publish = false
 
 [workspace.dependencies]
-again = { git = "https://github.com/SecureDNA/again", rev = "6db8c5e56bf93b1177ed35a926f8ff7d4adbf93b" }
+again = { git = "https://github.com/SecureDNA/again", rev = "a8a560bd2e986be6b5873a8fcc89f802e2441f4d" }
 curve25519-dalek = "4.1.3"
 http = "1.1.0"
 http-body-util = "0.1.0"
-hyper = "1.3.1"
-quickdna = { git = "https://github.com/SecureDNA/quickdna", default-features = false }
+hyper = "1.6.0"
+quickdna = { git = "https://github.com/SecureDNA/quickdna", tag = "v0.6.0", default-features = false }
 rasn = "0.10.0"
 serde = "1.0"
-tempfile = "3.6.0"
+tempfile = "3.19.0"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 
@@ -29,6 +29,3 @@ tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 inherits = "release"
 debug = true
 overflow-checks = true
-
-[patch.crates-io]
-wasm-bindgen = { git = "https://github.com/lynn/wasm-bindgen.git", branch = "securedna" }

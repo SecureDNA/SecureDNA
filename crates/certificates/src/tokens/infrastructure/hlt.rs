@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module contains functionality for creating a `HltToken`.
@@ -15,15 +15,15 @@ use crate::{
     impl_boilerplate_for_token_request_version, impl_boilerplate_for_token_version,
     impl_encoding_boilerplate, impl_key_boilerplate_for_token,
     impl_key_boilerplate_for_token_request, impl_key_boilerplate_for_token_request_version,
-    key_traits::HasAssociatedKey,
-    keypair::{PublicKey, Signature},
+    key::signing::{PublicKey, Signature},
+    key_traits::HasAssociatedSigningKey,
     pem::PemTaggable,
     shared_components::common::{
         CompatibleIdentity, ComponentVersionGuard, Signed, VersionedComponent,
     },
     tokens::{TokenData, TokenGroup},
-    CertificateChain, Digestible, Expiration, Id, Infrastructure, Issued, KeyAvailable, KeyPair,
-    KeyUnavailable, TokenKind,
+    CertificateChain, Digestible, Expiration, Id, Infrastructure, Issued, KeyAvailable,
+    KeyUnavailable, SigningKeyPair, TokenKind,
 };
 
 use super::digest::{HltTokenDigest, HltTokenRequestDigest};
@@ -248,20 +248,19 @@ impl_boilerplate_for_token! {HltToken<K>}
 impl_encoding_boilerplate! {HltToken<K>}
 impl_key_boilerplate_for_token! {HltToken}
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cert_tests"))]
 mod test {
-
-    use crate::key_traits::{CanLoadKey, HasAssociatedKey, KeyLoaded};
+    use crate::key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded};
     use crate::{
         asn::{FromASN1DerBytes, ToASN1DerBytes},
         test_helpers::create_leaf_cert,
-        DatabaseTokenRequest, Expiration, HltTokenRequest, Infrastructure, KeyPair,
+        DatabaseTokenRequest, Expiration, HltTokenRequest, Infrastructure, SigningKeyPair,
     };
 
     #[test]
     fn can_issue_hlt_token() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = HltTokenRequest::v1_token_request(kp.public_key());
 
         cert.issue_hlt_token(req, Expiration::default()).unwrap();
@@ -269,7 +268,7 @@ mod test {
 
     #[test]
     fn cannot_decode_hlt_token_request_as_db_token_request() {
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let token_req = HltTokenRequest::v1_token_request(kp.public_key());
         let encoded = token_req.to_der().unwrap();
         let res = DatabaseTokenRequest::from_der(encoded);
@@ -279,7 +278,7 @@ mod test {
     #[test]
     fn hlt_token_has_expected_public_key() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = HltTokenRequest::v1_token_request(kp.public_key());
 
         let token = cert.issue_hlt_token(req, Expiration::default()).unwrap();
@@ -290,7 +289,7 @@ mod test {
     #[test]
     fn hlt_token_can_sign_with_associated_keypair() {
         let cert = create_leaf_cert::<Infrastructure>();
-        let kp = KeyPair::new_random();
+        let kp = SigningKeyPair::new_random();
         let req = HltTokenRequest::v1_token_request(kp.public_key());
 
         let token = cert

@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Temporary module for consolidating windows/hits.
@@ -44,12 +44,17 @@
 
 use doprf::tagged::HashTag;
 use indexmap::IndexMap;
+use itertools::Itertools;
+use pipeline_bridge::Tag;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-use crate::{response::HdbOrganism, HdbResponse, Provenance};
+use crate::{
+    hit_region::remove_multiple_regions, response::HdbOrganism, HdbResponse, HitRegion, Provenance,
+};
 use serde::{Deserialize, Serialize};
 use shared_types::{
     hash::{HashSpec, HashTypeDescriptor},
-    hdb as hdb_api,
+    server_versions::HdbVersion,
     synthesis_permission::SynthesisPermission,
 };
 use thiserror::Error;
@@ -66,34 +71,14 @@ pub struct ConsolidatedHazardResult {
     pub hdb_response: HdbResponse,
 }
 
-/// Indexes marking the beginning and end of the hit region, as well as the index of the last
-/// window in the range.
-///
-/// An example (with arbitrary window size 20)
-///
-/// ```text
-/// seq_range_start          last_window_start   seq_range_end
-/// ▼                        ▼                   ▼
-/// AAAAAAAAAAAAAAAAAAAATTTTTCCCCCCCCCCCCCCCCCCCC
-/// ────────────────────
-///      one window
-///
-/// window_size = 20
-/// seq_range_start = 0
-/// seq_range_end = 45
-/// last_window_start = 25
-/// ```
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct HitRegion {
-    /// Index (in the original sequence) of the start of the hit region
-    pub seq_range_start: usize,
-    /// Index (in the original sequence) of the end of the hit region range. This range bound is
-    /// exclusive.
-    pub seq_range_end: usize,
-    /// Index (in the original sequence) of the start of the last window in the hit region
-    pub last_window_start: usize,
-    /// Debug usage only, not intended for API output. The number of windows within the hit region.
-    pub window_count: usize,
+impl ConsolidatedHazardResult {
+    /// Whether this hazard's 'most likely organism' is tagged `RegulatedButPass`
+    pub fn is_low_risk(&self) -> bool {
+        self.hdb_response
+            .most_likely_organism
+            .tags
+            .contains(&Tag::RegulatedButPass)
+    }
 }
 
 /// Result of DOPRF on a sequence that was contained in the HDB.
@@ -118,7 +103,13 @@ pub enum ConsolidationError {
 #[derive(Debug, Default, PartialEq, Deserialize, Serialize)]
 pub struct Consolidation {
     pub results: Vec<ConsolidatedHazardResult>,
-    pub debug_hdb_responses: Option<Vec<DebugSeqHdbResponse>>,
+    pub debug: Option<ConsolidationDebug>,
+}
+
+#[derive(Debug, Default, PartialEq, Deserialize, Serialize)]
+pub struct ConsolidationDebug {
+    pub unconsolidated_responses: Vec<DebugSeqHdbResponse>,
+    pub removed_overlaps: Vec<ConsolidatedHazardResult>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -177,23 +168,23 @@ pub fn consolidate_windows(
     //
     // Assumes that hdb_responses are in order.
 
-    let mut debug_responses = vec![];
+    let mut unconsolidated_responses = vec![];
 
     let mut res: Vec<ConsolidatedHits> = vec![];
     for (hash_id, hdb_response) in hdb_responses {
-        let index = hash_id.hash_type_index as usize;
+        let htd_index = hash_id.hash_type_index as usize;
         let htdv = &hash_spec.htdv;
         let htd = htdv
-            .get(index)
+            .get(htd_index)
             .ok_or(ConsolidationError::BadHashTypeIndex {
-                index,
+                index: htd_index,
                 length: htdv.len(),
             })?;
 
         let seq_position = hash_id.index_in_record as usize;
 
         if debug {
-            debug_responses.push(DebugSeqHdbResponse {
+            unconsolidated_responses.push(DebugSeqHdbResponse {
                 record: hash_id.record,
                 seq_range_start: seq_position,
                 seq_range_end: seq_position + htd.width_bp(),
@@ -208,7 +199,8 @@ pub fn consolidate_windows(
 
         if let Some(last) = res.last_mut() {
             let margin = hdb_response.window_gap;
-            let is_contiguous = seq_range_start <= last.hit_region.last_window_start + margin;
+            let is_contiguous =
+                seq_range_start <= last.hit_region.window_starts.last().unwrap() + margin;
 
             if htd == &last.htd
                 && is_contiguous
@@ -217,7 +209,7 @@ pub fn consolidate_windows(
             {
                 last.hit_region.window_count += 1;
 
-                last.hit_region.last_window_start = last_window_start;
+                last.hit_region.window_starts.push(last_window_start);
                 last.hit_region.seq_range_end = seq_range_end;
 
                 // We sum an_likelihood when consolidating hits
@@ -235,8 +227,9 @@ pub fn consolidate_windows(
             hit_region: HitRegion {
                 seq_range_start,
                 seq_range_end,
-                last_window_start,
+                window_starts: vec![last_window_start],
                 window_count: 1,
+                htd_index,
             },
             hdb_response,
             htd: htd.clone(),
@@ -277,10 +270,111 @@ pub fn consolidate_windows(
         )
         .collect();
 
+    let mut removed = if debug { Some(vec![]) } else { None };
+    let retained = remove_low_risk_overlapping_hazards(consolidated_hazard_results, &mut removed);
+
     Ok(Consolidation {
-        results: consolidated_hazard_results,
-        debug_hdb_responses: if debug { Some(debug_responses) } else { None },
+        results: retained,
+        debug: if debug {
+            Some(ConsolidationDebug {
+                unconsolidated_responses,
+                removed_overlaps: removed.unwrap_or_default(),
+            })
+        } else {
+            None
+        },
     })
+}
+
+/// Remove or clip hazards tagged `RegulatedButPass` whose sequences overlap with
+/// hazard hits which are not tagged `RegulatedButPass`.
+/// If a vec is supplied for 'removed_hazards', it will be populated with the removed hazards.
+/// Note: this function will likely alter the order of the hazards.
+fn remove_low_risk_overlapping_hazards(
+    hazards: Vec<ConsolidatedHazardResult>,
+    removed_hazards: &mut Option<Vec<ConsolidatedHazardResult>>,
+) -> Vec<ConsolidatedHazardResult> {
+    let (low_risk_hazards, mut high_risk_hazards): (Vec<_>, Vec<_>) =
+        hazards.into_iter().partition(|hazard| hazard.is_low_risk());
+
+    let (retained, removed): (Vec<_>, Vec<_>) = low_risk_hazards
+        .into_par_iter()
+        .map(|hazard| {
+            let min_region_start = hazard
+                .hit_regions
+                .iter()
+                .min_by_key(|region| region.seq_range_start)
+                .map(|region| region.seq_range_start)
+                .unwrap_or(0);
+            let max_region_end = hazard
+                .hit_regions
+                .iter()
+                .max_by_key(|region| region.seq_range_end)
+                .map(|region| region.seq_range_end)
+                .unwrap_or(usize::MAX);
+
+            // Create an iterator of all the hit regions that may overlap with the current hazard
+            let potential_overlaps = high_risk_hazards
+                .iter()
+                .filter(|other| other.record == hazard.record)
+                .flat_map(|other| other.hit_regions.iter())
+                .filter(|region| region.overlaps(min_region_start, max_region_end));
+
+            let mut removed_regions = if removed_hazards.is_some() {
+                Some(Vec::new())
+            } else {
+                None
+            };
+
+            let remainders = remove_multiple_regions(
+                hazard.hit_regions.clone(),
+                potential_overlaps,
+                &mut removed_regions,
+            );
+
+            let window_len = hazard.hdb_response.provenance.window_len();
+            let (updated_hit_regions, too_small): (Vec<_>, Vec<_>) = remainders
+                .into_iter()
+                .partition(|region| region.seq_range_end - region.seq_range_start >= window_len);
+
+            if let Some(regions) = removed_regions.as_mut() {
+                regions.extend(too_small);
+            }
+
+            if updated_hit_regions != hazard.hit_regions {
+                if updated_hit_regions.is_empty() {
+                    // we're removing the whole hazard
+                    (None, Some(hazard))
+                } else {
+                    // we're modifying the hit regions
+                    let removed = removed_regions.map(|removed_regions| ConsolidatedHazardResult {
+                        record: hazard.record,
+                        hit_regions: removed_regions,
+                        hdb_response: hazard.hdb_response.clone(),
+                    });
+
+                    (
+                        Some(ConsolidatedHazardResult {
+                            record: hazard.record,
+                            hit_regions: updated_hit_regions,
+                            hdb_response: hazard.hdb_response,
+                        }),
+                        removed,
+                    )
+                }
+            } else {
+                // the hazard has not been modified
+                (Some(hazard), None)
+            }
+        })
+        .unzip();
+
+    if let Some(removed_hazards) = removed_hazards {
+        removed_hazards.extend(removed.into_iter().flatten());
+    }
+
+    high_risk_hazards.extend(retained.into_iter().flatten());
+    high_risk_hazards
 }
 
 struct ConsolidatedHits {
@@ -319,10 +413,12 @@ impl GroupKey {
 }
 
 impl Consolidation {
-    pub fn to_hdb_screening_result(
+    pub fn to_base_hdb_screening_result(
         self,
         provider_reference: Option<String>,
-    ) -> hdb_api::HdbScreeningResult {
+        hdb_version: HdbVersion,
+        timestamp: String,
+    ) -> hdb_api::BaseHdbScreeningResult {
         fn into_organism(hdb_organism: HdbOrganism) -> hdb_api::Organism {
             let HdbOrganism {
                 name,
@@ -338,43 +434,46 @@ impl Consolidation {
             }
         }
 
-        hdb_api::HdbScreeningResult {
-            results: self
-                .results
-                .into_iter()
-                .filter_map(|x| {
-                    if x.hdb_response.reverse_screened {
-                        None
-                    } else {
-                        Some(hdb_api::ConsolidatedHazardResult {
-                            record: x.record,
-                            hit_regions: x
-                                .hit_regions
-                                .into_iter()
-                                .map(|x| hdb_api::HitRegion {
-                                    seq_range_start: x.seq_range_start,
-                                    seq_range_end: x.seq_range_end,
-                                })
-                                .collect(),
-                            synthesis_permission: x.hdb_response.synthesis_permission,
-                            most_likely_organism: into_organism(
-                                x.hdb_response.most_likely_organism,
-                            ),
-                            organisms: x
-                                .hdb_response
-                                .organisms
-                                .into_iter()
-                                .map(into_organism)
-                                .collect(),
-                            is_dna: x.hdb_response.provenance.is_dna(),
-                            is_wild_type: x.hdb_response.provenance.is_wild_type(),
-                            exempt: x.hdb_response.exempt,
-                        })
-                    }
-                })
-                .collect(),
-            debug_hdb_responses: self.debug_hdb_responses.map(|responses| {
-                responses
+        let api_format_hazards: Vec<_> = self
+            .results
+            .into_iter()
+            .filter_map(|x| {
+                if x.hdb_response.reverse_screened {
+                    None
+                } else {
+                    Some(hdb_api::ConsolidatedHazardResult {
+                        record: x.record,
+                        hit_regions: x
+                            .hit_regions
+                            .into_iter()
+                            .map(|x| hdb_api::HitRegion {
+                                seq_range_start: x.seq_range_start,
+                                seq_range_end: x.seq_range_end,
+                            })
+                            .collect(),
+                        synthesis_permission: x.hdb_response.synthesis_permission,
+                        most_likely_organism: into_organism(x.hdb_response.most_likely_organism),
+                        organisms: x
+                            .hdb_response
+                            .organisms
+                            .into_iter()
+                            .map(into_organism)
+                            .collect(),
+                        is_dna: x.hdb_response.provenance.is_dna(),
+                        is_wild_type: x.hdb_response.provenance.is_wild_type(),
+                        exempt: x.hdb_response.exempt,
+                    })
+                }
+            })
+            .sorted()
+            .dedup() // DnaNormal and DnaRunt will produce duplicate entries for wild types
+            .collect();
+
+        hdb_api::BaseHdbScreeningResult {
+            results: api_format_hazards,
+            debug_hdb_responses: self.debug.map(|debug| {
+                debug
+                    .unconsolidated_responses
                     .into_iter()
                     .map(|x| hdb_api::DebugSeqHdbResponse {
                         record: x.record,
@@ -408,6 +507,8 @@ impl Consolidation {
                     .collect()
             }),
             provider_reference,
+            hdb_version,
+            timestamp,
         }
     }
 }
@@ -417,6 +518,7 @@ impl Consolidation {
 mod test {
     use std::num::NonZeroUsize;
 
+    use pipeline_bridge::Tag;
     use shared_types::hash::HashTypeDescriptor;
 
     use super::*;
@@ -473,8 +575,9 @@ mod test {
                 hit_regions: vec![HitRegion {
                     seq_range_start: 0,
                     seq_range_end: 42,
-                    last_window_start: 0,
+                    window_starts: vec![0],
                     window_count: 1,
+                    htd_index: 0,
                 }],
                 hdb_response: hdb_response.clone(),
             }]
@@ -511,8 +614,9 @@ mod test {
                 hit_regions: vec![HitRegion {
                     seq_range_start: 0,
                     seq_range_end: 43,
-                    last_window_start: 1,
+                    window_starts: vec![0, 1],
                     window_count: 2,
+                    htd_index: 0,
                 }],
                 hdb_response: HdbResponse {
                     an_likelihood: 2.0,
@@ -553,14 +657,16 @@ mod test {
                     HitRegion {
                         seq_range_start: 0,
                         seq_range_end: 42,
-                        last_window_start: 0,
+                        window_starts: vec![0],
                         window_count: 1,
+                        htd_index: 0,
                     },
                     HitRegion {
                         seq_range_start: 2,
                         seq_range_end: 44,
-                        last_window_start: 2,
+                        window_starts: vec![2],
                         window_count: 1,
+                        htd_index: 0,
                     }
                 ],
                 hdb_response: HdbResponse {
@@ -610,14 +716,16 @@ mod test {
                     HitRegion {
                         seq_range_start: 0,
                         seq_range_end: 42,
-                        last_window_start: 0,
+                        window_starts: vec![0],
                         window_count: 1,
+                        htd_index: 0,
                     },
                     HitRegion {
                         seq_range_start: 2,
                         seq_range_end: 45,
-                        last_window_start: 3,
+                        window_starts: vec![2, 3],
                         window_count: 2,
+                        htd_index: 0,
                     }
                 ],
                 hdb_response: HdbResponse {
@@ -691,8 +799,9 @@ mod test {
                 hit_regions: vec![HitRegion {
                     seq_range_start: 0,
                     seq_range_end: 90,
-                    last_window_start: 60,
+                    window_starts: vec![0, 30, 60],
                     window_count: 3,
+                    htd_index: 0,
                 }],
                 hdb_response: HdbResponse {
                     an_likelihood: 3.0,
@@ -740,8 +849,9 @@ mod test {
                 hit_regions: vec![HitRegion {
                     seq_range_start: 0,
                     seq_range_end: 89,
-                    last_window_start: 59,
+                    window_starts: vec![0, 29, 59],
                     window_count: 3,
+                    htd_index: 0,
                 }],
                 hdb_response: HdbResponse {
                     an_likelihood: 3.0,
@@ -809,8 +919,9 @@ mod test {
                     hit_regions: vec![HitRegion {
                         seq_range_start: 0,
                         seq_range_end: 30,
-                        last_window_start: 0,
+                        window_starts: vec![0],
                         window_count: 1,
+                        htd_index: 0,
                     },],
                     hdb_response: HdbResponse {
                         an_likelihood: 1.0,
@@ -822,8 +933,9 @@ mod test {
                     hit_regions: vec![HitRegion {
                         seq_range_start: 0,
                         seq_range_end: 30,
-                        last_window_start: 0,
+                        window_starts: vec![0],
                         window_count: 1,
+                        htd_index: 1,
                     }],
                     hdb_response: HdbResponse {
                         an_likelihood: 1.0,
@@ -1066,14 +1178,16 @@ mod test {
                         HitRegion {
                             seq_range_start: 1,
                             seq_range_end: 45,
-                            last_window_start: 3,
+                            window_starts: vec![1, 2, 3],
                             window_count: 3,
+                            htd_index: 0,
                         },
                         HitRegion {
                             seq_range_start: 5,
                             seq_range_end: 48,
-                            last_window_start: 6,
+                            window_starts: vec![5, 6],
                             window_count: 2,
+                            htd_index: 0,
                         },
                     ],
                     hdb_response: HdbResponse {
@@ -1087,20 +1201,23 @@ mod test {
                         HitRegion {
                             seq_range_start: 0,
                             seq_range_end: 30,
-                            last_window_start: 0,
+                            window_starts: vec![0],
                             window_count: 1,
+                            htd_index: 1,
                         },
                         HitRegion {
                             seq_range_start: 3,
                             seq_range_end: 33,
-                            last_window_start: 3,
+                            window_starts: vec![3],
                             window_count: 1,
+                            htd_index: 1,
                         },
                         HitRegion {
                             seq_range_start: 5,
                             seq_range_end: 36,
-                            last_window_start: 6,
+                            window_starts: vec![5, 6],
                             window_count: 2,
+                            htd_index: 1,
                         }
                     ],
                     hdb_response: HdbResponse {
@@ -1114,14 +1231,16 @@ mod test {
                         HitRegion {
                             seq_range_start: 0,
                             seq_range_end: 66,
-                            last_window_start: 6,
+                            window_starts: vec![0, 3, 6],
                             window_count: 3,
+                            htd_index: 2,
                         },
                         HitRegion {
                             seq_range_start: 12,
                             seq_range_end: 72,
-                            last_window_start: 12,
+                            window_starts: vec![12],
                             window_count: 1,
+                            htd_index: 2,
                         }
                     ],
                     hdb_response: HdbResponse {
@@ -1134,8 +1253,9 @@ mod test {
                     hit_regions: vec![HitRegion {
                         seq_range_start: 0,
                         seq_range_end: 31,
-                        last_window_start: 1,
-                        window_count: 2
+                        window_starts: vec![0, 1],
+                        window_count: 2,
+                        htd_index: 3,
                     }],
                     hdb_response: HdbResponse {
                         an_likelihood: 2.0,
@@ -1147,8 +1267,9 @@ mod test {
                     hit_regions: vec![HitRegion {
                         seq_range_start: 0,
                         seq_range_end: 66,
-                        last_window_start: 6,
-                        window_count: 3
+                        window_starts: vec![0, 3, 6],
+                        window_count: 3,
+                        htd_index: 2,
                     }],
                     hdb_response: HdbResponse {
                         an_likelihood: 3.0,
@@ -1157,5 +1278,174 @@ mod test {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn test_remove_low_risk_overlapping_hazards() {
+        let hazards = vec![
+            ConsolidatedHazardResult {
+                record: 0,
+                hit_regions: vec![
+                    HitRegion {
+                        seq_range_start: 27,
+                        seq_range_end: 109,
+                        window_starts: vec![27, 30],
+                        window_count: 2,
+                        htd_index: 3,
+                    },
+                    HitRegion {
+                        seq_range_start: 115,
+                        seq_range_end: 157,
+                        window_starts: vec![115, 120],
+                        window_count: 2,
+                        htd_index: 3,
+                    },
+                ],
+                hdb_response: HdbResponse {
+                    synthesis_permission: SynthesisPermission::Granted,
+                    most_likely_organism: HdbOrganism {
+                        name: "Bacillus anthracis".to_string(),
+                        organism_type: pipeline_bridge::OrganismType::Bacterium,
+                        ans: vec![
+                            "NC_007322.2".to_string(),
+                            "NC_007323.3".to_string(),
+                            "NC_007530.2".to_string(),
+                        ],
+                        tags: vec![
+                            Tag::AustraliaGroupHumanAnimalPathogen,
+                            Tag::EuropeanUnion,
+                            Tag::PRCExportControlPart2,
+                            Tag::RegulatedButPass,
+                            Tag::SelectAgentHhs,
+                            Tag::SelectAgentUsda,
+                        ],
+                    },
+                    organisms: vec![],
+                    exempt: false,
+                    an_likelihood: 1.0,
+                    provenance: Provenance::DnaNormal,
+                    reverse_screened: false,
+                    window_gap: 30,
+                },
+            },
+            ConsolidatedHazardResult {
+                record: 0,
+                hit_regions: vec![HitRegion {
+                    seq_range_start: 0,
+                    seq_range_end: 165,
+                    window_starts: vec![0, 15],
+                    window_count: 2,
+                    htd_index: 4,
+                }],
+                hdb_response: HdbResponse {
+                    synthesis_permission: SynthesisPermission::Granted,
+                    most_likely_organism: HdbOrganism {
+                        name: "Bacillus anthracis".to_string(),
+                        organism_type: pipeline_bridge::OrganismType::Bacterium,
+                        ans: vec![
+                            "NC_007322.2".to_string(),
+                            "NC_007323.3".to_string(),
+                            "NC_007530.2".to_string(),
+                        ],
+                        tags: vec![
+                            Tag::AustraliaGroupHumanAnimalPathogen,
+                            Tag::EuropeanUnion,
+                            Tag::PRCExportControlPart2,
+                            Tag::SelectAgentHhs,
+                            Tag::SelectAgentUsda,
+                        ],
+                    },
+                    organisms: vec![],
+                    exempt: false,
+                    an_likelihood: 1.0,
+                    provenance: Provenance::DnaNormal,
+                    reverse_screened: false,
+                    window_gap: 30,
+                },
+            },
+        ];
+
+        let mut removed = Some(vec![]);
+        let retained = remove_low_risk_overlapping_hazards(hazards, &mut removed);
+
+        // The low risk hazard should have been removed since it overlaps with the higher risk hazard
+        assert_eq!(retained.len(), 1);
+        assert!(!retained[0]
+            .hdb_response
+            .most_likely_organism
+            .tags
+            .contains(&Tag::RegulatedButPass));
+        let removed_hazards = removed.unwrap();
+        assert!(
+            !removed_hazards.is_empty(),
+            "Expected at least one removed hazard"
+        );
+        assert!(removed_hazards[0]
+            .hdb_response
+            .most_likely_organism
+            .tags
+            .contains(&Tag::RegulatedButPass));
+    }
+
+    #[test]
+    fn test_deduplication_of_dna_normal_and_runt() {
+        let make_hdb_response = |provenance| HdbResponse {
+            synthesis_permission: SynthesisPermission::Granted,
+            most_likely_organism: HdbOrganism {
+                name: "Organism_A".into(),
+                organism_type: pipeline_bridge::OrganismType::Bacterium,
+                ans: vec![],
+                tags: vec![],
+            },
+            organisms: vec![],
+            exempt: false,
+            an_likelihood: 1.0,
+            provenance,
+            reverse_screened: false,
+            window_gap: 0,
+        };
+        let hdb_response_dna_normal = make_hdb_response(Provenance::DnaNormal);
+        let hdb_response_dna_runt = make_hdb_response(Provenance::DnaRunt);
+
+        let normal_result = ConsolidatedHazardResult {
+            record: 0,
+            hit_regions: vec![HitRegion {
+                seq_range_start: 0,
+                seq_range_end: 60,
+                window_starts: vec![0, 15],
+                window_count: 2,
+                htd_index: 0,
+            }],
+            hdb_response: hdb_response_dna_normal,
+        };
+
+        let runt_result = ConsolidatedHazardResult {
+            record: 0,
+            hit_regions: vec![HitRegion {
+                seq_range_start: 0,
+                seq_range_end: 60,
+                window_starts: vec![0, 15, 30],
+                window_count: 3,
+                htd_index: 1,
+            }],
+            hdb_response: hdb_response_dna_runt,
+        };
+
+        let consolidation = Consolidation {
+            results: vec![normal_result, runt_result],
+            debug: None,
+        };
+
+        let api_results = consolidation.to_base_hdb_screening_result(
+            None,
+            HdbVersion {
+                server_version: "1.0.0".to_string(),
+                hdb_timestamp: None,
+            },
+            String::new(),
+        );
+
+        // Should only have one result after deduplication
+        assert_eq!(api_results.results.len(), 1);
     }
 }

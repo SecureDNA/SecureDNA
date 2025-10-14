@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 #![allow(dead_code)]
 
@@ -82,7 +82,7 @@ fn wasm_pack_rayon(dir: &str, target: &str, out_dir: &str) {
 }
 
 fn do_wasm_pack() {
-    let expected_version = "0.12";
+    let expected_version = "0.13";
     let installation_instructions = format!(
         r#"
 - download a binary from https://rustwasm.github.io/wasm-pack/
@@ -118,5 +118,5 @@ fn do_wasm_pack() {
         .current_dir("../../frontend/tsgen")
         .arg("main.js")
         .status()
-        .unwrap();
+        .expect("node not found, install it (v22+): https://nodejs.org/");
 }

@@ -1,7 +1,10 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+mod audit;
 pub mod event_store;
+mod mail;
+mod mail_template;
 mod opts;
 mod qualification;
 mod screening;

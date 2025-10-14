@@ -1,4 +1,4 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module implements some tag-related utilities needed to transform the HDB response.
@@ -19,11 +19,7 @@ pub fn metadata_is_low_risk_dna(
     if !metadata.provenance.is_dna() {
         return Ok(false);
     }
-
-    let (_, hlt_ids) = hlt.get_with_subindex(&metadata.hlt_index, &metadata.an_subindex)?;
-    Ok(hlt_ids
-        .iter()
-        .any(|id| id.tag() == Some(&Tag::SdnaLowRiskDNA)))
+    metadata_has_tag(metadata, &Tag::SdnaLowRiskDNA, hlt)
 }
 
 /// Returns whether the metadata a) is DNA, and b) points to an HLT id_group containing
@@ -38,11 +34,16 @@ pub fn metadata_is_low_risk_peptide(
     if metadata.provenance.is_dna() {
         return Ok(false);
     }
+    metadata_has_tag(metadata, &Tag::SdnaLowRiskPeptide, hlt)
+}
 
+fn metadata_has_tag(
+    metadata: &Metadata,
+    tag: &Tag,
+    hlt: &HazardLookupTable,
+) -> Result<bool, HltLookupError> {
     let (_, hlt_ids) = hlt.get_with_subindex(&metadata.hlt_index, &metadata.an_subindex)?;
-    Ok(hlt_ids
-        .iter()
-        .any(|id| id.tag() == Some(&Tag::SdnaLowRiskPeptide)))
+    Ok(hlt_ids.iter().any(|id| id.tag() == Some(tag)))
 }
 
 /// Handles removing internal tags and either transforming or removing the

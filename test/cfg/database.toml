@@ -28,3 +28,16 @@ keypair_passphrase_file = "../certs/database-token.passphrase"
 # (optional) Do not set the `secure` flag on session cookies, allowing them to be transported
 # over http://. This is useful for local testing.
 allow_insecure_cookie = true
+
+verifier_token_file = "../certs/verifier-token.vt"
+verifier_keypair_file = "../certs/verifier-token.priv"
+verifier_keypair_passphrase_file = "../certs/verifier-token.passphrase"
+verifier_history_url = "https://example.com"
+
+# We don't talk to the TOTP server in tests, so we can use any dummy cert here,
+# as long as it chains back to the exemption roots.
+totp_cert_file = "../certs/exemption-leaf.cert"
+totp_access_passphrase_file = "../certs/totp-access.passphrase"
+
+# audit_sendgrid_api_key_file = "./sendgrid-api-key.txt"
+# audit_template_file = "./audit-email-template.toml"

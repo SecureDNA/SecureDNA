@@ -7,12 +7,12 @@ For test items with an associated key we also test that the key can be decrypted
 
 To test the production certificates:
 
-    cargo test --test prod_certs
+    cargo test --release --test prod_certs --features cert_tests
 
 To test the test certificates:
 
-    cargo test --test test_certs
+    cargo test --release --test test_certs --features cert_tests
 
 To test the test tokens:
 
-    cargo test --test test_tokens
+    cargo test --release --test test_tokens --features cert_tests

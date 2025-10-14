@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -10,8 +10,10 @@ import { HashRouter, NavLink, Route, Routes } from "react-router-dom";
 import {
   ExemptionApprovalForm,
   ExemptionRequestForm,
-  InspectEt,
-  ScreeningPerf,
+  Inspect,
+  ScreeningTest,
+  Storybook,
+  StorybookPage,
   SubsetForm,
 } from "./pages";
 
@@ -24,11 +26,14 @@ function App() {
       <Toaster position="top-left" />
       <div className="App flex flex-col items-center">
         <Routes>
-          <Route path="/" element={<ExemptionRequestForm />} />
-          <Route path="/approve" element={<ExemptionApprovalForm />} />
-          <Route path="/inspect-et" element={<InspectEt />} />
-          <Route path="/subset" element={<SubsetForm />} />
-          <Route path="/screening-perf" element={<ScreeningPerf />} />
+          <Route index element={<ExemptionRequestForm />} />
+          <Route path="approve" element={<ExemptionApprovalForm />} />
+          <Route path="inspect" element={<Inspect />} />
+          <Route path="subset" element={<SubsetForm />} />
+          <Route path="screening-test" element={<ScreeningTest />} />
+          <Route path="storybook" element={<Storybook />}>
+            <Route path=":page" element={<StorybookPage />} />
+          </Route>
         </Routes>
         <nav className="bg-primary fixed z-40 left-0 bottom-0 flex space-x-4 py-2 px-4">
           <NavLink className={navClass} to="/">
@@ -37,11 +42,17 @@ function App() {
           <NavLink className={navClass} to="/approve">
             Approve
           </NavLink>
-          <NavLink className={navClass} to="/inspect-et">
+          <NavLink className={navClass} to="/inspect">
             Inspect
           </NavLink>
           <NavLink className={navClass} to="/subset">
             Subset
+          </NavLink>
+          <NavLink className={navClass} to="/screening-test">
+            Screening Test
+          </NavLink>
+          <NavLink className={navClass} to="/storybook/form">
+            Storybook
           </NavLink>
         </nav>
       </div>

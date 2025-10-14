@@ -1,37 +1,32 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::cmp::min;
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use certificates::{ExemptionTokenGroup, TokenBundle};
-use shared_types::et::WithOtps;
+use doprf_client::ScreeningParams;
 use thiserror::Error;
+use tokio::sync::Semaphore;
 use tracing::info;
 
-use crate::api::ApiWarning;
 use crate::{
-    api::{
-        ApiResponse, DebugFastaRecordHits, DebugHit, DebugInfo, FastaRecordHits, HazardHits,
-        HitOrganism, Region,
-    },
+    api::{ApiResponse, HitOrganism},
     retry_if::retry_if,
 };
 use doprf_client::{
     error::DoprfError, server_selection::ServerSelector,
     server_version_handler::LastServerVersionHandler, windows::WindowsError, DoprfConfig,
 };
-use http_client::{BaseApiClient, HttpsToHttpRewriter};
+use hdb_api::Organism;
+use http_client::BaseApiClient;
 use quickdna::{
     BaseSequence, DnaSequence, FastaFile, FastaParseError, FastaParseSettings, FastaParser,
     FastaRecord, Located, NucleotideLike, TranslationError,
 };
-use scep_client_helpers::ClientCerts;
-use shared_types::hdb::{ConsolidatedHazardResult, DebugSeqHdbResponse, Organism};
 use shared_types::metrics::SynthClientMetrics;
 use shared_types::requests::{RequestContext, RequestId};
-use shared_types::synthesis_permission;
 
 #[derive(Debug, Error)]
 pub enum CheckFastaError {
@@ -66,20 +61,17 @@ impl From<Organism> for HitOrganism {
 }
 
 pub struct CheckerConfiguration<'a> {
+    pub api_client: BaseApiClient,
     pub server_selector: Arc<ServerSelector>,
-    pub certs: Arc<ClientCerts>,
-    pub include_debug_info: bool,
     pub metrics: Option<Arc<SynthClientMetrics>>,
-    pub region: Region,
     pub limit_config: LimitConfiguration<'a>,
-    /// Use http for internal api calls, instead of https
-    pub use_http: bool,
-    pub provider_reference: Option<String>,
     /// `version_hint` we will pass to doprf_client
     pub synthclient_version_hint: &'a str,
-    /// Exemption tokens.
-    pub ets: Vec<WithOtps<TokenBundle<ExemptionTokenGroup>>>,
     pub server_version_handler: LastServerVersionHandler,
+    pub params: ScreeningParams,
+    pub provider_reference: Option<String>,
+    pub parallelism_per_request: NonZeroUsize,
+    pub server_parallelism_limit: Arc<Semaphore>,
 }
 
 pub struct LimitConfiguration<'a> {
@@ -88,12 +80,9 @@ pub struct LimitConfiguration<'a> {
     pub limits: &'a CurrentSystemLoadTracker,
 }
 
-/// Takes in a FASTA and compares the DNA to the hazard database.
-pub async fn check_fasta<T: NucleotideLike>(
-    request_id: &RequestId,
-    order_fasta: String,
-    config: &CheckerConfiguration<'_>,
-) -> Result<ApiResponse, CheckFastaError> {
+pub fn parse_fasta<T: NucleotideLike>(
+    order_fasta: &str,
+) -> Result<FastaFile<DnaSequence<T>>, Located<FastaParseError<TranslationError>>> {
     // allow_preceding_comment MUST be `false` to match our spec:
     // Any text present in the input before the first header line treated as if it is sequence data; it is not ignored.
     // In other words, in this case, the very first record MAY have zero header lines associated with it.
@@ -112,7 +101,16 @@ pub async fn check_fasta<T: NucleotideLike>(
             .allow_preceding_comment(false),
     );
 
-    let fasta_file = parser.parse_str(&order_fasta).map_err(|located| {
+    parser.parse_str(order_fasta)
+}
+
+/// Takes in a FASTA and compares the DNA to the hazard database.
+pub async fn check_fasta<T: NucleotideLike>(
+    request_id: &RequestId,
+    order_fasta: String,
+    config: &CheckerConfiguration<'_>,
+) -> Result<ApiResponse, CheckFastaError> {
+    let fasta_file = parse_fasta::<T>(&order_fasta).map_err(|located| {
         match located.error {
             // api issue with quickdna, we're parsing a string here
             FastaParseError::IOError(_) => unreachable!("io error reading from str"),
@@ -195,70 +193,6 @@ fn check_system_limits<'a, T: NucleotideLike>(
     Ok(tracker)
 }
 
-/// Group the debug hit responses from the HDB by record.
-fn group_debug_hits<T: NucleotideLike>(
-    debug_resp: Vec<DebugSeqHdbResponse>,
-    records: &[FastaRecord<DnaSequence<T>>],
-) -> Result<Vec<DebugFastaRecordHits>, DoprfError> {
-    let mut debug_infos: Vec<_> = records
-        .iter()
-        .map(|record| DebugFastaRecordHits {
-            fasta_header: record.header.clone(),
-            line_number_range: (record.line_range.0 as u64, record.line_range.1 as u64),
-            sequence_length: record.contents.len() as u64,
-            hits: vec![],
-        })
-        .collect();
-
-    for hdb_response in debug_resp.into_iter() {
-        let record_index =
-            usize::try_from(hdb_response.record).map_err(|_| DoprfError::InvalidRecord)?;
-        let record = records.get(record_index).ok_or(DoprfError::InvalidRecord)?;
-        let debug_info = debug_infos
-            .get_mut(record_index)
-            .ok_or(DoprfError::InvalidRecord)?;
-
-        let dna = record.contents.to_string();
-        let hit = DebugHit::from_hdb_response(hdb_response, &dna);
-        debug_info.hits.push(hit);
-    }
-
-    Ok(debug_infos)
-}
-
-/// Group the consolidated hit responses from the HDB by record.
-fn group_hits<T: NucleotideLike>(
-    consolidated_hazard_results: Vec<ConsolidatedHazardResult>,
-    records: &[FastaRecord<DnaSequence<T>>],
-) -> Result<Vec<FastaRecordHits>, DoprfError> {
-    let mut hits_by_record: Vec<_> = records
-        .iter()
-        .map(|record| FastaRecordHits {
-            fasta_header: record.header.clone(),
-            line_number_range: (record.line_range.0 as u64, record.line_range.1 as u64),
-            sequence_length: record.contents.len() as u64,
-            hits_by_hazard: vec![],
-        })
-        .collect();
-
-    for grouped in consolidated_hazard_results {
-        let record_index =
-            usize::try_from(grouped.record).map_err(|_| DoprfError::InvalidRecord)?;
-        let record = records.get(record_index).ok_or(DoprfError::InvalidRecord)?;
-        let fasta_record_hits = hits_by_record
-            .get_mut(record_index)
-            .ok_or(DoprfError::InvalidRecord)?;
-
-        let dna = record.contents.to_string();
-        let hit = HazardHits::from_consolidated_hazard_result(grouped, &dna);
-        fasta_record_hits.hits_by_hazard.push(hit);
-    }
-
-    hits_by_record.retain(|fasta_record_hits| !fasta_record_hits.hits_by_hazard.is_empty());
-
-    Ok(hits_by_record)
-}
-
 pub async fn check_parsed_fasta<T: NucleotideLike>(
     request_id: &RequestId,
     fasta_file: FastaFile<DnaSequence<T>>,
@@ -274,13 +208,6 @@ pub async fn check_parsed_fasta<T: NucleotideLike>(
         return Err(CheckFastaError::EmptyFastaSequence(record.header.clone()));
     }
 
-    let api_client = BaseApiClient::new(request_ctx.id.clone());
-    let api_client = if config.use_http {
-        HttpsToHttpRewriter::inject(api_client)
-    } else {
-        api_client
-    };
-
     // Stolen from check_system_limits... This is an empirical fudge factor
     // that's woefully out-of-date, but it at least allows SOME sort of limit
     // to be applied to total wobble expansions across the whole record.
@@ -294,17 +221,16 @@ pub async fn check_parsed_fasta<T: NucleotideLike>(
     let output = retry_if(
         || {
             doprf_client::process(DoprfConfig {
-                api_client: &api_client,
+                api_client: &config.api_client,
                 server_selector: config.server_selector.clone(),
                 request_ctx: &request_ctx,
-                certs: config.certs.clone(),
-                region: config.region.into(),
-                debug_info: config.include_debug_info,
                 sequences: &sequences,
                 max_windows,
                 version_hint: config.synthclient_version_hint.to_owned(),
-                ets: config.ets.clone(),
                 server_version_handler: &config.server_version_handler,
+                params: config.params.clone(),
+                parallelism_per_request: config.parallelism_per_request,
+                server_parallelism_limit: config.server_parallelism_limit.clone(),
             })
         },
         |err: &DoprfError| {
@@ -323,51 +249,13 @@ pub async fn check_parsed_fasta<T: NucleotideLike>(
         e
     })?;
 
-    let synthesis_permission = synthesis_permission::SynthesisPermission::merge(
-        output
-            .response
-            .results
-            .iter()
-            .map(|h| h.synthesis_permission),
-    );
-
-    let debug_grouped_hits = output
-        .response
-        .debug_hdb_responses
-        .map(|debug_resp| group_debug_hits(debug_resp, &records))
-        .transpose()?;
-
-    let hits_by_record = group_hits(output.response.results, &records)?;
-
-    if let Some(m) = &config.metrics {
-        m.hash_counter.inc_by(output.n_hashes);
-        let total_bp = records.iter().fold(0u64, |total, record| {
-            total.saturating_add(record.contents.len().try_into().unwrap_or(u64::MAX))
-        });
-        m.bp_counter.inc_by(total_bp);
-    }
-
-    use synthesis_permission::SynthesisPermission::Granted;
-    let warnings = match synthesis_permission {
-        Granted if output.too_short => vec![ApiWarning::too_short()],
-        Granted if output.n_hashes == 0 => vec![ApiWarning::too_ambiguous()],
-        _ => vec![],
-    };
-
-    if let Some(m) = &config.metrics {
-        m.hazards.inc_by(hits_by_record.len() as u64);
-    }
-
-    Ok(ApiResponse {
-        synthesis_permission: synthesis_permission.into(),
-        hits_by_record,
-        warnings,
-        errors: vec![],
-        debug_info: config.include_debug_info.then_some(DebugInfo {
-            grouped_hits: debug_grouped_hits.unwrap_or_default(),
-        }),
-        provider_reference: config.provider_reference.clone(),
-    })
+    Ok(ApiResponse::from_doprf_output(
+        output,
+        &records,
+        &config.metrics,
+        &config.params,
+        config.provider_reference.clone(),
+    )?)
 }
 
 #[cfg(test)]

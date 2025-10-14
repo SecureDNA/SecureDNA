@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -8,11 +8,11 @@
 
 import { execSync } from "node:child_process";
 import { resolve } from "node:path";
+import basicSsl from "@vitejs/plugin-basic-ssl";
 import legacy from "@vitejs/plugin-legacy";
 import react from "@vitejs/plugin-react";
 import { type AliasOptions, defineConfig } from "vite";
 import crossOriginIsolation from "vite-plugin-cross-origin-isolation";
-import { viteStaticCopy } from "vite-plugin-static-copy";
 import topLevelAwait from "vite-plugin-top-level-await";
 import wasm from "vite-plugin-wasm";
 
@@ -41,7 +41,7 @@ const wasmContentTypePlugin = {
 };
 
 // https://vitejs.dev/config/
-export default () => {
+export default defineConfig(({ command }) => {
   const date = execSync("git log -1 --format=%cI");
   const branch = execSync("git rev-parse --abbrev-ref HEAD");
   const hash = execSync("git rev-parse HEAD");
@@ -50,8 +50,6 @@ export default () => {
     src: resolve("./src"),
     "@securedna/frontend_common": resolve(__dirname, "../common/src/index.ts"),
   };
-
-  console.log(resolve(__dirname, "../common/src/index.ts"));
 
   if (process.env.VITEST) {
     alias.certificates_wasm = resolve(
@@ -67,17 +65,9 @@ export default () => {
   process.env.VITE_GIT_COMMIT_DATE = date.toString().trimEnd();
   process.env.VITE_GIT_BRANCH_NAME = branch.toString().trimEnd();
   process.env.VITE_GIT_COMMIT_HASH = hash.toString().trimEnd();
-  return defineConfig({
+  return {
     appType: "mpa",
     plugins: [
-      viteStaticCopy({
-        targets: [
-          {
-            src: "./node_modules/screening_wasm/*",
-            dest: "./screening_wasm",
-          },
-        ],
-      }),
       react(),
       wasm(),
       topLevelAwait(),
@@ -87,6 +77,7 @@ export default () => {
       wasmContentTypePlugin,
       crossOriginIsolation(),
       forwardToTrailingSlash,
+      basicSsl(),
     ],
     test: {
       globals: true,
@@ -94,6 +85,8 @@ export default () => {
       root: ".",
     },
     server: {
+      https: true,
+      ...(command === "serve" ? { host: "localhost.securedna.org" } : {}),
       fs: {
         strict: false,
       },
@@ -109,13 +102,14 @@ export default () => {
       rollupOptions: {
         input: {
           approve: resolve(__dirname, "views/approve/index.html"),
-          "inspect-et": resolve(__dirname, "views/inspect-et/index.html"),
+          inspect: resolve(__dirname, "views/inspect/index.html"),
           request: resolve(__dirname, "views/request/index.html"),
+          subset: resolve(__dirname, "views/subset/index.html"),
         },
       },
     },
     optimizeDeps: {
       exclude: ["screening_wasm"],
     },
-  });
-};
+  };
+});

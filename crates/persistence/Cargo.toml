@@ -12,7 +12,7 @@ rusqlite = { version = "0.31.0", features = ["bundled"] }
 rusqlite_migration = "1.1.0"
 tokio-rusqlite = "0.5.1"
 tokio = { version = "1", features = ["full"] }
-thiserror = "1.0.57"
+thiserror = "2.0.3"
 time = "0.3.34"
 tracing.workspace = true
 
