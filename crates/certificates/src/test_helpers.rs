@@ -1,12 +1,14 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use doprf::party::KeyserverId;
-use time::{format_description::well_known::Rfc2822, OffsetDateTime};
+use time::{OffsetDateTime, format_description::well_known::Rfc2822};
 
 use crate::key_traits::HasAssociatedSigningKey;
 use crate::{
-    asn::{FromASN1DerBytes, ToASN1DerBytes},
+    Attachment, Domain, SystemClock, VerifierToken, VerifierTokenGroup, VerifierTokenRequest,
+};
+use crate::{
     Authenticator, Builder, Certificate, CertificateBundle, CertificateRequest, DatabaseToken,
     DatabaseTokenGroup, DatabaseTokenRequest, Description, Exemption, ExemptionToken,
     ExemptionTokenGroup, ExemptionTokenRequest, Expiration, GenbankId, HltToken, HltTokenGroup,
@@ -14,9 +16,7 @@ use crate::{
     KeyserverToken, KeyserverTokenGroup, KeyserverTokenRequest, Organism, PublicKey,
     RequestBuilder, Role, Sequence, SequenceIdentifier, SigningKeyPair, SynthesizerToken,
     SynthesizerTokenGroup, SynthesizerTokenRequest, TokenBundle, TokenGroup, YubikeyId,
-};
-use crate::{
-    Attachment, Domain, SystemClock, VerifierToken, VerifierTokenGroup, VerifierTokenRequest,
+    asn::{FromASN1DerBytes, ToASN1DerBytes},
 };
 
 pub fn create_leaf_cert<R: Role>() -> Certificate<R, KeyAvailable>
@@ -77,8 +77,8 @@ where
     )
 }
 
-pub fn create_cross_signed_intermediate_bundle<R: Role>(
-) -> (CertificateBundle<R>, SigningKeyPair, PublicKey)
+pub fn create_cross_signed_intermediate_bundle<R: Role>()
+-> (CertificateBundle<R>, SigningKeyPair, PublicKey)
 where
     RequestBuilder<R>: Builder<Item = CertificateRequest<R, KeyUnavailable>>,
 {
@@ -241,8 +241,8 @@ where
     (token_bundle, root_public_key)
 }
 
-pub fn create_issuing_exemption_token_bundle(
-) -> (TokenBundle<ExemptionTokenGroup>, SigningKeyPair, PublicKey) {
+pub fn create_issuing_exemption_token_bundle()
+-> (TokenBundle<ExemptionTokenGroup>, SigningKeyPair, PublicKey) {
     let keypair = SigningKeyPair::new_random();
     let create_etr = || create_etr_with_options(Some(keypair.public_key()), vec![], vec![]);
     let (bundle, root_public_key) = create_token_bundle(create_etr, |cert, req| {

@@ -1,0 +1,6 @@
+typography:
+  fonts:
+    - family: DM Sans
+      source: google
+  base: DM Sans
+  headings: DM Sans

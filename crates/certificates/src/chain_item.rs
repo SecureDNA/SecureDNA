@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::key_traits::HasAssociatedSigningKey;
@@ -353,16 +353,16 @@ mod test {
     use doprf::party::KeyserverId;
 
     use crate::{
-        chain_item::ChainItemValidationError,
-        test_helpers::{
-            create_leaf_cert, expected_cert_display, expected_database_token_display,
-            expected_hlt_token_display, expected_keyserver_token_display,
-            expected_synthesizer_token_display, expected_verifier_token_display,
-            BreakableSignature,
-        },
         Builder, ChainItem, DatabaseTokenRequest, Domain, Expiration, HltTokenRequest,
         Infrastructure, Issued, IssuerAdditionalFields, KeyserverTokenRequest, Manufacturer,
         RequestBuilder, SigningKeyPair, SynthesizerTokenRequest, SystemClock, VerifierTokenRequest,
+        chain_item::ChainItemValidationError,
+        test_helpers::{
+            BreakableSignature, create_leaf_cert, expected_cert_display,
+            expected_database_token_display, expected_hlt_token_display,
+            expected_keyserver_token_display, expected_synthesizer_token_display,
+            expected_verifier_token_display,
+        },
     };
 
     #[test]

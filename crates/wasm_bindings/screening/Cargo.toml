@@ -30,4 +30,6 @@ tracing = { workspace = true }
 tracing-wasm = "0.2.1"
 wasm-bindgen = "0.2.100"
 wasm-bindgen-futures = "0.4.50"
-wasm-bindgen-test = "0.3.50"
+# Our CI breaks if we update to a new "semver compatible" version. Until we can allocate time to
+# investigate, let's list the actual version we need so `cargo update` doesn't break things.
+wasm-bindgen-test = "=0.3.54"

@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Shutdown signal detection
@@ -22,7 +22,7 @@ use tokio::signal::ctrl_c;
 pub async fn reload_config_requested() {
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
 
         let mut sighup = signal(SignalKind::hangup()).expect("Can't register SIGHUP handler");
         sighup.recv().await;
@@ -76,7 +76,7 @@ pub async fn fast_shutdown_requested() {
 
     #[cfg(unix)]
     let want_to_shutdown = async {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
 
         let mut sigterm = signal(SignalKind::terminate()).expect("Can't register SIGTERM handler");
         tokio::select! {

@@ -1,11 +1,11 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for inspecting the contents of a certificate or certificate request
 
 use std::{io::Write, path::PathBuf};
 
-use clap::{crate_version, Parser, Subcommand};
+use clap::{Parser, Subcommand, crate_version};
 
 use crate::inspect::{
     ChainViewMode, FormatMethod, Formattable, MultiItemOutput, SingleRequestOutput,
@@ -15,8 +15,8 @@ use super::error::CertCliError;
 
 use certificates::file::{CERT_EXT, CERT_REQUEST_EXT};
 use certificates::{
-    file::{load_cert_request_from_file, load_certificate_bundle_from_file},
     Exemption, Infrastructure, Manufacturer, Role, RoleKind,
+    file::{load_cert_request_from_file, load_certificate_bundle_from_file},
 };
 
 #[derive(Debug, Parser)]
@@ -126,11 +126,11 @@ fn inspect_file<R: Role>(opts: &InspectCertOpts) -> Result<String, CertCliError>
 mod tests {
 
     use certificates::file::{
-        save_cert_request_to_file, save_certificate_bundle_to_file, CERT_EXT, CERT_REQUEST_EXT,
+        CERT_EXT, CERT_REQUEST_EXT, save_cert_request_to_file, save_certificate_bundle_to_file,
     };
     use certificates::{
-        test_helpers, Builder, CertificateBundle, Digestible, Exemption, IssuerAdditionalFields,
-        RequestBuilder, RoleKind, SigningKeyPair,
+        Builder, CertificateBundle, Digestible, Exemption, IssuerAdditionalFields, RequestBuilder,
+        RoleKind, SigningKeyPair, test_helpers,
     };
     use tempfile::TempDir;
 

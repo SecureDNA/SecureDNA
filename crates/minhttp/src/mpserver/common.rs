@@ -1,15 +1,17 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Callbacks/etc that are likely to useful for typical servers
 
 use std::io::ErrorKind::InvalidData;
 use std::net::SocketAddr;
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use anyhow::Context;
-use hyper::{body::Incoming, Method, Request, StatusCode};
+use hyper::{Method, Request, StatusCode, body::Incoming};
 use rustls::crypto::ring;
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -22,7 +24,8 @@ use super::traits::{
 };
 use super::{ExternalWorld, MultiplaneServer, ServerConfig};
 use crate::error::ErrWrapper;
-use crate::response::{text, GenericResponse};
+use crate::peer::Peer;
+use crate::response::{GenericResponse, text};
 use crate::signal::{
     fast_shutdown_requested, graceful_shutdown_requested, reload_config_requested,
 };
@@ -48,7 +51,9 @@ pub async fn run_server<AC: AppConfig, AS: AppState>(
     server_setup: impl ValidServerSetup<AC, AS>,
 ) -> anyhow::Result<()> {
     if ring::default_provider().install_default().is_err() {
-        warn!("Unable to install rustls default CryptoProvider. (did something configure it already?)");
+        warn!(
+            "Unable to install rustls default CryptoProvider. (did something configure it already?)"
+        );
     }
 
     let external_world = ExternalWorld {
@@ -97,7 +102,7 @@ pub async fn run_server<AC: AppConfig, AS: AppState>(
 /// [`ResponseFn`] that just informs the client the service is disabled
 pub async fn disabled_service<AS>(
     _app_state: AS,
-    _addr: SocketAddr,
+    _addr: Peer,
     _req: Request<Incoming>,
 ) -> GenericResponse {
     text(StatusCode::NOT_FOUND, "Service not set up.\n")
@@ -252,5 +257,51 @@ impl std::error::Error for ErrHint {
 impl std::fmt::Display for ErrHint {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}\n{}", self.inner, self.hint)
+    }
+}
+
+/// Higher-level connection timeouts.
+///
+/// Our `keyserver`/`hdbserver` need to have request-size-dependent timeouts... I figured I'd share
+/// the code, but wasn't sure of a better spot to put them.
+pub struct ConnectionTimeouts {
+    /// Default soft timeout for new connection.
+    ///
+    /// A soft timeout is the amount of time until the server should stop accepting more requests
+    /// on a connection.
+    pub soft: Option<Duration>,
+    /// Default hard timeout for new conneciton.
+    ///
+    /// A hard timeout is the amount of time until a connection should be abruptly terminated.
+    pub hard: Option<Duration>,
+    /// How many hashes are needed to extend the soft and hard timeouts for a large request by 1 second.
+    pub hashes_per_sec: Option<NonZeroU64>,
+}
+
+impl ConnectionTimeouts {
+    /// Just returns `soft`/`hard` timeouts as-is.
+    pub fn for_new_connection(&self) -> crate::peer::Timeouts {
+        crate::peer::Timeouts {
+            soft: self.soft,
+            hard: self.hard,
+        }
+    }
+
+    /// Like [`Self::for_new_connection`], but extended if `hashes_per_sec` is set.
+    ///
+    /// This is intended to be used when two criteria are met:
+    /// * The request involves arbitrarily large numbers of hashes (e.g. keyserving or screening),
+    ///   not a (relatively) fixed amount of data (e.g. SCEP authentication).
+    /// * The request is being made by an authenticated user, so anonymous users can't keep
+    ///   extending connection timeouts.
+    pub fn for_hash_count(&self, hash_count: u64) -> crate::peer::Timeouts {
+        let bonus_time = match self.hashes_per_sec {
+            Some(hps) => Duration::from_secs(hash_count.div_ceil(hps.get())),
+            None => Duration::ZERO,
+        };
+        crate::peer::Timeouts {
+            soft: self.soft.map(|d| d + bonus_time),
+            hard: self.hard.map(|d| d + bonus_time),
+        }
     }
 }

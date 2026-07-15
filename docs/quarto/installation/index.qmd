@@ -1,0 +1,29 @@
+# Installation
+
+This page describes how to install **synthclient**. This is the piece of SecureDNA software that receives DNA sequences from a synthesizer, turns them into hashes, and communicates with SecureDNA's database to form a judgement on whether the synthesis request should be allowed or denied.
+
+::: {.callout-note}
+If you are someone who merely _requests_ synthetic DNA, you do not need to install synthclient. Only a DNA provider needs to install it.
+:::
+
+
+## On Debian/Ubuntu/Red Hat Linux
+
+You can run the following command in a terminal to install synthclient.^[On Ubuntu/Debian, this command will install from [our PPA](https://securedna.github.io/ppa). On Red Hat distributions, it will download and install an RPM file. You can inspect the install script for more information.]
+
+```sh
+$ curl https://todo.securedna.org/install.sh | bash
+```
+
+## Using Docker
+
+We offer Docker container image for running SecureDNA in other host environments. The following commands pull an image containing synthclient:
+
+```sh
+# synthclient + associated command-line tools (recommended)
+docker pull ghcr.io/securedna/synthclient-tools
+
+# synthclient without tools
+docker pull ghcr.io/securedna/synthclient
+```
+

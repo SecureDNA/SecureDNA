@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::io::{ErrorKind, Write};
@@ -54,11 +54,11 @@ pub fn main<Out: Write, Err: Write>(
 mod tests {
     use std::{
         num::NonZeroU32,
-        str::{from_utf8, FromStr},
+        str::{FromStr, from_utf8},
     };
 
     use curve25519_dalek::Scalar;
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
 
     use crate::{
         active_security::Commitment, prf::generate_keyshares, shims::genactivesecuritykey,

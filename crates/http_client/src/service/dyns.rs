@@ -1,9 +1,8 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Defines standard `dyn` API that most things can be converted to.
 
-use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -11,13 +10,13 @@ use std::task::{Context, Poll};
 use bytes::{Buf, Bytes};
 use futures::TryFutureExt;
 use http::{Request, Response};
-use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::BodyExt;
+use http_body_util::combinators::UnsyncBoxBody;
 use hyper::body::{Body, Frame, SizeHint};
 use hyper::service::Service;
 
-use super::util::ServiceFn;
 use super::HttpService;
+use super::util::ServiceFn;
 
 /// Wrapper for boxed dynamic [`HttpService`].
 ///

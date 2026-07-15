@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use anyhow::Context;
@@ -22,7 +22,7 @@ use performance_tests::loadtest::scenario::{
     random_sequence, single_known_organism, single_organism_permutations, unimplemented_scenario,
 };
 use performance_tests::loadtest::util::create_results_dir;
-use performance_tests::shared::config::{load_config, ApiVersion, ComparisonMode};
+use performance_tests::shared::config::{ApiVersion, ComparisonMode, load_config};
 use performance_tests::shared::server::{
     create_network, destroy_network, show_running, start_hdbservers, start_keyservers,
     start_synthclient, stop_container,

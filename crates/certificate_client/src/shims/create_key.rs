@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for generating a keypair for use with certificates and tokens
@@ -10,9 +10,9 @@ use std::{
 use clap::Parser;
 
 use super::error::CertCliError;
-use crate::key::create_new_key_file;
 use crate::key::NewKeyDetails;
-use crate::passphrase_reader::{PassphraseReader, PassphraseSource, ENV_PASSPHRASE_WARNING};
+use crate::key::create_new_key_file;
+use crate::passphrase_reader::{ENV_PASSPHRASE_WARNING, PassphraseReader, PassphraseSource};
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -77,8 +77,8 @@ mod tests {
 
     use crate::key::NewKeyDetails;
     use crate::passphrase_reader::{
-        EnvVarPassphraseReader, MemoryPassphraseReader, PassphraseReaderError, PassphraseSource,
-        ENV_PASSPHRASE_WARNING, KEY_ENCRYPTION_PASSPHRASE_ENV_VAR,
+        ENV_PASSPHRASE_WARNING, EnvVarPassphraseReader, KEY_ENCRYPTION_PASSPHRASE_ENV_VAR,
+        MemoryPassphraseReader, PassphraseReaderError, PassphraseSource,
     };
     use certificates::file::{KEY_PRIV_EXT, KEY_PUB_EXT};
     use tempfile::TempDir;

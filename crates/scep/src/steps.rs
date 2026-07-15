@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{collections::HashSet, future::Future};
@@ -24,19 +24,19 @@ use crate::{
     },
     types::{
         AuthenticateRequest, ClientRequestType, OpenRequest, OpenResponse, ScreenCommon,
-        ScreenWithExemptionParams,
+        ScreenWithExemptionParams, SynthToken,
     },
     version::ClientVersion,
 };
 use certificates::{
-    key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded},
-    Infrastructure,
-};
-use certificates::{revocation::RevocationList, SystemClock};
-use certificates::{
     ChainTraversal, DatabaseTokenGroup, ExemptionTokenGroup, Issued, KeyserverTokenGroup,
     PublicKey, SigningKeyPair, SynthesizerTokenGroup, TokenBundle, TokenGroup,
 };
+use certificates::{
+    Infrastructure,
+    key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded},
+};
+use certificates::{SystemClock, revocation::RevocationList};
 use doprf::{
     party::{KeyserverId, KeyserverIdSet},
     prf::CompressedCompletedHashValue,
@@ -51,7 +51,7 @@ pub fn client_initialize(
     keyserver_id_set: KeyserverIdSet,
     debug_info: bool,
 ) -> (OpenRequest, InitializedClientState) {
-    let client_nonce: ClientNonce = rand::thread_rng().gen();
+    let client_nonce: ClientNonce = rand::thread_rng().r#gen();
 
     let request = OpenRequest {
         protocol_version: ClientVersion::LATEST,
@@ -93,19 +93,20 @@ where
     ServerTokenKind::Token: CanLoadSigningKey + Clone + std::fmt::Debug,
     ServerTokenKind::AssociatedRole: std::fmt::Debug,
     ServerTokenKind::ChainType: std::fmt::Debug,
-    GetLastClientVersion: FnOnce(certificates::Id) -> GetLastClientVersionFut,
+    GetLastClientVersion: FnOnce(&SynthToken) -> GetLastClientVersionFut,
     GetLastClientVersionFut: Future<Output = Option<u64>>,
 {
     let request = OpenRequest::try_from_json(request)?;
 
-    if let Some(last_client_version) = get_last_client_version(request.client_mid()).await {
-        if u64::from(request.protocol_version) < last_client_version {
-            return Err(error::ServerPrevalidation::VersionRollback.into());
-        }
+    if let Some(last_client_version) = get_last_client_version(request.client_synth_token()).await
+        && u64::from(request.protocol_version) < last_client_version
+    {
+        return Err(error::ServerPrevalidation::VersionRollback.into());
     }
 
-    // check cert has a valid root path
-    // DO NOT check if cert is revoked yet!
+    // We verify the cert has a valid path to root but intentionally delay checking
+    // for revocations until we know the client possesses the appropriate private key,
+    // in order to avoid leaking revocations to random unauthenticated strangers.
     request
         .cert_chain
         .validate_path_to_issuers(issuer_pks, None, &SystemClock)
@@ -127,8 +128,8 @@ where
     }
 
     // generate the server nonce and cookie
-    let server_nonce: ServerNonce = rand::thread_rng().gen();
-    let cookie: SessionCookie = rand::thread_rng().gen();
+    let server_nonce: ServerNonce = rand::thread_rng().r#gen();
+    let cookie: SessionCookie = rand::thread_rng().r#gen();
 
     // generate and sign the mutual authentication string
     // VERSION NOTE: since we are the server, we might be dealing with an old client (SCEP v1),
@@ -204,10 +205,10 @@ where
     // we NEVER will reject servers that are too new—that's the server's job.
     // if the server understands our protocol version, it isn't too new.
 
-    if let Some(last_server_version) = client_state.last_server_version {
-        if server_version < last_server_version {
-            return Err(error::ClientPrevalidation::VersionRollback.into());
-        }
+    if let Some(last_server_version) = client_state.last_server_version
+        && server_version < last_server_version
+    {
+        return Err(error::ClientPrevalidation::VersionRollback.into());
     }
 
     // now we can deserialize
@@ -215,9 +216,10 @@ where
         .context("while parsing the server response")
         .map_err(ScepError::InvalidMessage)?;
 
-    // We verify the cert has a valid path to root but intentionally delay checking
-    // for revocations until we know the client possesses the appropriate private key,
-    // in order to avoid leaking revocations to random unauthenticated strangers.
+    // We verify the server cert has a valid path to root but don't have a mechanism for clients
+    // to become aware of server cert revocations, because in general since we control both
+    // the client binary and the server roots, a compromised root would be handled via a new
+    // client release, and an intermediate cert change would be handled via server config.
     open_response
         .cert_chain
         .validate_path_to_issuers(issuer_pks, None, &SystemClock)
@@ -558,13 +560,13 @@ pub fn server_screen_client(
         (ClientRequestType::Screen(params), EtState::NoEt) => params.clone(),
         (ClientRequestType::ScreenWithExemption(params), EtState::EtReady { .. }) => params.clone(),
         (ClientRequestType::ScreenWithExemption(_), EtState::EtNeedsHashes { .. }) => {
-            return Err(error::Screen::ScreenBeforeEtHashes.into())
+            return Err(error::Screen::ScreenBeforeEtHashes.into());
         }
         (ClientRequestType::ScreenWithExemption(_), _) => {
-            return Err(error::Screen::ScreenBeforeEt.into())
+            return Err(error::Screen::ScreenBeforeEt.into());
         }
         (request_type, _) => {
-            return Err(error::Screen::WrongRequestType(request_type.clone()).into())
+            return Err(error::Screen::WrongRequestType(request_type.clone()).into());
         }
     };
 
@@ -685,10 +687,10 @@ fn client_htc_unreasonable(_hash_total_count: u64, _nucleotide_total_count: u64)
 fn keyserver_id_set_valid(keyserver_id_set: &KeyserverIdSet) -> bool {
     let mut last: Option<KeyserverId> = None;
     for item in keyserver_id_set {
-        if let Some(last) = last {
-            if item.as_u32() <= last.as_u32() {
-                return false; // no duplicates, must be sorted
-            }
+        if let Some(last) = last
+            && item.as_u32() <= last.as_u32()
+        {
+            return false; // no duplicates, must be sorted
         }
         last = Some(item);
     }

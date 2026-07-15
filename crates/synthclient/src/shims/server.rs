@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::net::{IpAddr, SocketAddr};
@@ -10,8 +10,8 @@ use anyhow::Context;
 use bytes::Bytes;
 use certificates::{ChainTraversal, ExemptionTokenGroup, HierarchyKind, SystemClock, TokenBundle};
 use doprf_client::ScreeningParams;
-use futures::future::join_all;
 use futures::FutureExt;
+use futures::future::join_all;
 use http_body_util::BodyExt;
 use http_client::BaseApiClient;
 use hyper::body::{Body, Incoming};
@@ -24,17 +24,19 @@ use tokio::sync::{Mutex, Semaphore};
 use tracing::{error, info};
 
 use doprf::party::KeyserverId;
+use doprf_client::RequestStreaming;
 use doprf_client::server_selection::ServerSelector;
 use doprf_client::server_version_handler::LastServerVersionHandler;
 use http_client::service::util::force_http_if;
 use minhttp::error::ErrWrapper;
 use minhttp::mpserver::traits::ValidServerSetup;
 use minhttp::mpserver::{MultiplaneServer, ServerConfig};
+use minhttp::peer::Peer;
 use minhttp::response::{self, GenericResponse};
 use quickdna::NucleotideAmbiguous;
 use securedna_versioning::version::get_version;
 use shared_types::http::add_cors_headers;
-use shared_types::metrics::{get_metrics_output, SynthClientMetrics};
+use shared_types::metrics::{SynthClientMetrics, get_metrics_output};
 use shared_types::requests::RequestId;
 use shared_types::server_versions::{HdbVersion, KeyserverVersion};
 
@@ -44,7 +46,7 @@ use crate::api::{
 };
 use crate::api_version;
 use crate::ncbi::download_fasta_by_acc_number;
-use crate::parsefasta::{check_fasta, CheckerConfiguration, CurrentSystemLoadTracker};
+use crate::parsefasta::{CheckerConfiguration, CurrentSystemLoadTracker, check_fasta};
 use crate::rate_limiter::{RateLimiter, SystemTimeHourProvider};
 use crate::recaptcha::validate_recaptcha;
 use crate::server_selection::initialize_server_selector;
@@ -215,9 +217,10 @@ impl ScreenSource {
 
 async fn respond(
     sc_state: Arc<SynthClientState>,
-    peer: SocketAddr,
+    peer: Peer,
     request: Request<Incoming>,
 ) -> GenericResponse {
+    let peer = peer.addr();
     let method = request.method().clone();
     let headers = request.headers().clone();
     let path = request.uri().path();
@@ -243,7 +246,7 @@ async fn respond(
 
 async fn respond_to_monitoring_plane(
     _sc_state: Arc<SynthClientState>,
-    _peer: SocketAddr,
+    _peer: Peer,
     request: Request<Incoming>,
 ) -> GenericResponse {
     match (request.method(), request.uri().path()) {
@@ -433,6 +436,7 @@ async fn screen(
 
     let config = CheckerConfiguration {
         api_client,
+        request_streaming: RequestStreaming::Bidirectional,
         server_selector: Arc::clone(&state.server_selector),
         metrics: state.metrics.as_ref().map(Arc::clone),
         limit_config: state.limit_config(source.screening_type()),

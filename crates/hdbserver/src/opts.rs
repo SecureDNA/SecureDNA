@@ -1,12 +1,14 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 
-use clap::{crate_version, Args, Parser};
+use clap::{Args, Parser, crate_version};
 use serde::Deserialize;
 
 use minhttp::mpserver::{cli::ServerConfigSource, traits::RelativeConfig};
+use shared_types::FriendlyDuration;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -208,10 +210,10 @@ pub struct Config {
 
     #[clap(
         long,
-        help = "Path to a file containing a SendGrid API key used to send audit email. If unset, sending audit email is disabled.",
-        env = "SECUREDNA_HDBSERVER_AUDIT_SENDGRID_API_KEY_FILE"
+        help = "Path to a file containing an smtp2go API key used to send audit email. If unset, sending audit email is disabled.",
+        env = "SECUREDNA_HDBSERVER_AUDIT_SMTP2GO_API_KEY_FILE"
     )]
-    pub audit_sendgrid_api_key_file: Option<PathBuf>,
+    pub audit_smtp2go_api_key_file: Option<PathBuf>,
 
     #[clap(
         long,
@@ -219,8 +221,30 @@ pub struct Config {
         env = "SECUREDNA_HDBSERVER_AUDIT_TEMPLATE_FILE"
     )]
     pub audit_template_file: Option<PathBuf>,
+
+    #[clap(
+        long,
+        help = "The time after which the server will disable keepalive for incoming connections.",
+        env = "SECUREDNA_HDBSERVER_SOFT_TIMEOUT"
+    )]
+    pub soft_timeout: Option<FriendlyDuration>,
+
+    #[clap(
+        long,
+        help = "The time after which the server will kill incoming connections.",
+        env = "SECUREDNA_HDBSERVER_HARD_TIMEOUT"
+    )]
+    pub hard_timeout: Option<FriendlyDuration>,
+
+    #[clap(
+        long,
+        help = "For screening/exemption requests, how many hashes it takes to extend the timeouts by a second.",
+        env = "SECUREDNA_HDBSERVER_HASHES_PER_SEC_TIMEOUT"
+    )]
+    pub hashes_per_sec_timeout: Option<NonZeroU64>,
 }
 
+// Note: If you change these, remember to update example-config.toml in the crate root
 impl Config {
     pub fn default_max_heavy_clients() -> usize {
         512
@@ -239,7 +263,7 @@ impl Config {
     }
 
     pub fn default_scep_hash_limit() -> u64 {
-        1_000_000
+        100_000_000
     }
 
     pub fn default_et_size_limit() -> u64 {
@@ -282,7 +306,7 @@ impl RelativeConfig for Config {
         if self.event_store_path != Path::new(":memory:") {
             self.event_store_path = base.join(self.event_store_path);
         }
-        self.audit_sendgrid_api_key_file = self.audit_sendgrid_api_key_file.map(|p| base.join(p));
+        self.audit_smtp2go_api_key_file = self.audit_smtp2go_api_key_file.map(|p| base.join(p));
         self.audit_template_file = self.audit_template_file.map(|p| base.join(p));
         self
     }

@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::num::NonZeroUsize;
@@ -12,7 +12,7 @@ use doprf_client::{
     server_selection::{
         ServerEnumerationSource, ServerSelectionConfig, ServerSelectionError, ServerSelector,
     },
-    ScreeningParams,
+    RequestStreaming, ScreeningParams,
 };
 use http_client::{service::util::force_http_if, BaseApiClient};
 use quickdna::{DnaSequence, FastaFile, NucleotideAmbiguous};
@@ -206,6 +206,7 @@ pub async fn screen(sequence: JsValue, config: IScreenConfig) -> Result<IApiResp
 
         let config = CheckerConfiguration {
             api_client,
+            request_streaming: RequestStreaming::Unspecified,
             server_selector,
             limit_config: LimitConfiguration {
                 memory_limit: None,
@@ -277,7 +278,7 @@ CTTCGCGGGATGAGTGTTTTGCCATCTAATAAGTCCAACATTAATTACGGTGCATCAGGC"#,
     let token_contents = certs.token.to_file_contents().unwrap().into();
 
     let config = ScreenConfig {
-        region: Region::All,
+        region: Region::all(),
         enumeration_settings: None,
         fixed_domains: Some(FixedDomains {
             keyserver_domains: vec![

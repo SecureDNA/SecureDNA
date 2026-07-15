@@ -1,12 +1,12 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{io::Write, path::PathBuf};
 
-use clap::{crate_version, Parser};
+use clap::{Parser, crate_version};
 
 use certificates::file::{
-    load_certificate_bundle_from_file, save_cert_request_to_file, CERT_EXT, CERT_REQUEST_EXT,
+    CERT_EXT, CERT_REQUEST_EXT, load_certificate_bundle_from_file, save_cert_request_to_file,
 };
 use certificates::{Exemption, Infrastructure, Manufacturer, Role, RoleKind, SystemClock};
 
@@ -80,9 +80,9 @@ fn retrieve_request<R: Role>(opts: &RetrieveRequestOpts) -> Result<PathBuf, Cert
 
 #[cfg(all(test, feature = "cert_tests"))]
 mod tests {
-    use crate::shims::retrieve_cert_request::{run, RetrieveRequestOpts};
+    use crate::shims::retrieve_cert_request::{RetrieveRequestOpts, run};
     use certificates::file::{
-        save_cert_request_to_file, save_certificate_bundle_to_file, CERT_EXT,
+        CERT_EXT, save_cert_request_to_file, save_certificate_bundle_to_file,
     };
     use certificates::test_helpers::create_intermediate_bundle;
     use certificates::{

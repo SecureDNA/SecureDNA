@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -10,18 +10,19 @@ use futures::stream::iter as to_stream;
 use futures::{StreamExt, TryStream, TryStreamExt};
 use http_body_util::{BodyExt, StreamBody};
 use hyper::body::{Body, Frame, Incoming};
-use hyper::header::{HeaderValue, CONTENT_TYPE};
+use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::{Request, Response};
 use tracing::{error, info};
 
 use doprf::prf::{CompressedHashPart, CompressedQuery, DecodeError, HashPart, Query};
+use minhttp::peer::Peer;
 use minhttp::response::GenericResponse;
 use scep::cookie::SessionCookie;
 use shared_types::requests::RequestId;
-use streamed_ristretto::hyper::{check_content_length, BodyStream};
-use streamed_ristretto::stream::{check_content_type, HasShortErrorMsg, RistrettoError, HASH_SIZE};
-use streamed_ristretto::util::chunked;
 use streamed_ristretto::HasContentType;
+use streamed_ristretto::hyper::{BodyStream, check_content_length};
+use streamed_ristretto::stream::{HASH_SIZE, HasShortErrorMsg, RistrettoError, check_content_type};
+use streamed_ristretto::util::chunked;
 
 use crate::event_store;
 use crate::state::KeyserverState;
@@ -29,16 +30,17 @@ use crate::state::KeyserverState;
 // Given a stream of `Bytes`/errors, interprets them as `Queries` and applies `f` to them
 //
 // Encodes the resulting `HashPart`s back into Bytes and returns a stream of said `Bytes`/errors.
-fn map_ristretto_stream<I, P>(
+fn map_ristretto_stream<I, P, F>(
     ks_state: &Arc<KeyserverState>,
     heavy_request_permit: P,
     input: I,
-    f: impl FnMut(Query) -> HashPart + Clone + Send + 'static,
-) -> impl TryStream<Ok = Bytes, Error = RistrettoError<I::Error, DecodeError>>
+    f: F,
+) -> impl TryStream<Ok = Bytes, Error = RistrettoError<I::Error, DecodeError>> + use<I, P, F>
 where
     I: TryStream,
     I::Ok: Buf,
     I::Error: Send + 'static,
+    F: Clone + Send + 'static + FnMut(Query) -> HashPart,
 {
     let mut output_bufs = BytesMut::new();
     let ks_state2 = ks_state.clone();
@@ -124,6 +126,7 @@ fn map_ristretto_chunk<SE>(
 }
 
 pub async fn scep_endpoint_keyserve(
+    peer: &Peer,
     request_id: &RequestId,
     server_state: &Arc<KeyserverState>,
     request: Request<Incoming>,
@@ -134,10 +137,7 @@ pub async fn scep_endpoint_keyserve(
 
     let cookie = SessionCookie::from_request_http_headers(request.headers())?;
 
-    let permit = match server_state.throttle_heavy_requests() {
-        Ok(permit) => permit,
-        Err(_) => return Err(scep::error::ScepError::Overloaded),
-    };
+    let permit = server_state.throttle_heavy_requests()?;
 
     if let Some(metrics) = &server_state.metrics {
         metrics.requests.inc();
@@ -159,6 +159,10 @@ pub async fn scep_endpoint_keyserve(
         check_content_length(request.body().size_hint().exact(), HASH_SIZE)
             .context("in keyserve")
             .map_err(scep::error::ScepError::InvalidMessage)?;
+
+    // Ensure we don't disconnect people during large requests.
+    let timeouts = (server_state.connection_timeouts).for_hash_count(hash_count_from_content_len);
+    peer.relax_timeouts(timeouts);
 
     let keyserver_id_set =
         scep::steps::server_keyserve_client(hash_count_from_content_len, client_state)?;

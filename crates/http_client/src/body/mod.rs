@@ -1,11 +1,10 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::convert::Infallible;
-use std::future::Future;
 
 use bytes::Bytes;
-use http::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+use http::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use http::{Request, Response};
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::body::Body;

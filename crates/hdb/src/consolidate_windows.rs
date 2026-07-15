@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Temporary module for consolidating windows/hits.
@@ -49,7 +49,7 @@ use pipeline_bridge::Tag;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
-    hit_region::remove_multiple_regions, response::HdbOrganism, HdbResponse, HitRegion, Provenance,
+    HdbResponse, HitRegion, Provenance, hit_region::remove_multiple_regions, response::HdbOrganism,
 };
 use serde::{Deserialize, Serialize};
 use shared_types::{
@@ -519,7 +519,7 @@ mod test {
     use std::num::NonZeroUsize;
 
     use pipeline_bridge::Tag;
-    use shared_types::hash::HashTypeDescriptor;
+    use shared_types::{WINDOW_LENGTH_AA, hash::HashTypeDescriptor};
 
     use super::*;
 
@@ -1230,14 +1230,14 @@ mod test {
                     hit_regions: vec![
                         HitRegion {
                             seq_range_start: 0,
-                            seq_range_end: 66,
+                            seq_range_end: 3 * WINDOW_LENGTH_AA + 6, // 3 windows
                             window_starts: vec![0, 3, 6],
                             window_count: 3,
                             htd_index: 2,
                         },
                         HitRegion {
                             seq_range_start: 12,
-                            seq_range_end: 72,
+                            seq_range_end: 12 + 3 * WINDOW_LENGTH_AA, // 1 window, with offset of 12
                             window_starts: vec![12],
                             window_count: 1,
                             htd_index: 2,
@@ -1266,7 +1266,7 @@ mod test {
                     record: 4,
                     hit_regions: vec![HitRegion {
                         seq_range_start: 0,
-                        seq_range_end: 66,
+                        seq_range_end: 3 * WINDOW_LENGTH_AA + 6, // 3 windows
                         window_starts: vec![0, 3, 6],
                         window_count: 3,
                         htd_index: 2,
@@ -1370,21 +1370,25 @@ mod test {
 
         // The low risk hazard should have been removed since it overlaps with the higher risk hazard
         assert_eq!(retained.len(), 1);
-        assert!(!retained[0]
-            .hdb_response
-            .most_likely_organism
-            .tags
-            .contains(&Tag::RegulatedButPass));
+        assert!(
+            !retained[0]
+                .hdb_response
+                .most_likely_organism
+                .tags
+                .contains(&Tag::RegulatedButPass)
+        );
         let removed_hazards = removed.unwrap();
         assert!(
             !removed_hazards.is_empty(),
             "Expected at least one removed hazard"
         );
-        assert!(removed_hazards[0]
-            .hdb_response
-            .most_likely_organism
-            .tags
-            .contains(&Tag::RegulatedButPass));
+        assert!(
+            removed_hazards[0]
+                .hdb_response
+                .most_likely_organism
+                .tags
+                .contains(&Tag::RegulatedButPass)
+        );
     }
 
     #[test]

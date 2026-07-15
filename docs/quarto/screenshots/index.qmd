@@ -1,0 +1,93 @@
+---
+lightbox: true
+---
+
+# Screenshots
+
+
+
+## Request flow
+
+### Identifying yourself
+
+<details>
+
+<summary>Show gallery</summary>
+
+::: {layout-ncol=2}
+
+![Splash page](../images/request-splash.png){group="specifying"}
+
+![Shipping address](../images/shipping.png){group="identifying"}
+
+![Specifying contact info](../images/contact-info.png){group="identifying"}
+
+![2FA via Yubikey](../images/TOTP.png){group="identifying"}
+
+:::
+
+</details>
+
+### Specifying an exemption
+
+<details>
+
+<summary>Show gallery</summary>
+
+::: {layout-ncol=2}
+
+![Selecting an organism](../images/organism-autocomplete.png){group="specifying"}
+
+![Selecting an organism and accession numbers](../images/organism-and-accessions.png){group="specifying"}
+
+![Selecting a sequence via FASTA](../images/editing-fasta.png){group="specifying"}
+
+![Request complete](../images/request-complete.png){group="specifying"}
+
+:::
+
+</details>
+
+### Subsetting (optional, advanced)
+
+<details>
+
+<summary>Show gallery</summary>
+
+::: {layout-ncol=2}
+
+![Creating a keypair](../images/new-keypair.png){group="subsetting"}
+
+![Requesting subsetting](../images/subset-option.png){group="subsetting"}
+
+![Subsetting tool](../images/subset-splash.png){group="subsetting"}
+
+![Specifying a subset](../images/specifying-subset.png){group="subsetting"}
+
+:::
+
+</details>
+
+## Approval flow
+
+<details>
+
+<summary>Show gallery</summary>
+
+::: {layout-ncol=2}
+
+![Splash page](../images/select-etr.png){group="bsa"}
+
+![Reviewing a submitted request](../images/exemptions.png){group="bsa"}
+
+![Reviewing contact info](../images/approve-contact-info.png){group="bsa"}
+
+![Before screening](../images/before-screening.png){group="bsa"}
+
+![Screening a sequence-based request](../images/results.png){group="bsa"}
+
+![Approving a submitted request](../images/sign-etr.png){group="bsa"}
+
+:::
+
+</details>

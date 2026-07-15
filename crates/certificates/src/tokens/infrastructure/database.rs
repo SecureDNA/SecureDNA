@@ -1,14 +1,16 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module contains functionality for creating `DatabaseTokenRequest` and `DatabaseToken`.
 //! A `Certificate` with the `Infrastructure` role is able to sign a `DatabaseTokenRequest` to issue a `DatabaseToken`.
 //! `DatabaseToken`s will be used to identify instances of the hdb.
 
-use rasn::{types::*, Decode, Encode};
+use rasn::{Decode, Encode, types::*};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    CertificateChain, Digestible, Infrastructure, KeyAvailable, KeyUnavailable, SigningKeyPair,
+    TokenKind,
     asn::ToASN1DerBytes,
     error::EncodeError,
     impl_boilerplate_for_token, impl_boilerplate_for_token_request,
@@ -23,8 +25,6 @@ use crate::{
         CompatibleIdentity, ComponentVersionGuard, Expiration, Id, Signed, VersionedComponent,
     },
     tokens::{TokenData, TokenGroup},
-    CertificateChain, Digestible, Infrastructure, KeyAvailable, KeyUnavailable, SigningKeyPair,
-    TokenKind,
 };
 
 use super::digest::{DatabaseTokenDigest, DatabaseTokenRequestDigest};
@@ -258,8 +258,8 @@ impl_key_boilerplate_for_token! {DatabaseToken}
 mod test {
     use crate::key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded};
     use crate::{
-        test_helpers::create_leaf_cert, DatabaseTokenRequest, Expiration, Infrastructure,
-        SigningKeyPair,
+        DatabaseTokenRequest, Expiration, Infrastructure, SigningKeyPair,
+        test_helpers::create_leaf_cert,
     };
 
     #[test]

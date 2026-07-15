@@ -1,74 +1,17 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Response-related helpers
 
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Empty};
-use hyper::body::Bytes;
-use hyper::header::{HeaderValue, CONTENT_TYPE, LOCATION};
 use hyper::Response;
 pub use hyper::StatusCode;
-
-/// Holds a [`GenericResponse`], possibly wrapped in an [`ErrResponse`].
-///
-/// See [`ErrResponse`] for example use.
-pub type ResponseResult = Result<GenericResponse, ErrResponse>;
+use hyper::body::Bytes;
+use hyper::header::{CONTENT_TYPE, HeaderValue, LOCATION};
 
 /// Type-erased HTTP response
 pub type GenericResponse = Response<BoxBody<Bytes, anyhow::Error>>;
-
-/// Wrapper to easily convert displayable errors into [`GenericResponse`]s.
-///
-/// Errors are stringified via [`ToString::to_string`] then returned as a plain text
-/// [`GenericResponse`] with a 400 status code.
-///
-/// See also [`ResponseResult`].
-///
-/// # Examples
-///
-/// ```
-/// use hyper::{Request, Response, StatusCode};
-/// use hyper::header::{HeaderValue, CONTENT_TYPE};
-///
-/// use minhttp::response::{self, text, ErrResponse, GenericResponse, ResponseResult};
-///
-/// fn repond<B>(request: Request<B>) -> GenericResponse {
-///     match foo_handler(request) {
-///         Ok(r) => r,
-///         Err(ErrResponse(r)) => {
-///             log_failure();
-///             r
-///         }
-///     }
-/// }
-///
-/// fn log_failure() {
-///     unimplemented!()
-/// }
-///
-/// fn foo_handler<B>(request: Request<B>) -> ResponseResult {
-///     let content_type = request.headers().get(CONTENT_TYPE)
-///         .ok_or(ErrResponse(text(StatusCode::BAD_REQUEST, "Oh no!")))?;
-///     check_content_type(content_type)
-///         .map_err(|e| ErrResponse(text(StatusCode::BAD_REQUEST, e)))?;
-///
-///     Ok(response::text(StatusCode::OK, "Woot!"))
-/// }
-///
-/// struct ContentTypeError;
-///
-/// impl std::fmt::Display for ContentTypeError {
-///     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-///         write!(f, "Wrong content type!")
-///     }
-/// }
-///
-/// fn check_content_type(content_type: &HeaderValue) -> Result<(), ContentTypeError> {
-///     unimplemented!()
-/// }
-/// ```
-pub struct ErrResponse(pub GenericResponse);
 
 /// Return an empty GenericResponse.
 ///
@@ -203,21 +146,5 @@ mod tests {
             "application/json"
         );
         assert_eq!(to_body(response), b"{\"primes\": [2, 3, 5, 7, 11, 13, 17]}");
-    }
-
-    #[test]
-    fn sanity_check_err_response() {
-        fn inner() -> ResponseResult {
-            Err(ErrResponse(text(StatusCode::BAD_REQUEST, "oh no!")))?;
-            todo!();
-        }
-        let ErrResponse(response) = inner().unwrap_err();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        assert_eq!(
-            response.headers().get(CONTENT_TYPE).unwrap(),
-            "text/plain; charset=utf-8"
-        );
-        assert_eq!(to_body(response), b"oh no!");
     }
 }

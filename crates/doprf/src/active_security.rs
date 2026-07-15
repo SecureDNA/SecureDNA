@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::error::Error;
@@ -9,7 +9,7 @@ use std::num::NonZeroU32;
 use std::str::FromStr;
 
 use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
-use serde::{de, ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de, ser::SerializeSeq};
 use sha3::Sha3_512;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
@@ -236,7 +236,7 @@ mod tests {
     use std::num::NonZeroU32;
 
     use curve25519_dalek::Scalar;
-    use rand::{seq::SliceRandom, thread_rng, Rng};
+    use rand::{Rng, seq::SliceRandom, thread_rng};
 
     use crate::{active_security::commitments_from_secret_and_keyshares, prf::generate_keyshares};
 

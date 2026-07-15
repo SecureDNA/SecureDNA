@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::marker::PhantomData;
@@ -8,8 +8,8 @@ use std::{
     str::FromStr,
 };
 
-use rand::{rngs::OsRng, RngCore};
-use rasn::{de::Error, types::*, Decode, Encode};
+use rand::{RngCore, rngs::OsRng};
+use rasn::{Decode, Encode, de::Error, types::*};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use thiserror::Error;

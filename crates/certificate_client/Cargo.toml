@@ -3,32 +3,31 @@ name = "certificate-client"
 version = { workspace = true }
 publish = { workspace = true }
 license = { workspace = true }
-edition = "2021"
+edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "4.5.0", features = ["derive", "cargo"] }
+clap = { version = "4.5.60", features = ["derive", "cargo"] }
 dirs = "6.0.0"
 rasn = { workspace = true }
 rpassword = "7.4.0"
 serde = "1.0.188"
 thiserror = "2.0.3"
-time = "0.3.28"
+time = "0.3.47"
 certificates = { path = "../certificates" }
 doprf = { path = "../doprf" }
-rtoolbox = "0.0.2"
 serde_json = "1.0.94"
 hex = "0.4.3"
 
 [dev-dependencies]
 anyhow = "1.0.75"
-assert_cmd = "2.0.12"
+assert_cmd = "2.2.0"
 tempfile = { workspace = true }
 temp-env = "0.3.6"
 
 [target.'cfg(unix)'.dev-dependencies]
 faketime = "0.2.1"
-rexpect = "0.6.0"
+rexpect = "0.7.0"
 
 [features]
 env_passphrase = []

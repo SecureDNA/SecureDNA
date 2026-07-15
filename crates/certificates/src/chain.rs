@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::pem::PemTaggable;
@@ -64,11 +64,11 @@ impl<R: Role> PemTaggable for Chain<R> {
 mod tests {
     use crate::chain::Chain;
     use crate::{
+        Builder, CertificateRequest, DecodeError, IssuerAdditionalFields, KeyUnavailable,
+        Manufacturer, PemDecodable, PemEncodable, RequestBuilder, Role,
         asn::{FromASN1DerBytes, ToASN1DerBytes},
         key::signing::SigningKeyPair,
         shared_components::role::{Exemption, Infrastructure},
-        Builder, CertificateRequest, DecodeError, IssuerAdditionalFields, KeyUnavailable,
-        Manufacturer, PemDecodable, PemEncodable, RequestBuilder, Role,
     };
 
     #[test]

@@ -1,9 +1,9 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::str::FromStr;
 
-use certificates::{key_traits::SigningKeyLoaded, PublicKey, Signature};
+use certificates::{PublicKey, Signature, key_traits::SigningKeyLoaded};
 use sha3::{Digest, Sha3_256};
 
 use crate::{BaseHdbScreeningResult, HdbScreeningResult, HdbVerification};
@@ -127,8 +127,8 @@ pub enum CheckVerificationError {
 mod tests {
     use assert_json_diff::assert_json_eq;
     use certificates::{
-        key_traits::CanLoadSigningKey, DatabaseToken, DatabaseTokenGroup, KeyAvailable,
-        SigningKeyPair,
+        DatabaseToken, DatabaseTokenGroup, KeyAvailable, SigningKeyPair,
+        key_traits::CanLoadSigningKey,
     };
     use serde_json::json;
 

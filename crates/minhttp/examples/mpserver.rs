@@ -1,17 +1,17 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
 
-use clap::{crate_version, Args, Parser};
+use clap::{Args, Parser, crate_version};
 use hyper::StatusCode;
 use serde::Deserialize;
 use tracing::info;
 
+use minhttp::mpserver::MultiplaneServer;
 use minhttp::mpserver::cli::ServerConfigSource;
 use minhttp::mpserver::common::run_server;
 use minhttp::mpserver::traits::RelativeConfig;
-use minhttp::mpserver::MultiplaneServer;
 use minhttp::response::text;
 
 #[derive(Debug, Parser)]

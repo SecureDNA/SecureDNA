@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Lowish-level semi-framework-agnostic tools for working with streamed ristrettos
@@ -7,19 +7,19 @@ use std::fmt::Debug;
 use std::io::Cursor;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::task::{ready, Context, Poll};
+use std::task::{Context, Poll, ready};
 
 use bytes::{Buf, Bytes};
 use doprf::tagged::TaggedHash;
 use futures::{Stream, TryStream};
-use http::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+use http::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use pin_project::pin_project;
 use thiserror::Error;
 
 use doprf::prf::{CompressedCompletedHashValue, CompressedQuery};
 
-use crate::util;
 use crate::HasContentType;
+use crate::util;
 
 /// Size of compressed ristrettos in bytes
 pub const HASH_SIZE: usize = 32;

@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -12,9 +12,9 @@ use doprf::{
 use doprf_client::packed_ristretto::PackedRistrettos;
 use hdb_api::{BaseHdbScreeningResult, ConsolidatedHazardResult, HdbScreeningResult};
 use scep::types::VerifiableScreeningRequested;
-use scep_client_helpers::{scep_client::HdbOpenParams, ClientCerts, ScepClientOpenCommon};
+use scep_client_helpers::{ClientCerts, ScepClientOpenCommon, scep_client::HdbOpenParams};
 use scep_integration_tests::{
-    make_certs::{make_certs, MakeCertsOptions},
+    make_certs::{MakeCertsOptions, make_certs},
     mock_screening::{
         mock_hazard_cert_an_organism, mock_hazard_cert_hash_organism, mock_hazard_hash,
         mock_hazard_organism, mock_hazard_query, rehash_query,
@@ -26,7 +26,7 @@ use shared_types::{
     hash::HashSpec,
     requests::RequestId,
     server_versions::HdbVersion,
-    synthesis_permission::{Region, SynthesisPermission},
+    synthesis_permission::{RawRegion, SynthesisPermission},
 };
 use tracing::info;
 
@@ -154,7 +154,7 @@ async fn test_scenario(scenario: Scenario) {
                 debug_info: false,
             },
             HdbOpenParams {
-                region: Region::All,
+                region: RawRegion::ALL,
                 with_exemption: scenario.exemptions.is_some(),
                 verifiable: VerifiableScreeningRequested::NotRequested,
                 fasta_sha3_256_hex: "".to_owned(),

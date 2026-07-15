@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module defines functionality available for issued certificates.
@@ -7,10 +7,11 @@
 
 use std::marker::PhantomData;
 
-use rasn::{types::*, Decode, Encode};
+use rasn::{Decode, Encode, types::*};
 use serde::Serialize;
 
 use crate::{
+    Description, Manufacturer,
     asn::ToASN1DerBytes,
     error::EncodeError,
     key::signing::{PublicKey, Signature, SigningKeyPair},
@@ -19,6 +20,7 @@ use crate::{
         role::{Exemption, Infrastructure, Role, RoleGuard},
     },
     tokens::{
+        TokenData,
         exemption::{
             authenticator::Authenticator,
             et::{ExemptionTokenIssuer1, ExemptionTokenRequest1},
@@ -30,17 +32,15 @@ use crate::{
             verifier::{VerifierTokenIssuer1, VerifierTokenRequest1},
         },
         manufacturer::synthesizer::{SynthesizerTokenIssuer1, SynthesizerTokenRequest1},
-        TokenData,
     },
     utility::combine_and_dedup_items,
-    Description, Manufacturer,
 };
 
 use super::{
+    ExemptionSubject1,
     common::{Common, Issuer, Issuer1, IssuerAdditionalFields, Subject},
     hierarchy::{HierarchyLevel, Intermediate, Leaf, Root},
     request::RequestInner,
-    ExemptionSubject1,
 };
 
 /// Contains the data that is held by a certificate, including fields added by the certificate issuer.

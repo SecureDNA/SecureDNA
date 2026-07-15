@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for generating a new token request
@@ -16,13 +16,13 @@ use crate::default_filepath::set_appropriate_filepath_and_create_default_dir_if_
 use crate::{
     default_filepath::get_default_filename_for_token_request,
     key::{AssociatedKey, AssociatedKeyArgs, KeySource, NewKeyDetails},
-    passphrase_reader::{PassphraseReader, PassphraseSource, ENV_PASSPHRASE_WARNING},
+    passphrase_reader::{ENV_PASSPHRASE_WARNING, PassphraseReader, PassphraseSource},
 };
 use certificates::{
-    file::{load_audit_public_key_from_file, save_token_request_to_file, TokenExtension},
     AuditRecipient, DatabaseTokenGroup, DatabaseTokenRequest, Domain, HltTokenGroup,
     HltTokenRequest, KeyserverTokenGroup, KeyserverTokenRequest, PublicKey, SynthesizerTokenGroup,
     SynthesizerTokenRequest, TokenGroup, VerifierTokenGroup, VerifierTokenRequest,
+    file::{TokenExtension, load_audit_public_key_from_file, save_token_request_to_file},
 };
 
 #[derive(Debug, Parser)]
@@ -242,16 +242,16 @@ mod tests {
     use super::*;
 
     use crate::passphrase_reader::{
-        EnvVarPassphraseReader, MemoryPassphraseReader, PassphraseReaderError,
-        KEY_ENCRYPTION_PASSPHRASE_ENV_VAR,
+        EnvVarPassphraseReader, KEY_ENCRYPTION_PASSPHRASE_ENV_VAR, MemoryPassphraseReader,
+        PassphraseReaderError,
     };
     use certificates::file::{
-        save_audit_public_key_to_file, KEYSERVER_TOKEN_REQUEST_EXT, KEY_PRIV_EXT, KEY_PUB_EXT,
+        KEY_PRIV_EXT, KEY_PUB_EXT, KEYSERVER_TOKEN_REQUEST_EXT, save_audit_public_key_to_file,
     };
     use certificates::key::ecies::EciesKeyPair;
     use certificates::{
-        file::{load_keypair_from_file, load_token_request_from_file, save_public_key_to_file},
         SigningKeyPair, TokenKind,
+        file::{load_keypair_from_file, load_token_request_from_file, save_public_key_to_file},
     };
     use tempfile::TempDir;
 
@@ -815,8 +815,8 @@ mod tests {
     }
 
     #[test]
-    fn cannot_create_synthesizer_token_request_with_signing_public_key_in_place_of_audit_public_key(
-    ) {
+    fn cannot_create_synthesizer_token_request_with_signing_public_key_in_place_of_audit_public_key()
+     {
         let default_directory = TempDir::new().unwrap();
         let destination_directory = TempDir::new().unwrap();
         let request_path = destination_directory.path().join("token.str");

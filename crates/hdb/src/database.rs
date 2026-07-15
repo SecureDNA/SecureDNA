@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fs::File;
@@ -188,7 +188,7 @@ impl DatabaseIndex {
     }
 
     /// Return the Entry index that corresponds with the given sample index
-    fn sample_idx_to_entry_idx(&self) -> impl Fn(usize) -> u64 {
+    fn sample_idx_to_entry_idx(&self) -> impl Fn(usize) -> u64 + use<> {
         let num_entries = self.num_entries;
         let num_samples = self.samples.len();
         move |sample_index| {
@@ -534,7 +534,7 @@ impl Database {
 mod tests {
     use std::time::Duration;
 
-    use quickcheck::{quickcheck, Arbitrary, Gen};
+    use quickcheck::{Arbitrary, Gen, quickcheck};
     use tempfile;
 
     use super::*;

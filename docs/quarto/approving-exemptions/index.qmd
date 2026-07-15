@@ -1,0 +1,20 @@
+# Approving exemptions
+
+This page describes how **biosafety authorities** approve [[exemptions]] requests.
+
+## Processing an ETR
+
+Researchers may send you `.etr` files created via the process described above. To process them, you will use the [Exemption Approval Tool](https://pages.securedna.org/exemption/approve/).
+
+Select the `.etr` file to get started. This will show you its contents.
+
+* If they look erroneous or unreasonable, no further action using the tool is required: simply ask the requestor to create a new, corrected ETR and send it to you for approval.
+* If the exemptions requested look correct and reasonable, you can proceed through the form to download an `.et` file, and send it back to the requestor.
+
+## Screening
+
+If the ETR you're processing contains DNA sequences, SecureDNA must screen them to verify that the DNA matches the description given by the requestor. This screening process happens in your browser.
+
+To allow this, you'll need a [screening token](https://securedna.org/synth-token/?purpose=screening); to create one of those, you'll need your organization's manufacturer certificate. If you don't have a manufacturer certificate, you can request one [here](https://securedna.org/cert-request/).
+
+Provide the screening token within the ET approval tool to screen the sequences in the ETR. If the detected hazards seem correct (i.e. they match the information on the previous page), you can continue to approve the ETR.

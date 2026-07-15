@@ -1,10 +1,8 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::collections::HashMap;
 use std::fs;
-use std::future::Future;
-use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Weak};
 
@@ -12,13 +10,15 @@ use anyhow::Context;
 use hyper::body::Incoming;
 use hyper::{Method, Request, StatusCode};
 use tokio::sync::Semaphore;
-use tracing::{error, info};
+use tracing::{Span, error, info};
 
 use certificates::{Issued, KeyserverTokenGroup, Manufacturer};
 use doprf::active_security::ActiveSecurityKey;
 use minhttp::error::ErrWrapper;
-use minhttp::mpserver::{traits::ValidServerSetup, MultiplaneServer, ServerConfig};
-use minhttp::response::{self, ErrResponse, GenericResponse};
+use minhttp::mpserver::common::ConnectionTimeouts;
+use minhttp::mpserver::{MultiplaneServer, ServerConfig, traits::ValidServerSetup};
+use minhttp::peer::Peer;
+use minhttp::response::{self, GenericResponse};
 use scep_server_helpers::server::ServerState;
 use securedna_versioning::version::get_version;
 use shared_types::hash::HashSpec;
@@ -26,12 +26,12 @@ use shared_types::http::add_cors_headers;
 use shared_types::server_selection::KeyInfo;
 use shared_types::server_versions::KeyserverVersion;
 use shared_types::{
-    metrics::{get_metrics_output, KeyserverMetrics},
+    metrics::{KeyserverMetrics, get_metrics_output},
     requests::RequestId,
 };
 
 use crate::state::{GenerationKeyInfo, KeyserverState};
-use crate::{event_store, Config};
+use crate::{Config, event_store};
 
 /// SCEP server version
 const SERVER_VERSION: u64 = 2;
@@ -39,6 +39,7 @@ const SERVER_VERSION: u64 = 2;
 pub fn server_setup() -> impl ValidServerSetup<Config, KeyserverState> {
     MultiplaneServer::builder()
         .with_reconfigure(reconfigure)
+        .with_connected(connected)
         .with_response(respond)
         .with_response_to_monitoring(respond_to_monitoring_plane)
 }
@@ -158,6 +159,12 @@ async fn reconfigure(
             .context("opening event_store db")?
     };
 
+    let connection_timeouts = ConnectionTimeouts {
+        soft: app_cfg.soft_timeout.map(|d| d.0),
+        hard: app_cfg.hard_timeout.map(|d| d.0),
+        hashes_per_sec: app_cfg.hashes_per_sec_timeout,
+    };
+
     Ok(Arc::new(KeyserverState {
         heavy_requests,
         keyserver_id: app_cfg.id,
@@ -178,15 +185,22 @@ async fn reconfigure(
         },
         persistence_path: app_cfg.event_store_path,
         persistence_connection,
+        connection_timeouts,
     }))
 }
 
+fn connected(app_state: Arc<KeyserverState>, peer: Peer) {
+    peer.set_timeouts(app_state.connection_timeouts.for_new_connection());
+}
+
+#[tracing::instrument(skip_all, fields(request_id))]
 async fn respond(
     ks_state: Arc<KeyserverState>,
-    peer: SocketAddr,
+    peer: Peer,
     request: Request<Incoming>,
 ) -> GenericResponse {
     let request_id = &RequestId::from(request.headers());
+    Span::current().record("request_id", &request_id.0);
     let method = request.method().clone();
     let headers = request.headers().clone();
     let mut response = match request.uri().path() {
@@ -208,7 +222,7 @@ async fn respond(
                 handle_scep_err(
                     &ks_state.metrics,
                     request_id,
-                    peer,
+                    &peer,
                     scep_endpoint_open(&ks_state, request),
                 ),
             )
@@ -220,7 +234,7 @@ async fn respond(
                 handle_scep_err(
                     &ks_state.metrics,
                     request_id,
-                    peer,
+                    &peer,
                     scep_endpoint_authenticate(&ks_state, request),
                 ),
             )
@@ -232,8 +246,8 @@ async fn respond(
                 handle_scep_err(
                     &ks_state.metrics,
                     request_id,
-                    peer,
-                    crate::keyserve::scep_endpoint_keyserve(request_id, &ks_state, request),
+                    &peer,
+                    crate::keyserve::scep_endpoint_keyserve(&peer, request_id, &ks_state, request),
                 ),
             )
             .await
@@ -268,22 +282,22 @@ async fn handle_post(
 
 async fn handle_err(
     metrics: &Option<Arc<KeyserverMetrics>>,
-    future: impl Future<Output = Result<GenericResponse, ErrResponse>>,
+    future: impl Future<Output = Result<GenericResponse, GenericResponse>>,
 ) -> GenericResponse {
     let result_response = future.await;
     match (result_response, &metrics) {
-        (Err(ErrResponse(r)), Some(metrics)) => {
+        (Err(r), Some(metrics)) => {
             metrics.bad_requests.inc();
             r
         }
-        (Ok(r) | Err(ErrResponse(r)), _) => r,
+        (Ok(r) | Err(r), _) => r,
     }
 }
 
 async fn handle_scep_err<F, E>(
     metrics: &Option<Arc<KeyserverMetrics>>,
     request_id: &RequestId,
-    peer: SocketAddr,
+    peer: &Peer,
     future: F,
 ) -> GenericResponse
 where
@@ -294,8 +308,12 @@ where
     match result_response {
         Ok(r) => r,
         Err(e) => {
-            let ErrResponse(r) =
-                scep_server_helpers::log_and_convert_scep_error_to_response(&e, request_id, peer);
+            peer.graceful_shutdown();
+            let r = scep_server_helpers::log_and_convert_scep_error_to_response(
+                &e,
+                request_id,
+                peer.addr(),
+            );
             if let Some(metrics) = metrics {
                 metrics.bad_requests.inc();
             }
@@ -328,17 +346,28 @@ async fn scep_endpoint_open(
             max_expansions_per_window: NonZeroUsize::MIN,
             htdv: vec![],
         },
-        |client_mid| async move {
-            match event_store::last_protocol_version_for_client(
-                &server_state.persistence_connection,
-                client_mid,
-            )
-            .await
-            {
-                Ok(maybe_id) => maybe_id,
-                Err(e) => {
-                    error!("error fetching last client version for {client_mid}: {e}");
-                    None
+        |synth_token| {
+            let not_benchtop = synth_token.serial_number().trim().is_empty();
+            let client_mid = *synth_token.issuance_id();
+            async move {
+                // Allow version skew in centralized provider setups, which might share tokens
+                // across several containers, but don't allow rollbacks in individual benchtops,
+                // which must use individualized tokens.
+                if not_benchtop {
+                    return None;
+                }
+
+                match event_store::last_protocol_version_for_client(
+                    &server_state.persistence_connection,
+                    client_mid,
+                )
+                .await
+                {
+                    Ok(maybe_id) => maybe_id,
+                    Err(e) => {
+                        error!("error fetching last client version for {client_mid}: {e}");
+                        None
+                    }
                 }
             }
         },
@@ -396,7 +425,7 @@ async fn scep_endpoint_authenticate(
 
 async fn respond_to_monitoring_plane(
     _ks_state: Arc<KeyserverState>,
-    _peer: SocketAddr,
+    _peer: Peer,
     request: Request<Incoming>,
 ) -> GenericResponse {
     match (request.method(), request.uri().path()) {

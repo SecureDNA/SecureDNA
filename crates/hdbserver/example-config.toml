@@ -43,7 +43,7 @@ database = "data/hdb"
 # scep_json_size_limit = 100_000
 
 # (optional) Size limit for window/hash bodies in SCEP.
-# scep_hash_limit = 1_000_000
+# scep_hash_limit = 100_000_000
 
 # (optional) Size limit for exemption tokens
 # et_size_limit = 100_000
@@ -88,8 +88,8 @@ totp_access_passphrase_file = "totp-access.passphrase"
 # (optional) URL to the verifiable screening public key history that will be signed into verifiable screening responses
 # verifier_history_url = "https://github.com/SecureDNA/verifiable-screening"
 
-# (optional) Sendgrid API, for sending audit emails.
-# audit_sendgrid_api_key_file = ""
+# (optional) smtp2go API key file, for sending audit emails.
+# audit_smtp2go_api_key_file = ""
 
 # (optional) Template for auditing emails.
 # audit_template_file = "audit-email-template.toml"
@@ -102,6 +102,16 @@ totp_access_passphrase_file = "totp-access.passphrase"
 # versions, etc). The default is :memory:, which is an in-memory store that will be erased on
 # shutdown.
 # event_store_path = ":memory:"
+
+# (optional) The time after which the server will disable keepalive for incoming connections.
+# soft_timeout = "5m"
+
+# (optional) The time after which the server will kill incoming connections.
+# hard_timeout = "10m"
+
+# (optional) For screening/exemption requests, how many hashes it takes to extend the timeouts
+# by a second.
+# hashes_per_sec_timeout = 100
 
 
 # [monitoring]

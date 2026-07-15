@@ -1,14 +1,14 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
-use std::io::{prelude::*, BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, prelude::*};
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use bitvec::prelude::{bitvec, Msb0};
-use clap::{crate_version, Parser, Subcommand};
+use bitvec::prelude::{Msb0, bitvec};
+use clap::{Parser, Subcommand, crate_version};
 use flate2::bufread::GzDecoder;
 use itertools::Itertools;
 use rayon::prelude::*;
@@ -16,7 +16,7 @@ use tracing::info;
 
 use crate::database::Database;
 use crate::hlt::{HazardLookupTable, HltEntry, HltId};
-use crate::{tags, Entry};
+use crate::{Entry, tags};
 use crate::{Metadata, Provenance};
 use doprf::prf::{KeyShare, Query};
 use pipeline_bridge::{self as pb, BuildTrace, DNA_NORMAL_LEN, DNA_RUNT_LEN};
@@ -134,7 +134,7 @@ fn select_best_metadata(
     candidate: Metadata,
     hlt: &HazardLookupTable,
 ) -> Metadata {
-    fn quality(metadata: &Metadata, hlt: &HazardLookupTable) -> impl std::cmp::PartialOrd {
+    fn quality(metadata: &Metadata, hlt: &HazardLookupTable) -> impl std::cmp::PartialOrd + use<> {
         // We prefer things that, in order of priority...
         (
             // 1. aren't reversed screened (highest priority)
@@ -202,7 +202,7 @@ fn merge_entries(entries: &[Entry], hlt: &mut HazardLookupTable) -> anyhow::Resu
 fn sort_and_merge_db_file_vec(
     mut entries: Vec<Entry>,
     hlt: &mut HazardLookupTable,
-) -> anyhow::Result<impl Iterator<Item = Entry>> {
+) -> anyhow::Result<impl Iterator<Item = Entry> + use<>> {
     entries.par_sort_unstable();
 
     // this holds the indices of merged entries (not first in their run) that should be dropped
@@ -237,7 +237,7 @@ fn sort_and_merge_db_file_vec(
 
 pub fn get_entry_file_paths(
     root: &Path,
-) -> anyhow::Result<impl Iterator<Item = std::io::Result<PathBuf>>> {
+) -> anyhow::Result<impl Iterator<Item = std::io::Result<PathBuf>> + use<>> {
     Ok(std::fs::read_dir(root)
         .with_context(|| format!("Failed to read directory {}", root.display()))?
         .filter(|de| {
@@ -485,7 +485,9 @@ fn copy_update_build_info(opts: &Opts) -> anyhow::Result<()> {
                 std::fs::copy(new_buildinfo_path, cur_buildinfo_path)?;
             }
             Command::Update => {
-                info!("Updating BUILD_INFO.json in target hdb using BUILD_INFO.json from artifacts dir");
+                info!(
+                    "Updating BUILD_INFO.json in target hdb using BUILD_INFO.json from artifacts dir"
+                );
                 // add most recent build info to head of trace list
                 let mut new_buildinfo: BuildTrace =
                     serde_json::from_reader(File::open(&new_buildinfo_path)?)?;
@@ -926,7 +928,7 @@ mod tests {
 
         assert_eq!(merged.len(), 3);
         assert_eq!(hlt.len(), 3); // should have added one for the hash(4) merge
-                                  // shouldn't change entries that are only one of their hash
+        // shouldn't change entries that are only one of their hash
         assert_eq!(
             get_hdb_vec_entry_by_hash(&merged, hash(2)).unwrap(),
             &hdb[1]
@@ -994,7 +996,11 @@ mod tests {
                     eprintln!("  hash({seed}) x {amount},");
                 }
                 eprintln!("])");
-                panic!("did not generate the correct number of entries from template: should have {}, got {} entries", template.len(), merged.len());
+                panic!(
+                    "did not generate the correct number of entries from template: should have {}, got {} entries",
+                    template.len(),
+                    merged.len()
+                );
             }
         }
     }

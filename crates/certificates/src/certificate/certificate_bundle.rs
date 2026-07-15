@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use itertools::Itertools;
@@ -12,15 +12,15 @@ use crate::pem::MultiItemPemBuilder;
 use crate::shared_components::common::Clock;
 use crate::validation_error::ValidationError;
 use crate::{
-    error::DecodeError, shared_components::role::Role, CertificateChain, ChainItem, ChainTraversal,
-};
-use crate::{
     Authenticator, CertificateRequest, DatabaseTokenGroup, DatabaseTokenRequest, Exemption,
     ExemptionTokenGroup, ExemptionTokenRequest, Expiration, HierarchyKind, HltTokenGroup,
     HltTokenRequest, Infrastructure, IssuanceError, IssuerAdditionalFields, KeyAvailable,
     KeyMismatchError, KeyserverTokenGroup, KeyserverTokenRequest, Manufacturer, SigningKeyPair,
     SynthesizerTokenGroup, SynthesizerTokenRequest, SystemClock, TokenBundle, VerifierTokenGroup,
     VerifierTokenRequest,
+};
+use crate::{
+    CertificateChain, ChainItem, ChainTraversal, error::DecodeError, shared_components::role::Role,
 };
 
 use crate::certificate::outer::Certificate;
@@ -318,15 +318,15 @@ impl<R: Role> ChainTraversal for CertificateBundle<R> {
 
 #[cfg(all(test, feature = "cert_tests"))]
 mod tests {
-    use crate::certificate::inner::IssuerAdditionalFields;
     use crate::certificate::RequestBuilder;
+    use crate::certificate::inner::IssuerAdditionalFields;
     use crate::key::signing::SigningKeyPair;
     use crate::shared_components::role::Exemption;
     use crate::{Builder, CertificateChain};
     use crate::{Infrastructure, SystemClock};
 
-    use crate::test_helpers::create_leaf_bundle;
     use crate::CertificateBundle;
+    use crate::test_helpers::create_leaf_bundle;
 
     #[test]
     fn can_pem_encode_cert_bundle_with_empty_chain() {

@@ -1,6 +1,6 @@
 [package]
 name = "base64_helper"
-edition = "2021"
+edition = "2024"
 license.workspace = true
 version.workspace = true
 publish.workspace = true

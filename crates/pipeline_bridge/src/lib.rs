@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Crate for interfacing with the output of the pipeline.
@@ -14,7 +14,6 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use smartstring::{LazyCompact, SmartString};
 
-pub const PROTEIN_LEN: usize = 20;
 pub const DNA_NORMAL_LEN: usize = 42;
 pub const DNA_RUNT_LEN: usize = 30;
 

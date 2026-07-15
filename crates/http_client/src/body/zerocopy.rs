@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Helpers for streaming [`zerocopy`]-compatible types.
@@ -14,15 +14,15 @@ use std::task::{Context, Poll};
 
 use bytes::{Buf, Bytes};
 use futures::{Stream, TryStream, TryStreamExt};
-use http::header::{HeaderMap, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE};
+use http::header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, HeaderValue};
 use http_body_util::BodyDataStream;
 use hyper::body::{Body, Frame, SizeHint};
 use zerocopy::error::AlignedTryCastError;
 use zerocopy::{Immutable, IntoBytes, KnownLayout, TryFromBytes, Unaligned};
 
-use streamed_ristretto::stream::{check_content_length, check_content_type, MessageError};
-use streamed_ristretto::util::{chunked, Chunked};
 use streamed_ristretto::HasContentType;
+use streamed_ristretto::stream::{MessageError, check_content_length, check_content_type};
+use streamed_ristretto::util::{Chunked, chunked};
 
 use super::{TryFromBody, TryIntoBody};
 use crate::service::util::BoxedError;
@@ -267,7 +267,7 @@ where
         let this = self.project();
         this.stream.try_poll_next(cx).map_ok(|chunk| {
             let buf = Cursor::new(AsRefAdapter(chunk));
-            if let Some(ref mut size) = this.size {
+            if let Some(size) = this.size {
                 *size = buf
                     .remaining()
                     .try_into()

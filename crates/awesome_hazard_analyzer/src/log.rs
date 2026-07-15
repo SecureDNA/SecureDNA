@@ -1,15 +1,15 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Setup for using `tracing` for loggin in AHA. Eventually, the rest of the project will likely
 //! move to `tracing`, at that time all or part of this module may be moved to a more centralized
 //! module.
 
-use anyhow::{bail, Result};
-use tracing::{info, Level};
+use anyhow::{Result, bail};
+use tracing::{Level, info};
 use tracing_subscriber::{
     filter,
-    fmt::{format::FmtSpan, time::OffsetTime, Layer},
+    fmt::{Layer, format::FmtSpan, time::OffsetTime},
     prelude::*,
 };
 

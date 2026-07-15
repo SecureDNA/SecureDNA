@@ -1,6 +1,6 @@
 [package]
 name = "statin"
-edition = "2021"
+edition = "2024"
 license.workspace = true
 version.workspace = true
 publish.workspace = true
@@ -10,9 +10,9 @@ publish.workspace = true
 [dependencies]
 anyhow = "1.0.82"
 chrono = { version = "0.4.38", features = ["clock"] }
-clap = "4.5.4"
-time = "0.3.36"
-tokio = { version = "1.45.1", features = ["full"] }
+clap = "4.5.60"
+time = "0.3.47"
+tokio = { version = "1.50.0", features = ["full"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

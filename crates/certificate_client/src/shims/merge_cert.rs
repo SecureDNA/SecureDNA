@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for merging two certificates which are derived from the same certificate request
@@ -8,10 +8,10 @@ use std::{io::Write, path::PathBuf};
 
 use certificates::file::CERT_EXT;
 use certificates::{
-    file::{load_certificate_bundle_from_file, save_certificate_bundle_to_file},
     Exemption, Infrastructure, Manufacturer, Role, RoleKind,
+    file::{load_certificate_bundle_from_file, save_certificate_bundle_to_file},
 };
-use clap::{crate_version, Parser};
+use clap::{Parser, crate_version};
 
 use super::error::CertCliError;
 use crate::default_filepath::{
@@ -106,9 +106,10 @@ mod tests {
     use certificates::file::CERT_EXT;
     use certificates::test_helpers::create_intermediate_bundle;
     use certificates::{
+        Builder, CertificateBundle, Infrastructure, IssuerAdditionalFields, Manufacturer,
+        RequestBuilder, RoleKind, SigningKeyPair,
         file::{load_certificate_bundle_from_file, save_certificate_bundle_to_file},
-        test_helpers, Builder, CertificateBundle, Infrastructure, IssuerAdditionalFields,
-        Manufacturer, RequestBuilder, RoleKind, SigningKeyPair,
+        test_helpers,
     };
     use std::path::Path;
     use tempfile::TempDir;

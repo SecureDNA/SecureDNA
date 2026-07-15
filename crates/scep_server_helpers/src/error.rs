@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::any::Any;
@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 
 use tracing::error;
 
-use minhttp::response::{self, StatusCode};
+use minhttp::response::{self, GenericResponse, StatusCode};
 use scep::error::{ScepError, ServerAuthentication};
 use shared_types::requests::RequestId;
 
@@ -14,11 +14,11 @@ pub fn log_and_convert_scep_error_to_response<Inner>(
     err: &ScepError<Inner>,
     request_id: &RequestId,
     peer: SocketAddr,
-) -> minhttp::response::ErrResponse
+) -> GenericResponse
 where
     Inner: std::error::Error + 'static,
 {
-    response::ErrResponse(match err {
+    match err {
         ScepError::BadProtocol => {
             // TODO: we'd ideally cut the connection without a response here, but
             // this is a stopgap
@@ -29,22 +29,33 @@ where
             error!("{request_id}: internal error: {e}");
             response::text(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
         }
-        ScepError::InvalidMessage(e) => response::text(StatusCode::BAD_REQUEST, e),
-        ScepError::Overloaded => response::text(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "server is overloaded. try again later.",
-        ),
-        ScepError::RateLimitExceeded { limit_bp } => response::text(
-            // we don't want to use 429 TOO MANY REQUESTS because we don't want the client to auto-retry,
-            // on average it will take 12 hours for this error to resolve.
-            StatusCode::PAYLOAD_TOO_LARGE,
-            format!("client exceeded daily limit of {limit_bp}bp"),
-        ),
+        ScepError::InvalidMessage(e) => {
+            error!("{request_id}: invalid message received from client");
+            response::text(StatusCode::BAD_REQUEST, e)
+        }
+        ScepError::Overloaded => {
+            error!("{request_id}: server overloaded");
+            response::text(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "server is overloaded. try again later.",
+            )
+        }
+        ScepError::RateLimitExceeded { limit_bp } => {
+            error!("{request_id}: client exceeded daily limit of {limit_bp}bp");
+            response::text(
+                // we don't want to use 429 TOO MANY REQUESTS because we don't want the client to auto-retry,
+                // on average it will take 12 hours for this error to resolve.
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!("client exceeded daily limit of {limit_bp}bp"),
+            )
+        }
         ScepError::Inner(e) => {
-            if let Some(ServerAuthentication::RevokedCert(e)) = (e as &(dyn Any)).downcast_ref() {
+            if let Some(ServerAuthentication::RevokedCert(e)) = (e as &dyn Any).downcast_ref() {
                 error!("{request_id}: revoked cert: {e}");
+            } else {
+                error!("{request_id}: SCEP error: {e}");
             }
             response::text(StatusCode::BAD_REQUEST, e.to_string())
         }
-    })
+    }
 }

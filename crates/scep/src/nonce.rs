@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! base64-encoded client / server nonces with prefixes
@@ -25,7 +25,7 @@ impl ClientNonce {
 
 impl Distribution<ClientNonce> for rand::distributions::Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> ClientNonce {
-        ClientNonce(rng.gen())
+        ClientNonce(rng.r#gen())
     }
 }
 
@@ -38,7 +38,7 @@ impl ServerNonce {
 
 impl Distribution<ServerNonce> for rand::distributions::Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> ServerNonce {
-        ServerNonce(rng.gen())
+        ServerNonce(rng.r#gen())
     }
 }
 
@@ -62,7 +62,7 @@ impl Nonce {
 impl Distribution<Nonce> for rand::distributions::Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Nonce {
         loop {
-            if let Some(nonce) = Nonce::new(rng.gen()) {
+            if let Some(nonce) = Nonce::new(rng.r#gen()) {
                 return nonce;
             }
         }
@@ -74,7 +74,7 @@ impl serde::Serialize for ClientNonce {
     where
         S: serde::Serializer,
     {
-        base64_helper::serialize_with_prefix(serializer, crate::base64::B64, b'c', &self.0 .0)
+        base64_helper::serialize_with_prefix(serializer, crate::base64::B64, b'c', &self.0.0)
     }
 }
 
@@ -94,7 +94,7 @@ impl serde::Serialize for ServerNonce {
     where
         S: serde::Serializer,
     {
-        base64_helper::serialize_with_prefix(serializer, crate::base64::B64, b's', &self.0 .0)
+        base64_helper::serialize_with_prefix(serializer, crate::base64::B64, b's', &self.0.0)
     }
 }
 

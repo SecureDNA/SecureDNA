@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::marker::PhantomData;
@@ -218,7 +218,7 @@ impl<T: PackableRistretto, A: Into<T::Array>> Extend<A> for PackedRistrettos<T> 
 mod tests {
     use super::*;
 
-    use quickcheck::{quickcheck, Arbitrary, Gen};
+    use quickcheck::{Arbitrary, Gen, quickcheck};
 
     fn assert_roundtrips<T: PackableRistretto + std::cmp::PartialEq + std::fmt::Debug>(
         p: PackedRistrettos<T>,
@@ -238,11 +238,9 @@ mod tests {
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct Dummy([u8; 32]);
 
-    impl TryFrom<[u8; 32]> for Dummy {
-        type Error = std::convert::Infallible;
-
-        fn try_from(value: [u8; 32]) -> Result<Self, Self::Error> {
-            Ok(Self(value))
+    impl From<[u8; 32]> for Dummy {
+        fn from(value: [u8; 32]) -> Self {
+            Self(value)
         }
     }
 

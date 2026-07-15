@@ -1,11 +1,11 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Structs used to define the type of a `Certificate`
 
 use std::{fmt::Display, str::FromStr};
 
-use rasn::{types::*, Decode, Encode};
+use rasn::{Decode, Encode, types::*};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -175,9 +175,9 @@ impl FromStr for HierarchyKind {
 
 #[cfg(all(test, feature = "cert_tests"))]
 mod test {
+    use crate::HierarchyKind;
     use crate::asn::{FromASN1DerBytes, ToASN1DerBytes};
     use crate::certificate::inner::HierarchyLevel;
-    use crate::HierarchyKind;
 
     use super::{Leaf1, Root1};
 

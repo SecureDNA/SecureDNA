@@ -1,9 +1,9 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use shared_types::{hash::HashSpec, synthesis_permission::Region};
+use shared_types::{hash::HashSpec, synthesis_permission::RawRegion};
 
 use doprf::party::KeyserverIdSet;
 
@@ -12,8 +12,8 @@ use crate::error::{ScepError, ServerPrevalidation};
 pub use crate::nonce::{ClientNonce, ServerNonce};
 pub use crate::version::ClientVersion;
 use certificates::{
-    DatabaseTokenGroup, Id, Issued, KeyserverTokenGroup, Signature, SynthesizerTokenGroup,
-    TokenBundle, TokenGroup,
+    DatabaseTokenGroup, Id, Issued, KeyUnavailable, KeyserverTokenGroup, Signature,
+    SynthesizerToken, SynthesizerTokenGroup, TokenBundle, TokenGroup,
 };
 
 /// The initial client request that begins prevalidation
@@ -62,12 +62,18 @@ impl OpenRequest {
     pub fn client_mid(&self) -> Id {
         *self.cert_chain.token.issuance_id()
     }
+
+    pub fn client_synth_token(&self) -> &SynthToken {
+        &self.cert_chain.token
+    }
 }
+
+pub type SynthToken = SynthesizerToken<KeyUnavailable>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ScreenCommon {
     /// The region to use when determining whether to deny a hazard.
-    pub region: Region,
+    pub region: RawRegion,
     /// An arbitrary string provided by the provider which is echoed back in the response.
     /// (This allows for a signed response to be recognized as genuinely
     /// corresponding to the request.)

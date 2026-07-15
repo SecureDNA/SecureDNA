@@ -2,6 +2,7 @@
 
 # SecureDNA
 
+![CI badge](https://github.com/SecureDNA/SecureDNA-dev/actions/workflows/rust_build.yml/badge.svg)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-informational?style=flat-square)](COPYRIGHT.md)
 
 This is the monorepo for the [SecureDNA](https://securedna.org) project.
@@ -97,6 +98,10 @@ For a quick reference to important tasks visible at the repo root, see the `just
 As an example, to run the system tests:
 - `just run-docker-with-test-hdb` will build docker images for backend, link to the test hdb in this repo, and run the system in the background.
 - You can follow up with `just test-system`, which will run tests against the system started in the previous step.
+
+### Changing the protein window length
+
+The protein window length can be changed by modifying `WINDOW_LENGTH_AA` in `crates/shared_types/src/hash.rs`. Any value equal to or less than 20 is supported, but values greater than 20 will not work with our current tests.
 
 ## Packaging
 

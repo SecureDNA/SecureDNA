@@ -1,7 +1,8 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use serde::{Deserialize, Serialize};
+use shared_types::WINDOW_LENGTH_AA;
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct HashCount(pub usize);
@@ -22,11 +23,14 @@ impl HashCount {
     /// WARNING: this formula can change if the `synthclient` generates more or less hashes
     pub fn to_bp_count(&self) -> BasePairCount {
         // To understand these magical numbers, see the following example:
-        // A 60 BP sequence should have 31 forward runt hashes, 19 forward hog hashes, and 1 forward AA hash.
-        // Each additional BP should 3 additional hashes.
+        // A 60 BP sequence should have 31 forward runt hashes, 19 forward hog hashes, and
+        // (60 - 3 * WINDOW_LENGTH_AA + 1) forward AA hashes (one per AA window along the sequence).
+        // Each additional BP should add 3 additional hashes.
         // And RC should double all that.
-        // Hence `hashes = 2 * (3*(bp - 60) + 31 + 19 + 1)` = 6*bp - 258 so bp = (hashes + 258)/6
+        // Let W = WINDOW_LENGTH_AA. Forward hashes: shingled runt (30 bp), shingled hog (42 bp), AA (3*W bp):
+        //  (bp - 30 + 1) + (bp - 42 + 1) + (bp - 3*W + 1) = 3*bp - 69 - 3*W.
+        // Hence `hashes = 2 * (3*bp - 69 - 3*W)` = 6*bp - 138 - 6*W, so bp = (hashes + 138 + 6*W) / 6.
         // In the test framework we never generate samples smaller than 60BPs
-        BasePairCount((self.0 + 258) / 6)
+        BasePairCount((self.0 + 138 + 6 * WINDOW_LENGTH_AA) / 6)
     }
 }

@@ -1,24 +1,23 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::future::Future;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
 
-use futures::{future::Either, StreamExt};
+use futures::{StreamExt, future::Either};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use smallvec::SmallVec;
 use tokio::sync::{mpsc, watch};
-use tracing::{error_span, info, warn, Instrument};
+use tracing::{Instrument, error_span, info, warn};
 
-use super::tls::{redirect_to_https, terminate_tls_to_listener, TlsConfig};
+use super::tls::{TlsConfig, redirect_to_https, terminate_tls_to_listener};
 use super::traits::{
-    either_response_fn, AppConfig, AppState, ConnectedFn, ConnectionFailedFn, ConnectionState,
-    DisconnectedFn, ListenFn, Listener, ReadFileFn, RelativeConfig, ResponseFn, ValidExternalWorld,
-    ValidServerSetup,
+    AppConfig, AppState, ConnectedFn, ConnectionFailedFn, ConnectionState, DisconnectedFn,
+    ListenFn, Listener, ReadFileFn, RelativeConfig, ResponseFn, ValidExternalWorld,
+    ValidServerSetup, either_response_fn,
 };
 use super::{MissingCallback, ServerSetup};
 use crate::server::Server;
@@ -83,7 +82,7 @@ impl MultiplaneServer {
         MissingCallback,
         MissingCallback,
         MissingCallback,
-        impl ConnectedFn<ConnectionState = ()>,
+        impl ConnectedFn<(), ConnectionState = ()>,
         impl ConnectionFailedFn,
         impl DisconnectedFn<()>,
     > {
@@ -291,7 +290,7 @@ impl MultiplaneServer {
                 }
 
                 let prev_state = match &*latest_app_state {
-                    Some(ref state) => Arc::downgrade(state),
+                    Some(state) => Arc::downgrade(state),
                     None => Weak::new(),
                 };
 
@@ -500,15 +499,15 @@ impl BundledServer {
         );
     }
 
-    async fn server_and_listeners<Listen: ListenFn>(
+    async fn server_and_listeners<Listen: ListenFn, ReadFile: ReadFileFn>(
         plane_cfg: PlaneConfig,
         listener_cache: &mut ListenerCacheUpdater<'_, Listen, 3>,
-        read_file: impl ReadFileFn,
+        read_file: ReadFile,
         tracker: mpsc::Sender<()>,
     ) -> anyhow::Result<(
         Option<crate::Server>,
-        Option<impl Listener>,
-        Option<impl Listener>,
+        Option<impl Listener + use<Listen, ReadFile>>,
+        Option<impl Listener + use<Listen, ReadFile>>,
     )> {
         let max_connections = usize::try_from(plane_cfg.max_connections).unwrap_or(usize::MAX);
         let http_listener = match plane_cfg.address {
@@ -542,7 +541,7 @@ impl BundledServer {
     async fn serve_internal<
         S: AppState,
         CS: ConnectionState,
-        Connected: ConnectedFn<ConnectionState = CS>,
+        Connected: ConnectedFn<S, ConnectionState = CS>,
         ConnectionFailed: ConnectionFailedFn,
         Disconnected: DisconnectedFn<CS>,
         L: Listener,
@@ -555,6 +554,7 @@ impl BundledServer {
     ) {
         if let (Some(server), Some(listener)) = (server, listener) {
             let app_state = common_data.app_state.clone();
+            let app_state2 = common_data.app_state.clone();
             server
                 .with_callbacks()
                 .respond(move |request, peer| {
@@ -562,7 +562,10 @@ impl BundledServer {
                     let respond = respond.clone();
                     async move { respond(app_state, peer, request).await }
                 })
-                .connected(common_data.connected.clone())
+                .connected(move |peer| {
+                    let app_state = app_state2.clone();
+                    (common_data.connected.clone())(app_state, peer)
+                })
                 .failed(common_data.connection_failed.clone())
                 .disconnected(common_data.disconnected.clone())
                 .serve(listener())
@@ -577,10 +580,10 @@ impl BundledServer {
             .map(|cfg| cfg.tls_address.port())
     }
 
-    fn respond_or_redirect<AS: AppState>(
-        respond: &impl ResponseFn<AS>,
+    fn respond_or_redirect<AS: AppState, Responder: ResponseFn<AS>>(
+        respond: &Responder,
         tls_port: Option<u16>,
-    ) -> impl ResponseFn<AS> {
+    ) -> impl ResponseFn<AS> + use<AS, Responder> {
         either_response_fn(match tls_port {
             None => Either::Left(respond.clone()),
             Some(port) => Either::Right(redirect_to_https(port)),
@@ -793,9 +796,9 @@ mod tests {
 
     use crate::mpserver::common::{read_no_disk, stub_cfg};
     use crate::response::text;
-    use crate::test::{send_request, FakeNetwork};
+    use crate::test::{FakeNetwork, send_request};
 
-    fn minimal_control_plane<T>(server: &Weak<MultiplaneServer>) -> impl ResponseFn<T> {
+    fn minimal_control_plane<T>(server: &Weak<MultiplaneServer>) -> impl ResponseFn<T> + use<T> {
         let server = server.clone();
         move |_state, _addr, req| async move {
             let server = Weak::upgrade(&server).unwrap();
@@ -962,9 +965,9 @@ mod tests {
 
         let server = MultiplaneServer::builder()
             .with_reconfigure(|conf, _prev| async move { Ok::<_, Infallible>(Arc::new(conf)) })
-            .with_response(
-                |_state, addr, _req| async move { text(StatusCode::OK, addr.to_string()) },
-            )
+            .with_response(|_state, peer, _req| async move {
+                text(StatusCode::OK, peer.addr().to_string())
+            })
             .build_with_external_world(external_world);
 
         server.reload_cfg().await.unwrap();

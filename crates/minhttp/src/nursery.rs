@@ -1,9 +1,7 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Tools for preventing child tasks from outliving parents
-
-use std::future::Future;
 
 use tokio::select;
 use tokio::sync::{mpsc, watch};
@@ -121,10 +119,10 @@ impl Nursery {
     /// until the wrapper ceases to exist.
     ///
     /// See main [`Nursery`] docs for details.
-    pub fn chaperone<T: Send>(
-        &mut self,
-        task: impl Future<Output = T> + Send + 'static,
-    ) -> impl Future<Output = Result<T, Canceled>> + Send + 'static {
+    pub fn chaperone<F: Future<Output: Send> + Send + 'static>(
+        &self,
+        task: F,
+    ) -> impl Future<Output = Result<F::Output, Canceled>> + Send + 'static + use<F> {
         let mut canceled = self.canceled.subscribe();
         let children_sender = self
             .children_sender
@@ -197,8 +195,8 @@ mod tests {
     use super::*;
 
     use std::pin::pin;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::task::{Context, Poll, Wake};
 
     struct DebugWaker(AtomicBool);
@@ -229,7 +227,7 @@ mod tests {
         let cx_waker = waker.clone().into();
         let mut context = Context::from_waker(&cx_waker);
 
-        let mut nursery = Nursery::new();
+        let nursery = Nursery::new();
         let child = nursery.chaperone(async {});
         let mut finish = pin!(nursery.finish());
 
@@ -259,7 +257,7 @@ mod tests {
         let resource = Arc::new(());
         let weak_resource = Arc::downgrade(&resource);
 
-        let mut nursery = Nursery::new();
+        let nursery = Nursery::new();
         tokio::task::spawn(nursery.chaperone(async {
             let _resource = resource;
         }));
@@ -275,7 +273,7 @@ mod tests {
         let resource = Arc::new(());
         let weak_resource = Arc::downgrade(&resource);
 
-        let mut nursery = Nursery::new();
+        let nursery = Nursery::new();
 
         tokio::task::spawn(nursery.chaperone(async {
             let _resource = resource;
@@ -292,7 +290,7 @@ mod tests {
         let resource = Arc::new(());
         let weak_resource = Arc::downgrade(&resource);
 
-        let mut nursery = Nursery::new();
+        let nursery = Nursery::new();
         tokio::task::spawn(nursery.chaperone(async move {
             let _resource = resource;
             hang().await;
@@ -309,7 +307,7 @@ mod tests {
         let resource = Arc::new(());
         let weak_resource = Arc::downgrade(&resource);
 
-        let mut nursery = Nursery::new();
+        let nursery = Nursery::new();
         tokio::task::spawn(nursery.chaperone(async move {
             let _resource = resource;
             hang().await;

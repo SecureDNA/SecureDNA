@@ -1,0 +1,43 @@
+project:
+  type: book
+  preview:
+    port: 4100
+    browser: true
+  resources:
+    - "images/*"
+
+book:
+  title: "SecureDNA Documentation"
+  navbar:
+    logo: "images/logo-only.svg"
+  chapters:
+    - part: "Introduction"
+      chapters:
+        - index.qmd
+    - part: "Screening"
+      chapters:
+        - installation/index.qmd
+        - signup/index.qmd
+        - usage/index.qmd
+        - api/index.qmd
+    - part: "Exemptions"
+      chapters:
+        - about-exemptions/index.qmd
+        - requesting-exemptions/index.qmd
+        - approving-exemptions/index.qmd
+        - exemptions-advanced/index.qmd
+        - screenshots/index.qmd
+    - part: "Advanced"
+      chapters:
+        - verifiable-screening/index.qmd
+        - api-advanced/index.qmd
+        - command-line-tools/index.qmd
+
+bibliography: references.bib
+
+format:
+  html:
+    highlight-style: pygments
+    theme:
+      - cosmo
+      - securebio.scss

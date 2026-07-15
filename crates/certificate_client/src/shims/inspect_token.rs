@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for inspecting the contents of a certificate or certificate request
@@ -8,19 +8,19 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use clap::{crate_version, Parser, Subcommand};
+use clap::{Parser, Subcommand, crate_version};
 
 use super::error::CertCliError;
 use crate::inspect::{
     ChainViewMode, FormatMethod, Formattable, MultiItemOutput, SingleRequestOutput,
 };
 use certificates::{
-    file::{
-        load_token_bundle_from_file, load_token_request_from_file, save_attachment_to_directory,
-        TokenExtension,
-    },
     Attachment, DatabaseTokenGroup, ExemptionTokenGroup, HltTokenGroup, KeyserverTokenGroup,
     SynthesizerTokenGroup, TokenBundle, TokenGroup, TokenKind, VerifierTokenGroup,
+    file::{
+        TokenExtension, load_token_bundle_from_file, load_token_request_from_file,
+        save_attachment_to_directory,
+    },
 };
 
 #[derive(Debug, Parser)]
@@ -199,27 +199,27 @@ mod tests {
     use tempfile::TempDir;
 
     use certificates::file::{
-        save_token_bundle_to_file, save_token_request_to_file, FileError, TokenExtension,
+        FileError, TokenExtension, save_token_bundle_to_file, save_token_request_to_file,
     };
     use certificates::test_helpers::{
         create_etr_with_options, create_leaf_bundle, create_leaf_cert,
     };
     use certificates::{
-        test_helpers::{
-            create_database_token_bundle, create_hlt_token_bundle, create_intermediate_bundle,
-            create_keyserver_token_bundle, create_synthesizer_token_bundle,
-            create_verifier_token_bundle, expected_database_token_display,
-            expected_hlt_token_display, expected_keyserver_token_display,
-            expected_synthesizer_token_display, expected_verifier_token_display,
-            BreakableSignature,
-        },
         Builder, DatabaseTokenGroup, DatabaseTokenRequest, ExemptionTokenGroup, Expiration,
         Infrastructure, Issued, IssuerAdditionalFields, KeyserverTokenRequest, RequestBuilder,
         SigningKeyPair, TokenKind,
+        test_helpers::{
+            BreakableSignature, create_database_token_bundle, create_hlt_token_bundle,
+            create_intermediate_bundle, create_keyserver_token_bundle,
+            create_synthesizer_token_bundle, create_verifier_token_bundle,
+            expected_database_token_display, expected_hlt_token_display,
+            expected_keyserver_token_display, expected_synthesizer_token_display,
+            expected_verifier_token_display,
+        },
     };
     use doprf::party::KeyserverId;
 
-    use super::{run, InspectTokenOpts, Target};
+    use super::{InspectTokenOpts, Target, run};
     use crate::inspect::{ChainViewMode, FormatMethod, NO_EXCLUDED_CERTS_TEXT, NO_PATH_FOUND_TEXT};
     use crate::shims::{error::CertCliError, inspect_token};
 

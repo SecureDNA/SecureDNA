@@ -1,7 +1,7 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::sync::{atomic, Arc};
+use std::sync::{Arc, atomic};
 
 /// Whether this server has been marked bad due to an error, and shouldn't be used.
 /// Can only be set, to unset, the server must be re-qualified in a new round of server selection.

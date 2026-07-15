@@ -1,11 +1,11 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use shared_types::requests::RequestId;
 use thiserror::Error;
 use tracing::info;
 
-use crate::fetch::{fetch, FetchError};
+use crate::fetch::{FetchError, fetch};
 
 #[derive(Debug, Error)]
 pub enum NcbiError {

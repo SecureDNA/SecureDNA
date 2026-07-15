@@ -1,10 +1,10 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::cmp::min;
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use doprf_client::ScreeningParams;
 use thiserror::Error;
@@ -16,8 +16,8 @@ use crate::{
     retry_if::retry_if,
 };
 use doprf_client::{
-    error::DoprfError, server_selection::ServerSelector,
-    server_version_handler::LastServerVersionHandler, windows::WindowsError, DoprfConfig,
+    DoprfConfig, RequestStreaming, error::DoprfError, server_selection::ServerSelector,
+    server_version_handler::LastServerVersionHandler, windows::WindowsError,
 };
 use hdb_api::Organism;
 use http_client::BaseApiClient;
@@ -32,8 +32,10 @@ use shared_types::requests::{RequestContext, RequestId};
 pub enum CheckFastaError {
     #[error("Invalid FASTA contents: {0}")]
     InvalidInput(#[source] Located<FastaParseError<TranslationError>>),
-    #[error("Invalid FASTA contents: id {0} was empty")]
-    EmptyFastaSequence(String),
+    #[error("FASTA contains no records")]
+    NoRecords,
+    #[error("Record {0} is empty")]
+    EmptyRecord(String),
     #[error("Failed to make DNA windows: {0}")]
     WindowError(#[from] WindowsError),
     #[error("Internal DOPRF error: {0}")]
@@ -62,6 +64,7 @@ impl From<Organism> for HitOrganism {
 
 pub struct CheckerConfiguration<'a> {
     pub api_client: BaseApiClient,
+    pub request_streaming: RequestStreaming,
     pub server_selector: Arc<ServerSelector>,
     pub metrics: Option<Arc<SynthClientMetrics>>,
     pub limit_config: LimitConfiguration<'a>,
@@ -152,13 +155,13 @@ impl Drop for RAIIAtomic<'_> {
 /// Returns a `RAIIAtomic` tracker which should be kept around as long as the FASTA is being processed
 fn check_system_limits<'a, T: NucleotideLike>(
     limit_config: &'a LimitConfiguration,
-    fastas: &[FastaRecord<DnaSequence<T>>],
+    fasta_records: &[FastaRecord<DnaSequence<T>>],
 ) -> Result<RAIIAtomic<'a>, CheckFastaError> {
-    let largest_request = fastas
+    let largest_request = fasta_records
         .iter()
-        .map(|f| f.contents.len())
+        .map(|record| record.contents.len())
         .max()
-        .expect("unexpected state: empty FASTA list");
+        .ok_or(CheckFastaError::NoRecords)?;
 
     // Limit 1: Transfer Limit to HDB/KS
     // the payload limit for HDB and KSs is 1M BPs (or 128MiB)
@@ -176,7 +179,7 @@ fn check_system_limits<'a, T: NucleotideLike>(
         return Err(CheckFastaError::RequestSizeTooBig(largest_request, limit));
     }
 
-    let combined_size = fastas.iter().map(|f| f.contents.len()).sum();
+    let combined_size = fasta_records.iter().map(|r| r.contents.len()).sum();
 
     let (proposed_memory, tracker) = RAIIAtomic::acquire(
         &limit_config.limits.current_base_pair_counter,
@@ -205,7 +208,7 @@ pub async fn check_parsed_fasta<T: NucleotideLike>(
     let records = fasta_file.records;
 
     if let Some(record) = records.iter().find(|r| r.contents.is_empty()) {
-        return Err(CheckFastaError::EmptyFastaSequence(record.header.clone()));
+        return Err(CheckFastaError::EmptyRecord(record.header.clone()));
     }
 
     // Stolen from check_system_limits... This is an empirical fudge factor
@@ -231,6 +234,7 @@ pub async fn check_parsed_fasta<T: NucleotideLike>(
                 params: config.params.clone(),
                 parallelism_per_request: config.parallelism_per_request,
                 server_parallelism_limit: config.server_parallelism_limit.clone(),
+                request_streaming: config.request_streaming,
             })
         },
         |err: &DoprfError| {
@@ -264,8 +268,8 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use crate::parsefasta::{
-        check_system_limits, CheckFastaError, CurrentSystemLoadTracker, LimitConfiguration,
-        RAIIAtomic,
+        CheckFastaError, CurrentSystemLoadTracker, LimitConfiguration, RAIIAtomic,
+        check_system_limits,
     };
 
     fn assert_fasta_within_limits(
@@ -295,10 +299,10 @@ mod tests {
             }
             Err(err) => {
                 assert!(expected_failure, "Unexpected failure!");
-                if let Some(check_limit) = expected_request_limit {
-                    if let CheckFastaError::RequestSizeTooBig(_, request_limit) = err {
-                        assert_eq!(request_limit, check_limit)
-                    }
+                if let Some(check_limit) = expected_request_limit
+                    && let CheckFastaError::RequestSizeTooBig(_, request_limit) = err
+                {
+                    assert_eq!(request_limit, check_limit)
                 }
             }
         }

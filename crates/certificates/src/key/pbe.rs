@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use pkcs8::EncryptedPrivateKeyInfo;
@@ -39,7 +39,7 @@ pub fn decrypt_with_passphrase<B: AsRef<[u8]>>(
 
 #[cfg(all(test, feature = "cert_tests"))]
 mod tests {
-    use crate::key::{ecies::EciesKeyPair, EncryptableKeypair};
+    use crate::key::{EncryptableKeypair, ecies::EciesKeyPair};
 
     use super::*;
     use pkcs8::pkcs5::pbes2;

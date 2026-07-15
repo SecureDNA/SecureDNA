@@ -1,9 +1,9 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::LazyLock;
 
-use http::{header, HeaderMap, HeaderName, HeaderValue};
+use http::{HeaderMap, HeaderName, HeaderValue, header};
 use regex::bytes::Regex;
 
 use crate::requests::RequestId;
@@ -33,15 +33,15 @@ const BASE_CORS_HEADERS: [(&str, &str); 3] = [
 /// add appropriate CORS headers to `response_headers`, mirroring the Origin in the
 /// `Access-Control-Allow-Origin` header. Otherwise, do nothing.
 pub fn add_cors_headers(request_headers: &HeaderMap, response_headers: &mut HeaderMap) {
-    if let Some(origin) = request_headers.get("origin") {
-        if is_trusted_origin(origin.as_bytes()) {
-            response_headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin.clone());
-            for (header, value) in BASE_CORS_HEADERS {
-                response_headers.insert(
-                    HeaderName::from_static(header),
-                    HeaderValue::from_static(value),
-                );
-            }
+    if let Some(origin) = request_headers.get("origin")
+        && is_trusted_origin(origin.as_bytes())
+    {
+        response_headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin.clone());
+        for (header, value) in BASE_CORS_HEADERS {
+            response_headers.insert(
+                HeaderName::from_static(header),
+                HeaderValue::from_static(value),
+            );
         }
     }
 }

@@ -1,0 +1,12 @@
+# What is SecureDNA?
+
+SecureDNA is a free, non-profit screening platform designed to safeguard DNA synthesis everywhere. Visit the [website](https://securedna.org/) and [FAQ](https://securedna.org/faq/) for more information.
+
+## How do I use this guide?
+
+This guide explains how to set up and use the SecureDNA software, and how it works. Which parts you should read depends on your role:
+
+1. If you are a **DNA synthesis provider**, and you'd like to start using SecureDNA in your screening workflow, see [Installation](installation/index.qmd).
+2. If you are a **benchtop DNA synthesizer manufacturer**, and you'd like to run SecureDNA on your hardware, see [Installation](installation/index.qmd).
+3. If you are a **virology researcher**, you probably do not need to install anything. However, if you need to synthesize a _sequence of concern_, and your organization uses SecureDNA, you may need to request an _exemption token_. See [About Exemptions](about-exemptions/index.qmd).
+4. If you are a **biosafety authority** approving exemption requests, see [About Exemptions](about-exemptions/index.qmd).

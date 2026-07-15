@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use serde::{Deserialize, Serialize};
@@ -7,8 +7,8 @@ use pipeline_bridge::{OrganismType, Tag};
 use shared_types::synthesis_permission::{Region, SynthesisPermission};
 
 use crate::{
-    hlt::HltLookupError, synthesis_permission::PermissionResult, tags, Exemptions,
-    HazardLookupTable, HltId, Metadata, Provenance,
+    Exemptions, HazardLookupTable, HltId, Metadata, Provenance, hlt::HltLookupError,
+    synthesis_permission::PermissionResult, tags,
 };
 
 /// Note: if modifying this structure, make sure to also modify Hash impl!
@@ -201,13 +201,9 @@ mod tests {
             is_common: false,
         };
 
-        insta::assert_yaml_snapshot!(HdbResponse::with_hlt(
-            metadata,
-            Region::Us,
-            &Default::default(),
-            &hlt
+        insta::assert_yaml_snapshot!(
+            HdbResponse::with_hlt(metadata, Region::Us, &Default::default(), &hlt).unwrap()
         )
-        .unwrap())
     }
 
     #[test]
@@ -222,13 +218,9 @@ mod tests {
             is_common: false,
         };
 
-        insta::assert_yaml_snapshot!(HdbResponse::with_hlt(
-            metadata,
-            Region::Us,
-            &Default::default(),
-            &hlt
+        insta::assert_yaml_snapshot!(
+            HdbResponse::with_hlt(metadata, Region::Us, &Default::default(), &hlt).unwrap()
         )
-        .unwrap())
     }
 
     #[test]
@@ -242,13 +234,9 @@ mod tests {
             reverse_screened: false,
             is_common: false,
         };
-        insta::assert_yaml_snapshot!(HdbResponse::with_hlt(
-            metadata,
-            Region::Us,
-            &Default::default(),
-            &hlt
+        insta::assert_yaml_snapshot!(
+            HdbResponse::with_hlt(metadata, Region::Us, &Default::default(), &hlt).unwrap()
         )
-        .unwrap())
     }
 
     #[test]
@@ -270,13 +258,15 @@ mod tests {
             )],
         };
 
-        insta::assert_yaml_snapshot!(HdbResponse::with_hlt(
-            metadata,
-            Region::Us,
-            &make_test_exemptions(vec![exemption]),
-            &hlt
+        insta::assert_yaml_snapshot!(
+            HdbResponse::with_hlt(
+                metadata,
+                Region::Us,
+                &make_test_exemptions(vec![exemption]),
+                &hlt
+            )
+            .unwrap()
         )
-        .unwrap())
     }
 
     #[test]
@@ -298,13 +288,15 @@ mod tests {
             )],
         };
 
-        insta::assert_yaml_snapshot!(HdbResponse::with_hlt(
-            metadata,
-            Region::Us,
-            &make_test_exemptions(vec![exemption]),
-            &hlt
+        insta::assert_yaml_snapshot!(
+            HdbResponse::with_hlt(
+                metadata,
+                Region::Us,
+                &make_test_exemptions(vec![exemption]),
+                &hlt
+            )
+            .unwrap()
         )
-        .unwrap())
     }
 
     // helper for `removes_low_risk_dna_tag` and `removes_low_risk_peptide_tag`

@@ -1,0 +1,120 @@
+# Advanced overview
+
+This page offers a more detailed overview of the exemption system.
+
+## Overview
+
+The SecureDNA exemption system streamlines authorization for researchers who need to order DNA sequences or organisms that contain sequences of concern (SoCs). It replaces repetitive manual verification with a one-time authorization that works across all providers and enables instant automated approval.
+
+Researchers get vetted once, then use their authorization everywhere, including with benchtop DNA synthesizers that need instant verification.
+
+## Who needs this?
+
+Most researchers **don't need the exemption system** because they only order benign sequences. You only need it if you're working with:
+
+- Regulated organisms
+- Sequences of concern (SoCs)
+- Pathogenic materials
+
+## How it works
+
+As a researcher, the basic process for using the exemption system is as follows:
+
+1. You submit a **request** to your Biological Safety Authority (BSA) specifying exactly what you need
+2. Your BSA **evaluates** your research needs and lab safety capabilities
+3. If approved, you get an **exemption token**
+4. Include your token with any **order** to any provider or benchtop synthesizer
+5. The system instantly **verifies** your authorization without human intervention
+
+You can request the following types of exemptions:
+
+- **Entire organisms** specified by name (e.g., `Bluetongue virus`)
+- **Specific sequences** by GenBank accession numbers (e.g., `NC_006023.1`)
+- **Custom sequences** from a FASTA file (e.g., parts of an oligo pool)
+
+This gives you flexibility; you might only need one gene rather than an entire pathogenic genome.
+
+## Delegation in the lab
+
+Principal investigators can act as limited BSAs for their own labs.
+
+First, the BSA grants the PI a token covering all organisms the lab works with. The PI then issues shorter tokens to students and technicians for specific subsets. Each person uses their own credentials securely.
+
+This avoids paperwork and shared credentials across a lab. Moreover, every order is traceable to a specific person.
+
+## How authority flows
+
+The system uses hierarchical delegation. Each item in the following list delegates the next:
+
+1. Regional/National Authority (e.g., government agency)
+2. Institution (e.g., university or company)
+3. BSA (biological safety authority)
+4. PI (principal investigator)
+5. Lab members (students, technicians)
+
+::: {.callout-note}
+
+Delegating authority in this way has a number of advantages:
+
+- Each level authorizes people they actually know.
+- Central offices don't track every student or researcher.
+- There's no single point of failure; no central database to breach.
+- There's no centralized record of who's ordering what.
+
+:::
+
+## Security features
+
+### Cryptographic verification
+Every token is authenticated through cryptographic signatures that trace back through the entire chain of authority. Each level requires a private key to authorize the next level.
+
+### Two-factor authentication
+All token operations require 2FA (using a YubiKey or a smartphone authenticator app). Even if someone steals your token, private key, *and* passphrase, they still can't use it without your 2FA device.
+
+### Shipping address restrictions
+Tokens specify authorized shipping addresses. Even if stolen, orders can only be delivered to the addresses in the token.
+
+::: {.callout-warning}
+
+Tokens have an expiration date:
+
+- **Lab member tokens:** typically 3 months
+- **PI tokens:** typically 3 years
+- **BSA tokens:** typically 1 year
+
+They can be renewed before expiry if the authorization is still valid.
+
+:::
+
+## Privacy considerations
+
+### What SecureDNA knows
+
+- SecureDNA's servers **cannot** see your actual sequences (protected by cryptography).
+- For orders via providers, SecureDNA knows the provider, but not the customer.
+- For benchtop orders, SecureDNA knows the machine serial number and vendor (plus IP address if not using VPN).
+
+### Privacy options for sensitive work
+
+#### Subsettable tokens
+**Problem:** A token authorizing 100 sequences reveals your potential future orders when you only need 5 right now.
+
+**Solution:** Request a *subsettable* token from your BSA. You can then present only the relevant subset to each provider for each order.
+
+#### Blinded tokens
+**Problem:** Tokens normally identify you to SecureDNA.
+
+**Solution:** Request a *blinded* token (if your BSA and their authorizing chain allow it). This hides your identity from SecureDNA.
+
+::: {.callout-warning}
+
+Blinded tokens still identify your BSA. Your provider can contact the BSA to identify you if needed (e.g., for law enforcement). Blinding protects privacy *from SecureDNA*, not from your provider or BSA.
+
+:::
+
+## Technical foundation
+
+The system is built on public-key infrastructure (PKI) using specialized certificates (not the same as TLS web certificates). It's completely open source and available from the [SecureDNA GitHub repository](https://github.com/SecureDNA).
+
+
+SecureDNA currently controls the root certificate to bootstrap adoption. In the future, additional roots may be created by screening consortia or national governments, who will then manage their own authorization hierarchies.

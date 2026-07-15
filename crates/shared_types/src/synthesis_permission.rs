@@ -1,13 +1,57 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
+
+use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 
 use pipeline_bridge::Tag;
 
 /// Region jurisdictions for handling requests. Controls e.g. what rules to use for setting
-/// the `synthesis_permission` bit to `denied`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// the `synthesis_permission` bit to `denied`. This can accept any string, so e.g. synthclient
+/// doesn't need updates for new regions. As a result, it's not guaranteed to be valid.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RawRegion(Cow<'static, str>);
+
+impl RawRegion {
+    /// United States
+    pub const US: RawRegion = RawRegion(Cow::Borrowed("Us"));
+    /// European Union
+    pub const EU: RawRegion = RawRegion(Cow::Borrowed("Eu"));
+    /// People's Republic of China
+    pub const PRC: RawRegion = RawRegion(Cow::Borrowed("Prc"));
+    /// Check all regions. This is the default. It means:
+    ///
+    /// - Synthesis is granted only if the organism is safe in all regions.
+    /// - Synthesis is denied if the organism is controlled in *any* region.
+    pub const ALL: RawRegion = RawRegion(Cow::Borrowed("All"));
+}
+
+serde_plain::derive_fromstr_from_deserialize!(RawRegion);
+serde_plain::derive_display_from_serialize!(RawRegion);
+
+impl AsRef<str> for RawRegion {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for RawRegion {
+    fn from(value: String) -> Self {
+        Self(Cow::Owned(value))
+    }
+}
+
+impl From<RawRegion> for String {
+    fn from(value: RawRegion) -> Self {
+        value.0.into_owned()
+    }
+}
+
+/// Region jurisdictions for handling requests. Controls e.g. what rules to use for setting
+/// the `synthesis_permission` bit to `denied`. This is for servers, and represents a valid
+/// region.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Region {
     /// United States
     Us,
@@ -19,17 +63,31 @@ pub enum Region {
     ///
     /// - Synthesis is granted only if the organism is safe in all regions.
     /// - Synthesis is denied if the organism is controlled in *any* region.
+    #[default]
     All,
-}
-
-impl Default for Region {
-    fn default() -> Self {
-        Self::All
-    }
 }
 
 serde_plain::derive_fromstr_from_deserialize!(Region);
 serde_plain::derive_display_from_serialize!(Region);
+
+impl TryFrom<RawRegion> for Region {
+    type Error = RawRegion;
+
+    fn try_from(value: RawRegion) -> Result<Self, Self::Error> {
+        value.as_ref().parse().map_err(|_| value)
+    }
+}
+
+impl From<Region> for RawRegion {
+    fn from(value: Region) -> Self {
+        match value {
+            Region::Us => Self::US,
+            Region::Eu => Self::EU,
+            Region::Prc => Self::PRC,
+            Region::All => Self::ALL,
+        }
+    }
+}
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, std::hash::Hash, Serialize, Deserialize, Ord, PartialOrd,
@@ -215,5 +273,12 @@ mod tests {
             SynthesisPermission::merge([SynthesisPermission::Granted, SynthesisPermission::Denied]),
             SynthesisPermission::Denied,
         )
+    }
+
+    #[test]
+    fn region_conversion_roundtrip() {
+        for region in [Region::Us, Region::Eu, Region::Prc, Region::All] {
+            Region::try_from(RawRegion::from(region)).unwrap();
+        }
     }
 }

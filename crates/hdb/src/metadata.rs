@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use serde::{Deserialize, Serialize};
@@ -166,7 +166,7 @@ impl TryFrom<u64> for Metadata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quickcheck::{quickcheck, Arbitrary, Gen};
+    use quickcheck::{Arbitrary, Gen, quickcheck};
 
     #[test]
     fn provenance_repr_is_equivalent() {
@@ -221,20 +221,20 @@ mod tests {
 
     quickcheck! {
         fn qc_metadata_repr_is_equivalent(repr: u64) -> bool {
-            if let Ok(metadata) = Metadata::try_from(repr) {
-                if u64::from(metadata) != repr {
-                    eprintln!("invalid trip: {repr:#x}");
-                    return false;
-                }
+            if let Ok(metadata) = Metadata::try_from(repr)
+                && u64::from(metadata) != repr
+            {
+                eprintln!("invalid trip: {repr:#x}");
+                return false;
             }
 
             // also check with explicitly-zeroed padding, for better search efficiency
             let zeroed_padding = repr & !0xf;
-            if let Ok(metadata) = Metadata::try_from(zeroed_padding) {
-                if u64::from(metadata) != zeroed_padding {
-                    eprintln!("invalid trip (zeroed padding): {zeroed_padding:#x}");
-                    return false;
-                }
+            if let Ok(metadata) = Metadata::try_from(zeroed_padding)
+                && u64::from(metadata) != zeroed_padding
+            {
+                eprintln!("invalid trip (zeroed padding): {zeroed_padding:#x}");
+                return false;
             }
 
             true

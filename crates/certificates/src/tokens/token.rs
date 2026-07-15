@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{fmt::Display, hash::Hash, str::FromStr};
@@ -10,12 +10,12 @@ use thiserror::Error;
 use crate::chain::Chain;
 use crate::pem::PemTaggable;
 use crate::{
+    CertificateChain, Digestible,
     asn::AsnCompatible,
     chain_item::ChainItem,
     issued::Issued,
     pem::{PemDecodable, PemEncodable},
     shared_components::{common::Id, role::Role},
-    CertificateChain, Digestible,
 };
 
 /// Groups related types for each token
@@ -68,7 +68,9 @@ impl Display for TokenKind {
 }
 
 #[derive(Error, Debug)]
-#[error("could not parse token type, expected one of (exemption, keyserver, database, verifier, synthesizer, hlt)")]
+#[error(
+    "could not parse token type, expected one of (exemption, keyserver, database, verifier, synthesizer, hlt)"
+)]
 pub struct TokenKindParseError;
 impl FromStr for TokenKind {
     type Err = TokenKindParseError;

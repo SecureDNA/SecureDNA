@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt::Display;
@@ -277,7 +277,7 @@ impl Display for MultiItemDigestOutput {
 
 #[cfg(all(test, feature = "cert_tests"))]
 mod tests {
-    use certificates::test_helpers::{create_keyserver_token_bundle, BreakableSignature};
+    use certificates::test_helpers::{BreakableSignature, create_keyserver_token_bundle};
     use certificates::{ChainItem, ChainTraversal, Digestible, Infrastructure};
     use serde_json::Value;
 

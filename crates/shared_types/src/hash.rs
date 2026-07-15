@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Shared types relating to hashes, hashing, and DNA/AA windows.
@@ -14,6 +14,7 @@ pub const WINDOW_LENGTH_DNA_NORMAL: usize = 42;
 pub const WINDOW_LENGTH_DNA_RUNT: usize = 30;
 
 /// The size of an amino acid window, in amino acids.
+/// This can be changed to any positive value <= 20 without breaking tests.
 pub const WINDOW_LENGTH_AA: usize = 20;
 
 /// Describes how the windows were treated during hashing: DNA, or amino acids
@@ -102,7 +103,7 @@ pub struct HashTypeDescriptor {
     /// Width of each window (in "letters", not in bp!)
     ///
     /// - For DNA windows, this is 42 (hog) or 30 (runt).
-    /// - For amino acid hashes/windows, this is 20, not 60.
+    /// - For amino acid hashes/windows, this is WINDOW_LENGTH_AA, not 3 * WINDOW_LENGTH_AA.
     pub width: usize,
     /// Direction windows are read in.
     pub direction: HashDirection,
@@ -279,7 +280,7 @@ impl HashTypeDescriptor {
     /// Return the width of each window *in nucleotides*, not in letters.
     ///
     /// - For DNA windows, this is 42 (hog) or 30 (runt).
-    /// - For amino acid hashes/windows, this is 60, not 20.
+    /// - For amino acid hashes/windows, this is 3 * WINDOW_LENGTH_AA, not WINDOW_LENGTH_AA.
     pub fn width_bp(&self) -> usize {
         self.width * self.hash_type.letter_width_bp()
     }
@@ -290,7 +291,7 @@ impl HashTypeDescriptor {
     ///
     /// For example, if the HTD is "shingled amino acids in reading frame 1" and
     /// hash_index is 4, the result is 1 + 3*4 = 13, because `hashes[4]` was made
-    /// by hashing the window `seq[13..73]`.
+    /// by hashing the window `seq[13..13 + 3 * WINDOW_LENGTH_AA]`.
     pub fn sequence_index(&self, hash_index: usize) -> usize {
         self.hash_type.sequence_offset() + hash_index * self.increment()
     }
@@ -302,7 +303,7 @@ impl HashTypeDescriptor {
     /// * 3 for shingled AAs
     /// * 42 for normal tiled DNA
     /// * 30 for tiled DNA runts
-    /// * 3*20 = 60 for tiled AAs
+    /// * 3 * WINDOW_LENGTH_AA for tiled AAs
     pub fn increment(&self) -> usize {
         match self.skip_type {
             HashSkipType::Shingled => self.hash_type.increment(),

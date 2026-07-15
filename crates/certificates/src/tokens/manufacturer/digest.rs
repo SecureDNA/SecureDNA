@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt::Display;
@@ -6,8 +6,8 @@ use std::fmt::Display;
 use serde::Serialize;
 
 use crate::{
-    shared_components::common::CompatibleIdentity, AuditRecipient, Expiration, Id, PublicKey,
-    Signature, SynthesizerToken, SynthesizerTokenRequest,
+    AuditRecipient, Expiration, Id, PublicKey, Signature, SynthesizerToken,
+    SynthesizerTokenRequest, shared_components::common::CompatibleIdentity,
 };
 
 use super::synthesizer::{SynthesizerTokenRequestVersion, SynthesizerTokenVersion};
@@ -178,9 +178,9 @@ impl Display for SynthesizerTokenDigest {
 #[cfg(all(test, feature = "cert_tests"))]
 mod test {
     use crate::{
-        test_helpers::{create_leaf_cert, expected_synthesizer_token_display},
         Digestible, Domain, Expiration, Issued, Manufacturer, SigningKeyPair,
         SynthesizerTokenRequest,
+        test_helpers::{create_leaf_cert, expected_synthesizer_token_display},
     };
 
     #[test]

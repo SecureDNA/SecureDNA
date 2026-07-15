@@ -1,6 +1,6 @@
 [package]
 name = "scurl"
-edition = "2021"
+edition = "2024"
 license.workspace = true
 version.workspace = true
 publish.workspace = true
@@ -9,10 +9,10 @@ publish.workspace = true
 
 [dependencies]
 anyhow = "1.0.81"
-clap = { version = "4.5.3", features = ["derive"] }
-tokio = { version = "1.45.1", features = ["full"] }
+clap = { version = "4.5.60", features = ["derive"] }
+tokio = { version = "1.50.0", features = ["full"] }
 tracing.workspace = true
-tracing-subscriber = "0.3.18"
+tracing-subscriber = "0.3.20"
 hex = "0.4.3"
 serde.workspace = true
 serde_json = "1.0.114"

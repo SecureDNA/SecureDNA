@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::num::NonZeroUsize;
@@ -6,7 +6,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use quickdna::{
-    canonical::Canonical, BaseSequence, DnaSequenceStrict, Nucleotide, NucleotideAmbiguous,
+    BaseSequence, DnaSequenceStrict, Nucleotide, NucleotideAmbiguous, canonical::Canonical,
 };
 
 use super::expansions::WindowExpansions;
@@ -139,7 +139,7 @@ mod test {
 
     use quickcheck::quickcheck;
 
-    use quickdna::{expansions::Expansions, DnaSequence};
+    use quickdna::{DnaSequence, expansions::Expansions};
 
     use super::super::test::{Oligo, SemiAmbiguousDna, WindowLen};
     use super::*;
@@ -584,10 +584,10 @@ mod test {
         let mut items: HashSet<(Range<usize>, Vec<Nucleotide>)> = HashSet::new();
         for (i, window) in dna.windows(window_len.get()).enumerate() {
             let expansions = Expansions::new(window);
-            if let Some(limit) = max_window_expansions {
-                if expansions.size_hint().0 > limit.get() {
-                    continue;
-                }
+            if let Some(limit) = max_window_expansions
+                && expansions.size_hint().0 > limit.get()
+            {
+                continue;
             }
             for expansion in expansions {
                 let canonical = Canonical::new(expansion.iter().copied()).collect();

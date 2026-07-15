@@ -44,7 +44,7 @@ active_security_key = [
 #scep_json_size_limit = 100_000
 
 # (optional) Size limit for window/hash bodies in SCEP.
-# scep_hash_limit = 1_000_000
+# scep_hash_limit = 100_000_000
 
 # Directory containing manufacturer root certs for SCEP client cert verification
 manufacturer_roots = "certs/manufacturer-roots/"
@@ -70,6 +70,15 @@ keypair_passphrase_file = "keyserver.passphrase"
 # versions, etc). The default is :memory:, which is an in-memory store that will be erased on
 # shutdown.
 #event_store_path = ":memory:"
+
+# (optional) The time after which the server will disable keepalive for incoming connections.
+# soft_timeout = "5m"
+
+# (optional) The time after which the server will kill incoming connections.
+# hard_timeout = "10m"
+
+# (optional) For keyserving requests, how many hashes it takes to extend the timeouts by a second.
+# hashes_per_sec_timeout = 100
 
 
 #[monitoring]

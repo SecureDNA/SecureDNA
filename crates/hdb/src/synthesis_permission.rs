@@ -1,9 +1,9 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::{Exemptions, HdbOrganism};
 use pipeline_bridge::Tag;
-use shared_types::synthesis_permission::{permission_for_region, Region, SynthesisPermission};
+use shared_types::synthesis_permission::{Region, SynthesisPermission, permission_for_region};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PermissionResult {

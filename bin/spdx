@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+# Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 ### Only affects files at or below $PWD, so make sure you're in the right place first.
 ###
-### Optional $1 should be one of check, add, or refresh:
-###   check just checks that the headers are there.
-###   add actually adds headers.
-###   refresh updates the copyrights for the current year.
+### Optional $1 should be one of --check (default), --add, or --refresh:
+###   --check    prints all pathnames which are missing a header
+###   --add      actually adds headers
+###   --refresh  updates the copyrights for the current year
 ###
 ### Optional $2, if non-null, says to add *only* a copyright string, without a license.
 ### If a file called "$PWD/.NOLICENSE" exists, acts as if "$2" was non-null;
@@ -23,6 +23,7 @@ set -euo pipefail
 ignores=(
     -ignore '**/*.yaml'
     -ignore '**/*.yml'
+    -ignore '**/*.toml'
     -ignore '**/node_modules/**'
     -ignore '**/target_wasm/**'
     -ignore 'accessions/**'

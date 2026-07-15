@@ -1,16 +1,16 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::{Path, PathBuf};
 
 pub use rusqlite;
 use rusqlite::{
-    types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef},
     ToSql,
+    types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef},
 };
-pub use rusqlite_migration::{self, Migrations, M};
+pub use rusqlite_migration::{self, M, Migrations};
 pub use time::{Duration, OffsetDateTime};
-pub use tokio_rusqlite::{self, params, Connection};
+pub use tokio_rusqlite::{self, Connection, params};
 
 use shared_types::synthesis_permission::{Region, SynthesisPermission};
 

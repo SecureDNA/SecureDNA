@@ -4,3 +4,9 @@ test/data/hdb/?? binary
 test/data/hdb/index/??.i binary
 test/data/hdb/hlt.json -text
 *.wasm binary
+*.png binary
+*.webp binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+

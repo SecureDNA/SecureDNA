@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 mod asn;
@@ -34,7 +34,7 @@ pub use digest::Digestible;
 pub use error::{DecodeError, EncodeError};
 pub use issued::Issued;
 pub use key::ecies::{
-    encrypt_for_recipient, EciesDecryptionError, EciesEncryptionError, EciesPublicKey,
+    EciesDecryptionError, EciesEncryptionError, EciesPublicKey, encrypt_for_recipient,
 };
 pub use pem::{bytes_from_pem, bytes_to_pem};
 pub use shared_components::common::{
@@ -59,10 +59,10 @@ pub use tokens::manufacturer::synthesizer::{
 };
 pub use tokens::token_bundle::{TokenBundle, TokenBundleError};
 pub use tokens::{Request, TokenGroup, TokenKind};
-pub use traversal::{traversal_limit_message, ChainTraversal, ChainValidationError};
+pub use traversal::{ChainTraversal, ChainValidationError, traversal_limit_message};
 pub use utility::now_utc;
 pub use validation_error::{
-    ValidationError, EXPIRED_TEXT, INVALID_SIGNATURE_TEXT, NOT_YET_VALID_TEXT,
+    EXPIRED_TEXT, INVALID_SIGNATURE_TEXT, NOT_YET_VALID_TEXT, ValidationError,
 };
 
 mod chain;

@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt;
@@ -197,10 +197,10 @@ mod tests {
     use super::*;
 
     use curve25519_dalek::scalar::Scalar;
-    use quickcheck::{quickcheck, Arbitrary, Gen, TestResult};
+    use quickcheck::{Arbitrary, Gen, TestResult, quickcheck};
+    use rand::Rng;
     use rand::rngs::OsRng;
     use rand::seq::SliceRandom;
-    use rand::Rng;
 
     use crate::party::KeyserverIdSet;
     use crate::prf::{HashPart, KeyShare, Query, SECURITY_PARAMETER};

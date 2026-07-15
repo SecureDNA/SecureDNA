@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::LazyLock;
@@ -143,8 +143,8 @@ pub enum PassphraseSource {
 #[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use crate::passphrase_reader::{
-        EnvVarPassphraseReader, PassphraseReader, PassphraseReaderError, PassphraseSource,
-        KEY_ENCRYPTION_PASSPHRASE_ENV_VAR,
+        EnvVarPassphraseReader, KEY_ENCRYPTION_PASSPHRASE_ENV_VAR, PassphraseReader,
+        PassphraseReaderError, PassphraseSource,
     };
 
     #[test]

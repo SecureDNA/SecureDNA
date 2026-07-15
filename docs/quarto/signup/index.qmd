@@ -1,0 +1,68 @@
+# Signup
+
+You need a **synth token** to use synthclient. To obtain one, you'll need to submit a request that we approve by hand; this may take a few days. This page guides you through obtaining a synth token.
+
+## Generating a certificate request
+
+Fill out [this form](https://securedna.org/cert-request/) and download the three files it generates:
+
+* `companyname-leaf.certr`: This is a _certificate request_. You will send this file to SecureDNA as detailed below.
+* `companyname-leaf.priv`: This is a _private key_, protected by your passphrase. Do not send this to SecureDNA, do not lose it, and do not share it.^[If you send it to SecureDNA by mistake, we will ask you to generate a new certificate request and to throw away the existing request.]
+* `companyname-leaf.pub`: This is a _public key_, which can be freely shared. You do not need it for the scenarios described in this quickstart, but you should preserve it for future use in more-complicated scenarios.<!-- One such example concerns certificate cross-signing, used to establish multiple paths back to a parent cert for redundancy in case an intemediate cert is lost, or to enable phased rollover of certificate expirations. None of these are necessary for typical use of synthclient. -->
+
+The name and email in the above command are baked into the resulting certificate. If we later detect some problem with the use of your certificate (such as abuse), we will send mail to that email address.
+
+::: {.callout-note}
+Pick a secure passphrase and hold onto it. If you lose it, you'll have to create a new certificate request. We'll call it _passphrase A_.
+
+The passphrase you pick in this form is never sent to SecureDNA. In fact, the form works fully offline.
+:::
+
+## Sending your certificate request
+
+Fill out the registration form on [this page](https://securedna.org/start/). Upload `companyname-leaf.certr` where indicated.
+
+Someone at SecureDNA will review your request for reasonability, and send you a `company-leaf.cert` file (without the `r`) via email.
+
+## Generating synth tokens {#sec-generating-synth-tokens}
+
+Your `.cert` file can be used to create synth tokens `.st`. How many you make depends on how your business is structured.
+
+* If you are a **centralized provider**, you can make a single token for all of your screening, and supply that token with every request.
+* If you are a **benchtop manufacturer**, you should make one token per printer.^[If your printers are "dumb" peripherals, then make one per controller, or one per customer site, or (if cloud-based) one per customer account, etc.] (Consider using the [command-line tools](../command-line-tools/index.qmd) to automate this.)
+<!-- * If you are a **biosafety authority** in charge of approving synthesis exemptions, you may need a synth token to approve certain exemption requests. -->
+
+You can create synth tokens in the browser [here](https://securedna.org/synth-token/), using your cert and private key. Select the purpose of your token, then fill out the remaining fields.
+
+::: {.callout-important}
+This token has its own passphrase, distinct from the one you selected for the certificate request. We'll call it _passphrase B_.
+
+This is the passphrase you will supply when running the SecureDNA software.
+:::
+
+<!--
+### Synth token fields
+
+For centralized providers:
+
+* **Rate limit** is the maximum number of nucleotides per day that you expect to screen across all the devices associated with this token.
+
+For benchtop synthesizers:
+
+* **Model** should be the name of this particular model of synthesizer, so it's possible for a third party to verify that the provided rate limit is reasonable for that model.
+* **Serial** is the benchtop's serial number.
+* **Rate limit** is the maximum number of nucleotides per day that your synthesizer can produce.
+
+For biosafety authorities:
+
+* **Rate limit** is the maximum number of nucleotides per day that you expect to screen across all exemption requests you handle.
+
+In all cases:
+
+* **Domain** should match the domain of your company and email address (e.g. `yourcompany.com`).
+* **Days valid** controls the maximum longevity of the synthesizer token. When it expires, you'll have to make a new one.
+-->
+
+## Using your synth token
+
+Now you have a **synth token** (.st). With it, you can use synthclient, as detailed in the [next chapter](../usage/index.qmd).

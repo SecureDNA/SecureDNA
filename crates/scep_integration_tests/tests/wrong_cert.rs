@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use doprf::party::KeyserverId;
 use http_client::HttpError;
 use scep::error::ScepError;
 use scep_client_helpers::{ClientCerts, ScepClientOpenCommon};
-use scep_integration_tests::make_certs::{make_certs, CreatedCerts, MakeCertsOptions};
+use scep_integration_tests::make_certs::{CreatedCerts, MakeCertsOptions, make_certs};
 use scep_integration_tests::server::{Opts, TestServer};
 use shared_types::{hash::HashSpec, requests::RequestId};
 

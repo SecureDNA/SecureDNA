@@ -1,10 +1,10 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fs;
 use std::path::Path;
 
-use certificates::file::{load_keypair_from_file, load_token_bundle_from_file, TokenExtension};
+use certificates::file::{TokenExtension, load_keypair_from_file, load_token_bundle_from_file};
 use certificates::key_traits::CanLoadSigningKey;
 use certificates::{
     ChainTraversal, ExemptionTokenGroup, PublicKey, SigningKeyPair, SystemClock, TokenBundle,

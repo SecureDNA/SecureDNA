@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for encrypting and decrypting data using ECIES
@@ -10,12 +10,12 @@ use std::{
 use certificates::{
     bytes_from_pem, bytes_to_pem, encrypt_for_recipient,
     file::{
-        load_audit_keypair_from_file, load_audit_public_key_from_file, save_audit_keypair_to_file,
-        KEY_PRIV_EXT,
+        KEY_PRIV_EXT, load_audit_keypair_from_file, load_audit_public_key_from_file,
+        save_audit_keypair_to_file,
     },
     key::ecies::EciesKeyPair,
 };
-use clap::{crate_version, Parser};
+use clap::{Parser, crate_version};
 
 use super::error::CertCliError;
 use crate::passphrase_reader::PassphraseReader;
@@ -23,8 +23,8 @@ use crate::{default_filepath::get_default_filename_for_audit_key, key::NewKeyDet
 use crate::{
     default_filepath::set_appropriate_filepath_and_create_default_dir_if_required,
     passphrase_reader::{
-        PromptExistingPassphraseReader, PromptNewPassphraseReader,
         CREATE_AUDIT_KEY_PASSPHRASE_PROMPT, ENTER_PASSPHRASE_PROMPT,
+        PromptExistingPassphraseReader, PromptNewPassphraseReader,
     },
 };
 

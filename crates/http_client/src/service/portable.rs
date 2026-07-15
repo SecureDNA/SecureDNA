@@ -1,9 +1,7 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Provides cross-platform APIs for `reqwest`-based services
-
-use std::future::Future;
 
 use bytes::Bytes;
 use hyper::body::Body;

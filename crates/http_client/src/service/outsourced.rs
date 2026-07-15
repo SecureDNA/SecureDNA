@@ -1,18 +1,17 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Defines adapter for running [`HttpService`] in another future
 
-use std::future::Future;
-use std::pin::{pin, Pin};
-use std::task::{ready, Context, Poll};
+use std::pin::{Pin, pin};
+use std::task::{Context, Poll, ready};
 
 use futures::{Stream, StreamExt};
 use http::{Request, Response};
 use hyper::body::{Body, Frame, SizeHint};
 
-use super::util::ServiceFn;
 use super::HttpService;
+use super::util::ServiceFn;
 
 // Note: We use async_channel because I'd like this to be one less thing that's runtime dependent.
 
@@ -55,11 +54,11 @@ pub fn outsourced<B, S>(
     service: S,
 ) -> (
     impl HttpService<
-            B,
-            Future: Send + 'static,
-            ResponseBody = OutsourcedBody<S::ResponseBody>,
-            Error = S::Error,
-        > + Clone,
+        B,
+        Future: Send + 'static,
+        ResponseBody = OutsourcedBody<S::ResponseBody>,
+        Error = S::Error,
+    > + Clone,
     impl Future<Output = ()>,
 )
 where
@@ -85,11 +84,11 @@ pub fn outsourced_with_response_capacity<B, S>(
     response_capacity: usize,
 ) -> (
     impl HttpService<
-            B,
-            Future: Send + 'static,
-            ResponseBody = OutsourcedBody<S::ResponseBody>,
-            Error = S::Error,
-        > + Clone,
+        B,
+        Future: Send + 'static,
+        ResponseBody = OutsourcedBody<S::ResponseBody>,
+        Error = S::Error,
+    > + Clone,
     impl Future<Output = ()>,
 )
 where
@@ -278,11 +277,51 @@ mod tests {
     use super::*;
 
     use std::convert::Infallible;
-    use std::rc::Rc;
+    use std::marker::PhantomData;
 
     use http_body_util::BodyExt;
 
     use super::super::util::boxed;
+
+    type Unsendable = PhantomData<*const ()>;
+
+    fn unsendable() -> Unsendable {
+        PhantomData
+    }
+
+    // TODO: Revert back to a simple `body.map_err(|e| { let _x = unsendable(); e})`
+    // once https://github.com/rust-lang/rust/issues/148511 is fixed.
+    #[pin_project::pin_project]
+    struct UnsendableBody<B> {
+        #[pin]
+        inner: B,
+        unsendable: Unsendable,
+    }
+
+    impl<B> UnsendableBody<B> {
+        fn new(inner: B) -> Self {
+            Self {
+                inner,
+                unsendable: unsendable(),
+            }
+        }
+    }
+
+    impl<B: Body> Body for UnsendableBody<B> {
+        type Data = B::Data;
+        type Error = B::Error;
+
+        fn poll_frame(
+            self: Pin<&mut Self>,
+            cx: &mut Context,
+        ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+            self.project().inner.poll_frame(cx)
+        }
+
+        fn size_hint(&self) -> SizeHint {
+            self.inner.size_hint()
+        }
+    }
 
     // Technically, this is going slightly overboard as Rust won't automatically infer that
     // the HttpService's associated types are sendable, but I'd like to ensure that improvements
@@ -290,19 +329,14 @@ mod tests {
     //
     // We still make the Response's Body's Data and any errors sendable because `outsourced`
     // needs that, but most things provide that in practice; `String`s and `Bytes` are sendable.
-    fn unsendable_echo_service<B: Body>(
-    ) -> impl HttpService<B, ResponseBody: Body<Data = B::Data, Error = B::Error>, Error = Infallible>
-    {
-        let unsendable = Rc::new(());
+    fn unsendable_echo_service<B: Body>()
+    -> impl HttpService<B, ResponseBody = UnsendableBody<B>, Error = Infallible> {
+        let _unsendable = unsendable();
         ServiceFn(move |request: Request<B>| {
             // Make the `Service` itself unsendable by pulling in `unsendable`.
-            let unsendable = unsendable.clone();
+            let _unsendable = unsendable();
             async move {
-                let body = request.into_body().map_err(move |e| {
-                    // Make the body unsendable by pulling in `unsendable`.
-                    let _ = &unsendable;
-                    e
-                });
+                let body = UnsendableBody::new(request.into_body());
                 // Make the Service's future unsendable by holding the unsendable body
                 // across an await point.
                 tokio::task::yield_now().await;

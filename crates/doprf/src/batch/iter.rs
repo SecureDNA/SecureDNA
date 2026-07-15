@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Batching iterator for windows, handling crypto. See [`QueryBatches`].
@@ -6,12 +6,12 @@
 use std::ops::RangeInclusive;
 use std::sync::Arc;
 
-use rand::{rngs::StdRng, CryptoRng, Rng, RngCore, SeedableRng};
+use rand::{CryptoRng, Rng, RngCore, SeedableRng, rngs::StdRng};
 
 use crate::active_security::ActiveSecurityKey;
 use crate::party::KeyserverId;
 use crate::prf::{CompressedCompletedHashValue, CompressedHashPart, CompressedQuery};
-use crate::queryset::{setup_queries, QueriesSecurityContext, QueryError};
+use crate::queryset::{QueriesSecurityContext, QueryError, setup_queries};
 
 use super::layout::{BatchLayout, BatchLayouts};
 
@@ -110,7 +110,7 @@ impl<WI> QueryBatches<WI> {
         // isolation from other program state so it's easier to parallelize, yet is still
         // dependent on R (and is reproducible if R is). Also, we can't merely clone R or
         // filler hashes will be duplicated.
-        let rng = StdRng::from_seed(rng.gen());
+        let rng = StdRng::from_seed(rng.r#gen());
 
         Self {
             rng,
@@ -139,7 +139,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         let layout = self.layouts.next()?;
-        let rng = StdRng::from_seed(self.rng.gen());
+        let rng = StdRng::from_seed(self.rng.r#gen());
         // Hopefully cloning the window iter won't be TOO expensive
         // (ideally the source sequence(s) should be Arced)
         // Also, this allows us to delay hashing to take place in the crypto future,
@@ -173,8 +173,6 @@ fn advance_by(iter: &mut impl Iterator, elements_to_skip: usize) -> bool {
 /// * [`Future`]s shouldn't block or use a lot of CPU and this is computationally expensive.
 ///   We don't want to encourage calling it from within a future.
 /// * Having a nice concrete type helps prevent crazy `where` causes, so we avoid closures.
-///
-/// [`Future`]: std::future::Future
 pub struct BatchBuilder<WI> {
     rng: StdRng,
     batch_windows: WI,

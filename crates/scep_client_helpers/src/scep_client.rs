@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::ops::Deref;
@@ -21,7 +21,7 @@ use doprf::{
 use hdb_api::HdbScreeningResult;
 use http_client::body::zerocopy::{StreamChunk, Streamed};
 use http_client::body::{Json, TryIntoBody};
-use http_client::service::util::{add_header, BoxedError};
+use http_client::service::util::{BoxedError, add_header};
 use http_client::{BaseApiClient, HttpError};
 use packed_ristretto::{PackableRistretto, PackedRistrettos};
 use scep::cookie::SessionCookie;
@@ -32,7 +32,7 @@ use scep::{
     types::{ClientRequestType, ScreenCommon},
 };
 use shared_types::et::WithOtps;
-use shared_types::synthesis_permission::Region;
+use shared_types::synthesis_permission::RawRegion;
 
 pub struct ScepClient<ServerTokenKind> {
     api_client: BaseApiClient,
@@ -208,7 +208,7 @@ impl ScepClient<KeyserverTokenGroup> {
         total_queries: u64,
         queries: Q,
     ) -> Result<
-        impl Stream<Item = Result<StreamChunk<CompressedHashPart>, HttpError>> + Send,
+        impl Stream<Item = Result<StreamChunk<CompressedHashPart>, HttpError>> + Send + use<Q>,
         HttpError,
     >
     where
@@ -239,7 +239,7 @@ impl ScepClient<KeyserverTokenGroup> {
 
 #[derive(Clone)]
 pub struct HdbOpenParams {
-    pub region: Region,
+    pub region: RawRegion,
     pub with_exemption: bool,
     pub verifiable: VerifiableScreeningRequested,
     /// Hex digest of SHA3-256 hash of the JSON posted to synthclient. Used for verifiable screening.
@@ -422,7 +422,7 @@ pub enum Error<E: std::error::Error> {
 fn packed_to_len_and_stream<T: PackableRistretto>(
     packed: &PackedRistrettos<T>,
     description: &'static str,
-) -> HttpResult<(u64, impl Stream<Item = RistrettoChunk<T>>)> {
+) -> HttpResult<(u64, impl Stream<Item = RistrettoChunk<T>> + use<T>)> {
     let total_elements = u64::try_from(packed.len()).map_err(|err| HttpError::EncodeError {
         encoding: description.to_owned(),
         source: err.into(),

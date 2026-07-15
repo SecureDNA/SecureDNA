@@ -1,13 +1,13 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use bytes::Bytes;
 use futures::lock::Mutex;
 use http_body_util::{BodyExt, Full};
-use http_client::{service::util::BoxedError, BaseApiClient};
+use http_client::{BaseApiClient, service::util::BoxedError};
 use hyper::{
-    header::{HeaderValue, CONTENT_TYPE},
     Request, Response, StatusCode,
+    header::{CONTENT_TYPE, HeaderValue},
 };
 use minhttp::response::GenericResponse;
 use std::collections::HashMap;

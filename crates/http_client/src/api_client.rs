@@ -1,8 +1,7 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt;
-use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -17,15 +16,15 @@ use hyper::body::{Body, Frame, SizeHint};
 use packed_ristretto::{PackableRistretto, PackedRistrettos};
 #[cfg(not(target_arch = "wasm32"))]
 use shared_types::requests::RequestId;
-use streamed_ristretto::stream::{check_content_length, check_content_type};
 use streamed_ristretto::HasContentType;
+use streamed_ristretto::stream::{check_content_length, check_content_type};
 
 use crate::body::{TryFromBody, TryIntoBody};
 use crate::error::HttpError;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::error::UnusableRequestId;
-use crate::service::util::{arced, ArcedHttpService, BoxedBody, BoxedError, IntoDynHttpService};
 use crate::service::HttpService;
+use crate::service::util::{ArcedHttpService, BoxedBody, BoxedError, IntoDynHttpService, arced};
 use crate::status_code::is_retriable;
 
 /// Helper for querying internal servers (HDB and keyservers)
@@ -441,15 +440,15 @@ where
             source: String::from_utf8_lossy(&body).into(),
         });
     }
-    if let Some(content_type) = expected_content_type {
-        if let Err(err) = check_content_type(&parts.headers, content_type) {
-            return Err(HttpError::RequestError {
-                ctx: format!("requesting {url}"),
-                status: Some(status.as_u16()),
-                retriable,
-                source: format!("{}: {}", err, String::from_utf8_lossy(&body)).into(),
-            });
-        }
+    if let Some(content_type) = expected_content_type
+        && let Err(err) = check_content_type(&parts.headers, content_type)
+    {
+        return Err(HttpError::RequestError {
+            ctx: format!("requesting {url}"),
+            status: Some(status.as_u16()),
+            retriable,
+            source: format!("{}: {}", err, String::from_utf8_lossy(&body)).into(),
+        });
     }
     Ok(body)
 }

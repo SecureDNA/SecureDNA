@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Helpers related to generating all windows of a strand of DNA
@@ -408,7 +408,7 @@ impl TryFrom<&HashSpec> for ProcessedHashSpec {
 mod test {
     use std::collections::HashSet;
 
-    use quickcheck::{quickcheck, Arbitrary, Gen, TestResult};
+    use quickcheck::{Arbitrary, Gen, TestResult, quickcheck};
 
     use quickdna::{BaseSequence, DnaSequenceStrict, Nucleotide};
     use shared_types::hash::{HashDirection, HashType, HashTypeDescriptor};
@@ -435,17 +435,24 @@ mod test {
             .map(|(i, x)| (i.index_in_record(), x))
             .collect();
 
+        fn first_n(seq: &str, n: usize) -> String {
+            seq[..n].to_owned()
+        }
+        fn last_n(seq: &str, n: usize) -> String {
+            seq[seq.len().saturating_sub(n)..].to_owned()
+        }
+
         // First windows
         assert!(windows.contains(&(0, "AATCAATATATAGGGGCTCGTCGTCTCTTCATATATCTCTTC".to_owned()))); // hog
         assert!(windows.contains(&(0, "AATCAATATATAGGGGCTCGTCGTCTCTTC".to_owned()))); // runt
-        assert!(windows.contains(&(0, "KQERFSLLRGRERGLSYYGL".to_owned()))); // aa
-        assert!(windows.contains(&(0, "QAIVTQAALSAAQQRKSLLL".to_owned()))); // aa (rc)
+        assert!(windows.contains(&(0, first_n("KQERFSLLRGRERGLSYYGL", WINDOW_LENGTH_AA)))); // aa
+        assert!(windows.contains(&(0, last_n("QAIVTQAALSAAQQRKSLLL", WINDOW_LENGTH_AA)))); // aa (rc)
 
         // Last windows
         assert!(windows.contains(&(22, "ATCTCTTCGTGTGTCTCTTCCATGTAAGCAGATTCAATACAG".to_owned()))); // hog
         assert!(windows.contains(&(34, "ATCTCTTCCGTATGGACGAGTTCGGTGCGA".to_owned()))); // runt
-        assert!(windows.contains(&(4, "KRDFRCCAAESAA*VTMACL".to_owned()))); // aa
-        assert!(windows.contains(&(4, "*TSHSNSGRALCRAAAKISL".to_owned()))); // aa (rc)
+        assert!(windows.contains(&(4, first_n("KRDFRCCAAESAA*VTMACL", WINDOW_LENGTH_AA)))); // aa
+        assert!(windows.contains(&(4, last_n("*TSHSNSGRALCRAAAKISL", WINDOW_LENGTH_AA)))); // aa (rc)
 
         let spec = HashSpec::unambiguous(vec![
             HashTypeDescriptor::dna_normal_cech(),
@@ -460,14 +467,14 @@ mod test {
         // First windows
         assert!(windows.contains(&(0, "AATCAATATATAGGGGCTCGTCGTCTCTTCATATATCTCTTC".to_owned()))); // hog
         assert!(windows.contains(&(0, "AATCAATATATAGGGGCTCGTCGTCTCTTC".to_owned()))); // runt
-        assert!(!windows.contains(&(0, "KQERFSLLRGRERGLSYYGL".to_owned()))); // aa
-        assert!(!windows.contains(&(0, "QAIVTQAALSAAQQRKSLLL".to_owned()))); // aa (rc)
+        assert!(!windows.contains(&(0, first_n("KQERFSLLRGRERGLSYYGL", WINDOW_LENGTH_AA)))); // aa
+        assert!(!windows.contains(&(0, last_n("QAIVTQAALSAAQQRKSLLL", WINDOW_LENGTH_AA)))); // aa (rc)
 
         // Last windows
         assert!(windows.contains(&(22, "ATCTCTTCGTGTGTCTCTTCCATGTAAGCAGATTCAATACAG".to_owned()))); // hog
         assert!(windows.contains(&(34, "ATCTCTTCCGTATGGACGAGTTCGGTGCGA".to_owned()))); // runt
-        assert!(!windows.contains(&(4, "KRDFRCCAAESAA*VTMACL".to_owned()))); // aa
-        assert!(!windows.contains(&(4, "*TSHSNSGRALCRAAAKISL".to_owned()))); // aa (rc)
+        assert!(!windows.contains(&(4, first_n("KRDFRCCAAESAA*VTMACL", WINDOW_LENGTH_AA)))); // aa
+        assert!(!windows.contains(&(4, last_n("*TSHSNSGRALCRAAAKISL", WINDOW_LENGTH_AA)))); // aa (rc)
 
         let spec = HashSpec::unambiguous(vec![
             HashTypeDescriptor::dna_normal_cech(),
@@ -483,14 +490,14 @@ mod test {
         // First windows
         assert!(windows.contains(&(0, "AATCAATATATAGGGGCTCGTCGTCTCTTCATATATCTCTTC".to_owned()))); // hog
         assert!(!windows.contains(&(0, "AATCAATATATAGGGGCTCGTCGTCTCTTC".to_owned()))); // runt
-        assert!(windows.contains(&(0, "KQERFSLLRGRERGLSYYGL".to_owned()))); // aa
-        assert!(windows.contains(&(0, "QAIVTQAALSAAQQRKSLLL".to_owned()))); // aa (rc)
+        assert!(windows.contains(&(0, first_n("KQERFSLLRGRERGLSYYGL", WINDOW_LENGTH_AA)))); // aa
+        assert!(windows.contains(&(0, last_n("QAIVTQAALSAAQQRKSLLL", WINDOW_LENGTH_AA)))); // aa (rc)
 
         // Last windows
         assert!(windows.contains(&(22, "ATCTCTTCGTGTGTCTCTTCCATGTAAGCAGATTCAATACAG".to_owned()))); // hog
         assert!(!windows.contains(&(34, "ATCTCTTCCGTATGGACGAGTTCGGTGCGA".to_owned()))); // runt
-        assert!(windows.contains(&(4, "KRDFRCCAAESAA*VTMACL".to_owned()))); // aa
-        assert!(windows.contains(&(4, "*TSHSNSGRALCRAAAKISL".to_owned()))); // aa (rc)
+        assert!(windows.contains(&(4, first_n("KRDFRCCAAESAA*VTMACL", WINDOW_LENGTH_AA)))); // aa
+        assert!(windows.contains(&(4, last_n("*TSHSNSGRALCRAAAKISL", WINDOW_LENGTH_AA)))); // aa (rc)
     }
 
     #[test]
@@ -750,8 +757,7 @@ mod test {
     {
         let mut output = vec![];
         for (record, dna) in records.into_iter().enumerate() {
-            let sequence_windows =
-                sequence_windows_reference_implementation(dna.into_iter(), spec)?;
+            let sequence_windows = sequence_windows_reference_implementation(dna, spec)?;
             if sequence_windows.is_empty() {
                 output.push(OrderWindow::Dummy { record });
             }
@@ -836,10 +842,10 @@ mod test {
             spec: SaneHashSpec
         ) -> TestResult {
             let actual = OrderWindows::from_sequences(&sequences, &spec.0);
-            if let Ok(actual) = &actual {
-                if actual.size_hint().0 > MAX_ITER_LEN {
-                    return TestResult::discard();
-                }
+            if let Ok(actual) = &actual
+                && actual.size_hint().0 > MAX_ITER_LEN
+            {
+                return TestResult::discard();
             }
             let expected = order_windows_reference_implementation(&sequences, &spec.0);
             TestResult::from_bool(is_iter_result_eq(actual, expected))
@@ -850,10 +856,10 @@ mod test {
             spec: SaneHashSpec
         ) -> TestResult {
             let actual = OrderWindows::from_sequences(&sequences, &spec.0);
-            if let Ok(actual) = &actual {
-                if actual.size_hint().0 > MAX_ITER_LEN {
-                    return TestResult::discard();
-                }
+            if let Ok(actual) = &actual
+                && actual.size_hint().0 > MAX_ITER_LEN
+            {
+                return TestResult::discard();
             }
             let expected = order_windows_reference_implementation(&sequences, &spec.0);
             TestResult::from_bool(is_iter_result_eq(actual, expected))
@@ -865,10 +871,10 @@ mod test {
         ) -> TestResult {
             let sequences: Vec<_> = sequences.into_iter().map(|dna| dna.0).collect();
             let actual = OrderWindows::from_sequences(&sequences, &spec.0);
-            if let Ok(actual) = &actual {
-                if actual.size_hint().0 > MAX_ITER_LEN {
-                    return TestResult::discard();
-                }
+            if let Ok(actual) = &actual
+                && actual.size_hint().0 > MAX_ITER_LEN
+            {
+                return TestResult::discard();
             }
             let expected = order_windows_reference_implementation(&sequences, &spec.0);
             TestResult::from_bool(is_iter_result_eq(actual, expected))
@@ -880,10 +886,10 @@ mod test {
         ) -> TestResult {
             let sequences: Vec<_> = sequences.into_iter().map(|dna| dna.0).collect();
             let actual = OrderWindows::from_sequences(&sequences, &spec.0);
-            if let Ok(actual) = &actual {
-                if actual.size_hint().0 > MAX_ITER_LEN {
-                    return TestResult::discard();
-                }
+            if let Ok(actual) = &actual
+                && actual.size_hint().0 > MAX_ITER_LEN
+            {
+                return TestResult::discard();
             }
             let expected = order_windows_reference_implementation(&sequences, &spec.0);
             TestResult::from_bool(is_iter_result_eq(actual, expected))
@@ -894,10 +900,10 @@ mod test {
             spec: SaneHashSpec
         ) -> TestResult {
             let actual = SequenceWindows::from_dna(&dna, &spec.0);
-            if let Ok(actual) = &actual {
-                if actual.size_hint().0 > MAX_ITER_LEN {
-                    return TestResult::discard();
-                }
+            if let Ok(actual) = &actual
+                && actual.size_hint().0 > MAX_ITER_LEN
+            {
+                return TestResult::discard();
             }
             let expected = sequence_windows_reference_implementation(&dna, &spec.0);
             TestResult::from_bool(is_iter_result_eq(actual, expected))
@@ -908,10 +914,10 @@ mod test {
             spec: SaneHashSpec
         ) -> TestResult {
             let actual = SequenceWindows::from_dna(&dna, &spec.0);
-            if let Ok(actual) = &actual {
-                if actual.size_hint().0 > MAX_ITER_LEN {
-                    return TestResult::discard();
-                }
+            if let Ok(actual) = &actual
+                && actual.size_hint().0 > MAX_ITER_LEN
+            {
+                return TestResult::discard();
             }
             let expected = sequence_windows_reference_implementation(&dna, &spec.0);
             TestResult::from_bool(is_iter_result_eq(actual, expected))
@@ -922,10 +928,10 @@ mod test {
             spec: SaneHashSpec
         ) -> TestResult {
             let actual = SequenceWindows::from_dna(&dna.0, &spec.0);
-            if let Ok(actual) = &actual {
-                if actual.size_hint().0 > MAX_ITER_LEN {
-                    return TestResult::discard();
-                }
+            if let Ok(actual) = &actual
+                && actual.size_hint().0 > MAX_ITER_LEN
+            {
+                return TestResult::discard();
             }
             let expected = sequence_windows_reference_implementation(&dna.0, &spec.0);
             TestResult::from_bool(is_iter_result_eq(actual, expected))
@@ -936,10 +942,10 @@ mod test {
             spec: SaneHashSpec
         ) -> TestResult {
             let actual = SequenceWindows::from_dna(&dna.0, &spec.0);
-            if let Ok(actual) = &actual {
-                if actual.size_hint().0 > MAX_ITER_LEN {
-                    return TestResult::discard();
-                }
+            if let Ok(actual) = &actual
+                && actual.size_hint().0 > MAX_ITER_LEN
+            {
+                return TestResult::discard();
             }
             let expected = sequence_windows_reference_implementation(&dna.0, &spec.0);
             TestResult::from_bool(is_iter_result_eq(actual, expected))

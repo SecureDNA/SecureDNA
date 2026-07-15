@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
-# Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+# Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 # SPDX-License-Identifier: MIT OR Apache-2.0
+
+### Usage:
+###
+###     bin/local_test_environment
+###     bin/local_test_environment 8080          (override synthclient port, default 80)
+###     bin/local_test_environment 8080 release  (override build profile, default `release-with-debug`)
+###
 
 ### Spins up an "uncontainerized" local test environment that parallels docker-compose.yml:
 ### - HDB server at localhost:5300

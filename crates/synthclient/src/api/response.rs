@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -274,7 +274,7 @@ mod tests {
             certs: Arc::new(ClientCerts::load_test_certs()),
             include_debug_info: true,
             verifiable_screening: false,
-            region: shared_types::synthesis_permission::Region::All,
+            region: shared_types::synthesis_permission::RawRegion::ALL,
             ets: vec![],
             fasta_sha3_256_hex,
             synthclient_version: get_version(),

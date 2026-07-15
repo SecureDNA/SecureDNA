@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::str::FromStr;
@@ -16,7 +16,7 @@ impl FromStr for Rotation {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let [ack, domain, gen] = s.split_ascii_whitespace().collect::<Vec<_>>()[..] else {
+        let [ack, domain, time_gen] = s.split_ascii_whitespace().collect::<Vec<_>>()[..] else {
             return Err("rotation record does not have three fields");
         };
         Ok(Self {
@@ -24,7 +24,7 @@ impl FromStr for Rotation {
                 .parse()
                 .map_err(|_| "could not parse acknowledge timestamp")?,
             server_domain: domain.to_owned(),
-            time_generated: gen
+            time_generated: time_gen
                 .parse()
                 .map_err(|_| "could not parse generate timestamp")?,
         })
@@ -50,7 +50,7 @@ pub fn parse_rotations(log: &str) -> Result<Vec<Rotation>, RotationParseError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::rotation::{parse_rotations, Rotation, RotationParseError};
+    use crate::rotation::{Rotation, RotationParseError, parse_rotations};
 
     #[test]
 

@@ -1,14 +1,16 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module contains functionality for creating a `HltToken`.
 //! A `Certificate` with the `Infrastructure` role is able to sign a `HltTokenRequest` to issue a `HltToken`.
 //! `HltToken`s will be used to identify instances of the hazard lookup table.
 
-use rasn::{types::*, Decode, Encode};
+use rasn::{Decode, Encode, types::*};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    CertificateChain, Digestible, Expiration, Id, Infrastructure, Issued, KeyAvailable,
+    KeyUnavailable, SigningKeyPair, TokenKind,
     asn::ToASN1DerBytes,
     error::EncodeError,
     impl_boilerplate_for_token, impl_boilerplate_for_token_request,
@@ -22,8 +24,6 @@ use crate::{
         CompatibleIdentity, ComponentVersionGuard, Signed, VersionedComponent,
     },
     tokens::{TokenData, TokenGroup},
-    CertificateChain, Digestible, Expiration, Id, Infrastructure, Issued, KeyAvailable,
-    KeyUnavailable, SigningKeyPair, TokenKind,
 };
 
 use super::digest::{HltTokenDigest, HltTokenRequestDigest};
@@ -252,9 +252,9 @@ impl_key_boilerplate_for_token! {HltToken}
 mod test {
     use crate::key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded};
     use crate::{
+        DatabaseTokenRequest, Expiration, HltTokenRequest, Infrastructure, SigningKeyPair,
         asn::{FromASN1DerBytes, ToASN1DerBytes},
         test_helpers::create_leaf_cert,
-        DatabaseTokenRequest, Expiration, HltTokenRequest, Infrastructure, SigningKeyPair,
     };
 
     #[test]

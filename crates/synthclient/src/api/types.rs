@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use doprf::party::KeyserverId;
@@ -6,10 +6,11 @@ use hdb_api::ConsolidatedHazardResult;
 use serde::{Deserialize, Serialize};
 use shared_types::deserialize::bool_or_string;
 use shared_types::et::WithOtps;
+use shared_types::synthesis_permission::RawRegion;
 
 use super::{
-    error::{ApiError, ApiWarning},
     DebugInfo,
+    error::{ApiError, ApiWarning},
 };
 use pipeline_bridge::{OrganismType, Tag};
 
@@ -35,46 +36,50 @@ pub struct RequestCommon {
 
 /// Region jurisdictions for handling requests. Controls e.g. what rules to use for setting
 /// the `synthesis_permission` bit to `denied`.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 // tsgen
-pub enum Region {
+pub struct Region(String);
+
+impl Region {
     /// United States
-    #[serde(alias = "us", alias = "US")]
-    Us,
+    pub fn us() -> Self {
+        RawRegion::US.into()
+    }
+
     /// European Union
-    #[serde(alias = "eu", alias = "EU")]
-    Eu,
+    pub fn eu() -> Self {
+        RawRegion::EU.into()
+    }
+
     /// People's Republic of China
-    #[serde(alias = "prc", alias = "PRC")]
-    Prc,
+    pub fn prc() -> Self {
+        RawRegion::PRC.into()
+    }
+
     /// Check all regions. This is the default. It means:
     /// - Synthesis is granted only if the organism is safe in all regions.
     /// - Synthesis is denied if the organism is controlled in *any* region.
-    #[serde(alias = "all", alias = "ALL")]
-    All,
-}
-
-impl From<shared_types::synthesis_permission::Region> for Region {
-    fn from(value: shared_types::synthesis_permission::Region) -> Self {
-        use shared_types::synthesis_permission::Region::*;
-        match value {
-            Us => Self::Us,
-            Eu => Self::Eu,
-            Prc => Self::Prc,
-            All => Self::All,
-        }
+    pub fn all() -> Self {
+        RawRegion::ALL.into()
     }
 }
 
-impl From<Region> for shared_types::synthesis_permission::Region {
-    fn from(value: Region) -> Self {
-        use shared_types::synthesis_permission::Region::*;
-        match value {
-            Region::Us => Us,
-            Region::Eu => Eu,
-            Region::Prc => Prc,
-            Region::All => All,
+impl From<RawRegion> for Region {
+    fn from(value: RawRegion) -> Self {
+        // The SC API uses lowercase regions, but...
+        Self(value.to_string().to_lowercase())
+    }
+}
+
+impl From<Region> for RawRegion {
+    fn from(mut value: Region) -> Self {
+        // ...our SC <-> DB API uses titlecase regions.
+        // (and we'll only use ASCII for regions codes so the following is fine)
+        if let Some((first, rest)) = value.0.split_at_mut_checked(1) {
+            first.make_ascii_uppercase();
+            rest.make_ascii_lowercase();
         }
+        RawRegion::from(value.0)
     }
 }
 
@@ -269,8 +274,8 @@ impl HazardHits {
 mod tests {
     use assert_json_diff::assert_json_eq;
     use certificates::{
-        test_helpers::create_et_bundle_with_custom_expiry, Clock, Expiration, FixedClock,
-        SystemClock,
+        Clock, Expiration, FixedClock, SystemClock,
+        test_helpers::create_et_bundle_with_custom_expiry,
     };
     use quickdna::{DnaSequence, FastaParser, Nucleotide};
     use serde_json::json;
@@ -298,7 +303,7 @@ mod tests {
             CheckFastaRequest {
                 fasta: "hello i am dna".into(),
                 common: RequestCommon {
-                    region: Region::All,
+                    region: Region::all(),
                     ets: vec![],
                     provider_reference: None,
                     verifiable_screening: false,
@@ -322,7 +327,7 @@ mod tests {
             CheckFastaRequest {
                 fasta: "hello i am dna".into(),
                 common: RequestCommon {
-                    region: Region::All,
+                    region: Region::all(),
                     provider_reference: None,
                     ets: vec![],
                     verifiable_screening: false,
@@ -346,7 +351,7 @@ mod tests {
             CheckFastaRequest {
                 fasta: "hello i am dna".into(),
                 common: RequestCommon {
-                    region: Region::All,
+                    region: Region::all(),
                     ets: vec![],
                     provider_reference: Some("arbitrary test #5824".into()),
                     verifiable_screening: false,
@@ -370,7 +375,7 @@ mod tests {
             CheckNcbiRequest {
                 id: "FOO_78284".into(),
                 common: RequestCommon {
-                    region: Region::All,
+                    region: Region::all(),
                     ets: vec![],
                     provider_reference: Some("arbitrary test #5824".into()),
                     verifiable_screening: false,
@@ -394,7 +399,7 @@ mod tests {
             CheckNcbiRequest {
                 id: "FOO_78284".into(),
                 common: RequestCommon {
-                    region: Region::All,
+                    region: Region::all(),
                     ets: vec![],
                     provider_reference: None,
                     verifiable_screening: true,
@@ -418,7 +423,7 @@ mod tests {
             CheckFastaRequest {
                 fasta: "actg".into(),
                 common: RequestCommon {
-                    region: Region::All,
+                    region: Region::all(),
                     ets: vec![],
                     provider_reference: None,
                     verifiable_screening: true,

@@ -1,10 +1,10 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::Path;
 
 pub use persistence::Connection;
-use persistence::{params, rusqlite::OptionalExtension, tokio_rusqlite, Migrations, OpenError, M};
+use persistence::{M, Migrations, OpenError, params, rusqlite::OptionalExtension, tokio_rusqlite};
 
 pub async fn open_db(path: impl AsRef<Path>) -> Result<Connection, OpenError> {
     persistence::open_db(

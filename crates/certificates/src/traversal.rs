@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use serde::Serialize;
@@ -203,11 +203,10 @@ pub trait ChainTraversal {
             .unwrap_or_default();
 
         let expiry_check_ts = clock.unix_timestamp() + Duration::days(days).whole_seconds();
-        let expiring_items = path_to_leaf
+        path_to_leaf
             .into_iter()
             .filter(|item| item.expiration().not_valid_after <= expiry_check_ts)
-            .collect();
-        expiring_items
+            .collect()
     }
 
     /// Identifies items that will expire at the specified number of days in the future or earlier.
@@ -219,8 +218,7 @@ pub trait ChainTraversal {
         clock: &impl Clock,
     ) -> Vec<ChainItem<Self::R>> {
         let days_in_seconds = time::Duration::days(days).whole_seconds();
-        let expiring_items = self
-            .expiry_within_days(days, clock)
+        self.expiry_within_days(days, clock)
             .into_iter()
             .filter(|item| {
                 let expiration = item.expiration();
@@ -228,8 +226,7 @@ pub trait ChainTraversal {
                     expiration.not_valid_after - expiration.not_valid_before;
                 item_validity_duration > days_in_seconds
             })
-            .collect();
-        expiring_items
+            .collect()
     }
 
     /// Identifies items that will expire at the specified number of days in the future or earlier.
@@ -414,6 +411,7 @@ pub struct ExpiryWarning {
 
 #[cfg(all(test, feature = "cert_tests"))]
 mod tests {
+    use crate::EtrBuilder;
     use crate::key_traits::HasAssociatedSigningKey;
     use crate::test_helpers::{
         create_etr_with_options, create_issuing_exemption_token_bundle, create_leaf_bundle,
@@ -421,20 +419,19 @@ mod tests {
     use crate::test_helpers::{create_exemption_token_bundle, create_exemptions};
     use crate::tokens::exemption::et::issue_exemption_token_without_compliance_check;
     use crate::validation_error::InvalidityCause;
-    use crate::EtrBuilder;
+    use crate::{Authenticator, CertificateChain, SystemClock, YubikeyId};
     use crate::{
+        Builder, Certificate, CertificateBundle, CertificateRequest, Description,
+        ExemptionTokenGroup, Expiration, GenbankId, Issued, KeyUnavailable, Organism,
+        SequenceIdentifier, SigningKeyPair, TokenBundle, TokenGroup,
         certificate::{IssuerAdditionalFields, RequestBuilder},
         shared_components::role::Exemption,
         test_for_all_token_types,
         test_helpers::{
-            create_cross_signed_intermediate_bundle, create_etr, create_intermediate_bundle,
-            BreakableSignature,
+            BreakableSignature, create_cross_signed_intermediate_bundle, create_etr,
+            create_intermediate_bundle,
         },
-        Builder, Certificate, CertificateBundle, CertificateRequest, Description,
-        ExemptionTokenGroup, Expiration, GenbankId, Issued, KeyUnavailable, Organism,
-        SequenceIdentifier, SigningKeyPair, TokenBundle, TokenGroup,
     };
-    use crate::{Authenticator, CertificateChain, SystemClock, YubikeyId};
 
     use super::*;
 

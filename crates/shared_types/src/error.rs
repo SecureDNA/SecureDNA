@@ -1,8 +1,8 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use certificates::{
-    traversal_limit_message, ChainValidationError, Infrastructure, PublicKey, Role, TokenKind,
+    ChainValidationError, Infrastructure, PublicKey, Role, TokenKind, traversal_limit_message,
 };
 
 use std::fmt::Display;
@@ -22,7 +22,7 @@ impl<R: Role> Display for InvalidClientTokenBundle<R> {
                         f,
                         "the {} provided does not originate from the expected root certificate. This indicates a configuration error.",
                         self.token_kind
-                        )
+                    )
                 } else {
                     write!(
                         f,

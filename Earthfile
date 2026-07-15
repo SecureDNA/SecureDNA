@@ -25,7 +25,7 @@ keyserver-image:
 
 hdbserver-image:
     FROM +debian-base
-    WORKDIR /hdb
+    WORKDIR /hdbserver
     EXPOSE 80
 
     COPY +build-rust/build/hdbserver .
@@ -84,7 +84,7 @@ debian-base:
 # rust builder
 
 rust-base:
-    FROM rust:1.86.0-bookworm
+    FROM rust:1.96.0-bookworm
     ENV NODE_VERSION=18.17.1
     RUN apt install -y curl
     RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
@@ -96,8 +96,7 @@ rust-base:
     RUN node --version
     RUN npm --version
     RUN npm install -g pnpm
-    # See https://github.com/LukeMathWalker/cargo-chef/issues/290
-    RUN cargo install --debug cargo-chef --locked --version 0.1.68
+    RUN cargo install --debug cargo-chef --locked --version 0.1.73
 
 prepare-cache:
     FROM +rust-base

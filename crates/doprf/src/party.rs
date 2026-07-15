@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{fmt::Display, num::NonZeroU32, str::FromStr};
@@ -6,7 +6,7 @@ use std::{fmt::Display, num::NonZeroU32, str::FromStr};
 use curve25519_dalek::scalar::Scalar;
 use rasn::prelude::fields::{Field, Fields};
 use rasn::types::Integer;
-use rasn::{de::Error, AsnType};
+use rasn::{AsnType, de::Error};
 use serde::{Deserialize, Serialize};
 
 use crate::lagrange::{lagrange_coefficient_at_zero, lagrange_coefficients_at_zero};
@@ -117,7 +117,7 @@ pub struct KeyserverIdSet {
 impl KeyserverIdSet {
     /// Lagrange coefficients corresponding to all keyserver ids within the set.
     /// Can be applied to the corresponding keyshares, and combined to evaluate the DOPRF.
-    pub fn langrange_coefficients(&self) -> impl Iterator<Item = Scalar> {
+    pub fn langrange_coefficients(&self) -> impl Iterator<Item = Scalar> + use<> {
         let x_coords: Vec<Scalar> = self
             .sorted_keyserver_ids
             .iter()

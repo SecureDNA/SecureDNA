@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for using a certificate to sign another certificate, or self-signing a root certificate request
@@ -7,15 +7,15 @@ use std::path::Path;
 use std::{io::Write, path::PathBuf};
 
 use crate::default_filepath::set_appropriate_filepath_and_create_default_dir_if_required;
-use crate::passphrase_reader::{PassphraseReader, PassphraseSource, ENV_PASSPHRASE_WARNING};
+use crate::passphrase_reader::{ENV_PASSPHRASE_WARNING, PassphraseReader, PassphraseSource};
 use certificates::file::CERT_REQUEST_EXT;
 use certificates::{
-    file::{
-        load_cert_request_from_file, load_certificate_bundle_from_file, load_keypair_from_file,
-        save_certificate_bundle_to_file, CERT_EXT, KEY_PRIV_EXT,
-    },
     CertificateBundle, Exemption, HierarchyKind, Infrastructure, IssuerAdditionalFields,
     Manufacturer, Role, RoleKind,
+    file::{
+        CERT_EXT, KEY_PRIV_EXT, load_cert_request_from_file, load_certificate_bundle_from_file,
+        load_keypair_from_file, save_certificate_bundle_to_file,
+    },
 };
 use clap::{Parser, Subcommand};
 
@@ -215,14 +215,14 @@ fn sign_cert<R: Role, P: PassphraseReader>(
 mod tests {
 
     use certificates::{
-        file::{save_cert_request_to_file, save_keypair_to_file, FileError},
         Builder, ChainTraversal, RequestBuilder, SigningKeyPair, SystemClock,
+        file::{FileError, save_cert_request_to_file, save_keypair_to_file},
     };
     use tempfile::TempDir;
 
     use crate::passphrase_reader::{
-        EnvVarPassphraseReader, MemoryPassphraseReader, PassphraseReaderError,
-        KEY_ENCRYPTION_PASSPHRASE_ENV_VAR,
+        EnvVarPassphraseReader, KEY_ENCRYPTION_PASSPHRASE_ENV_VAR, MemoryPassphraseReader,
+        PassphraseReaderError,
     };
     use crate::shims::sign_cert;
 

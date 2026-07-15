@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use ed25519_dalek::SigningKey;
@@ -10,14 +10,15 @@ use ed25519::KeypairBytes;
 use ed25519_dalek::Signature as Ed25519Signature;
 use ed25519_dalek::Signer;
 use ed25519_dalek::VerifyingKey;
-use pkcs8::der::zeroize::{Zeroize, ZeroizeOnDrop};
 use pkcs8::DecodePrivateKey;
 use pkcs8::EncodePrivateKey;
 use pkcs8::SecretDocument;
+use pkcs8::der::zeroize::{Zeroize, ZeroizeOnDrop};
 use rand::rngs::OsRng;
 use serde_with::DeserializeFromStr;
 use serde_with::SerializeDisplay;
 
+use crate::PemEncodable;
 use crate::asn::{FromASN1DerBytes, ToASN1DerBytes};
 use crate::asn_encode_as_octet_string_impl;
 use crate::error::DecodeError;
@@ -27,7 +28,6 @@ use crate::key::error::SignatureVerificationError;
 use crate::pem::PemDecodable;
 use crate::pem::PemTaggable;
 use crate::shared_components::common::Signed;
-use crate::PemEncodable;
 
 use super::error::{KeyFromPkcs8Error, KeyIntoPkcs8Error, KeyParseError, SignatureParseError};
 

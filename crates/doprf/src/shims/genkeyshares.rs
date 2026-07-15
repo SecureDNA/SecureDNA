@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::io::ErrorKind;
@@ -8,7 +8,7 @@ use std::num::NonZeroU32;
 use clap::Parser;
 use rand::rngs::OsRng;
 
-use crate::prf::{generate_keyshares, KeyShare};
+use crate::prf::{KeyShare, generate_keyshares};
 
 #[derive(Debug, Parser)]
 #[clap(

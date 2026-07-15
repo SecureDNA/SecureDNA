@@ -1,7 +1,7 @@
 This directory holds the public portion of actual production
 certificates.  They are expected to be updated very rarely, because
 revoking or replacing one has large downstream effects on production
-servers, fielded clients, and/or exemptions certifications held by
+servers, fielded clients, and/or exemption certificates held by
 synthesis customers or biosafety authorities.  Because of this, no
 private keys nor passphrases may be checked into this directory.
 In addition, root certs and certs near the roots are never kept online

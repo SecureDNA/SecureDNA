@@ -1,0 +1,32 @@
+# Command-line tools
+
+If you have [installed](../installation/index.qmd) synthclient with command-line tools, you can use them to automate the generation of certificate requests:
+
+```sh
+sdna-create-cert manufacturer leaf \
+  --output "companyname-leaf.certr" \
+  --create-new-key "companyname-leaf.priv" \
+  --name "company name" \
+  --email "some-email@companyname.com"
+```
+
+and of synth tokens:
+
+```sh
+# Create an intermediate ".str" (synth token request) file...
+sdna-create-token --output "token.str" \
+  --create-new-key "token.priv" \
+  synthesizer \
+  --domain "yourcompany.com" \
+  --model "DNA Maker 1000" \
+  --serial "DM-1234" \
+  --rate-limit "10000"
+
+# ...and sign it with your own cert, to create an ".st" (synth token) file.
+sdna-sign-token synthesizer \
+  "token.str" "companyname-leaf.cert" \
+  --output "token.st" \
+  --days-valid "7304"  # 20 years
+```
+
+Now you have a **synth token** (`token.st`). With it, you can use synthclient, as detailed in [Usage](../usage/index.qmd).

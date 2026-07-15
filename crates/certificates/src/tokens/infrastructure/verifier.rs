@@ -1,14 +1,16 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module contains functionality for creating `VerifierTokenRequest` and `VerifierToken`.
 //! A `Certificate` with the `Infrastructure` role is able to sign a `VerifierTokenRequest` to issue a `VerifierToken`.
 //! A `VerifierToken` identifier a "verifier": the part of the HDB that performs verifiable screening.
 
-use rasn::{types::*, Decode, Encode};
+use rasn::{Decode, Encode, types::*};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    CertificateChain, Digestible, Infrastructure, KeyAvailable, KeyUnavailable, SigningKeyPair,
+    TokenKind,
     asn::ToASN1DerBytes,
     error::EncodeError,
     impl_boilerplate_for_token, impl_boilerplate_for_token_request,
@@ -23,8 +25,6 @@ use crate::{
         CompatibleIdentity, ComponentVersionGuard, Expiration, Id, Signed, VersionedComponent,
     },
     tokens::{TokenData, TokenGroup},
-    CertificateChain, Digestible, Infrastructure, KeyAvailable, KeyUnavailable, SigningKeyPair,
-    TokenKind,
 };
 
 use super::digest::{VerifierTokenDigest, VerifierTokenRequestDigest};
@@ -258,8 +258,8 @@ impl_key_boilerplate_for_token! {VerifierToken}
 mod test {
     use crate::key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded};
     use crate::{
-        test_helpers::create_leaf_cert, Expiration, Infrastructure, SigningKeyPair,
-        VerifierTokenRequest,
+        Expiration, Infrastructure, SigningKeyPair, VerifierTokenRequest,
+        test_helpers::create_leaf_cert,
     };
 
     #[test]

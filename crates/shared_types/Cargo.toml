@@ -3,7 +3,7 @@ name = "shared_types"
 version = { workspace = true }
 publish = { workspace = true }
 license = { workspace = true }
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 base64 = "0.22.0"
@@ -14,7 +14,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0"
 serde_plain = "1.0.1"
 thiserror = "2.0.3"
-uuid = {version = "1.17.0", features = ["v4", "js"]}
+uuid = {version = "1.23.1", features = ["v4", "js"]}
 
 certificates = { path = "../certificates" }
 doprf = {path = "../doprf"}

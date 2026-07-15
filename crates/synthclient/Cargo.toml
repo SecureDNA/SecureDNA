@@ -3,7 +3,7 @@ name = "synthclient"
 version = { workspace = true }
 publish = { workspace = true }
 license = { workspace = true }
-edition = "2021"
+edition = "2024"
 
 [features]
 default = ["native"]
@@ -26,8 +26,8 @@ required-features = ["native"]
 [dependencies]
 again = { workspace = true }
 anyhow = "1.0.75"
-bytes = "1.10.0"
-clap = { version = "4.5.0", features = ["derive", "cargo", "env"], optional = true }
+bytes = "1.11.1"
+clap = { version = "4.5.60", features = ["derive", "cargo", "env"], optional = true }
 futures = "0.3.28"
 getrandom = "0.2"
 hex = "0.4"
@@ -40,7 +40,7 @@ sha3 = "0.10.8"
 thiserror = "2.0.3"
 tokio = { version = "1", default-features = false, features = ["sync"] }
 tracing = { workspace = true }
-uuid = { version = "1.17.0", features = ["v4", "js"] }
+uuid = { version = "1.23.1", features = ["v4", "js"] }
 
 certificates = { path = "../certificates" }
 doprf = { path = "../doprf" }
@@ -60,7 +60,7 @@ minhttp = { path = "../minhttp" }
 regex = "1.11.0"
 reqwest = { version = "0.12.7", features = ["rustls-tls"] }
 tracing = { workspace = true }
-time = "0.3.28"
+time = "0.3.47"
 url = "2.5.0"
 
 persistence = { path = "../persistence" }

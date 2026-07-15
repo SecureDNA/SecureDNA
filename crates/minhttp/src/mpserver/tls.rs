@@ -1,27 +1,26 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Following the logic of the hyper-rustls server example:
 // https://github.com/rustls/hyper-rustls/blob/main/examples/server.rs
 // under MIT license OR Apache-2.0
 
-use std::future::Future;
 use std::io::{self, Cursor, ErrorKind};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{ready, Poll};
+use std::task::{Poll, ready};
 
 use anyhow::Context;
 use futures::TryStreamExt;
 use http::uri::{Authority, PathAndQuery, Scheme, Uri};
-use hyper::header::{HeaderValue, HOST};
+use hyper::header::{HOST, HeaderValue};
 use hyper::{Request, StatusCode};
 use pin_project::pin_project;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::ServerConfig;
-use serde::{de, Deserialize, Deserializer, Serialize};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_rustls::server::TlsStream;
@@ -114,12 +113,12 @@ impl HttpsUriError {
 }
 
 /// Sets up TLS and wraps the given [`Listener`] with a [`TlsAcceptor`]
-pub async fn terminate_tls_to_listener(
-    read_file: impl ReadFileFn,
+pub async fn terminate_tls_to_listener<ReadFile: ReadFileFn, Listen: Listener>(
+    read_file: ReadFile,
     certs_path: &Path,
     private_key_path: &Path,
-    listener: impl Listener,
-) -> anyhow::Result<impl Listener> {
+    listener: Listen,
+) -> anyhow::Result<impl Listener + use<ReadFile, Listen>> {
     let certs = load_certs(read_file.clone(), certs_path).await?;
     let key = load_private_key(read_file, private_key_path).await?;
     let tls_acceptor = setup_tls_acceptor(certs, key)?;
@@ -134,7 +133,7 @@ async fn load_certs(
     let certs = read_file(path.to_owned())
         .await
         .with_context(|| format!("Couldn't open certificates at {}", path.display()))?;
-    let certs: Result<_, _> = rustls_pemfile::certs(&mut Cursor::new(certs)).collect();
+    let certs: Result<_, _> = CertificateDer::pem_reader_iter(&mut Cursor::new(certs)).collect();
     certs.with_context(|| format!("Couldn't parse certificates at {}", path.display()))
 }
 
@@ -143,13 +142,10 @@ async fn load_private_key(
     read_file: impl ReadFileFn,
     path: &Path,
 ) -> anyhow::Result<PrivateKeyDer<'static>> {
-    use ErrorKind::InvalidData;
     let key = read_file(path.to_owned())
         .await
         .with_context(|| format!("Couldn't open private key at {}", path.display()))?;
-    rustls_pemfile::private_key(&mut Cursor::new(key))
-        .transpose()
-        .unwrap_or_else(|| Err(std::io::Error::new(InvalidData, "Empty private key")))
+    PrivateKeyDer::from_pem_reader(&mut Cursor::new(key))
         .with_context(|| format!("Couldn't parse private key at {}", path.display()))
 }
 
@@ -316,7 +312,7 @@ pub fn redirect_to_https<AS: AppState>(tls_port: u16) -> impl ResponseFn<AS> {
                     return text(
                         err.status_code(),
                         format!("Can't build redirect URI: {err}."),
-                    )
+                    );
                 }
             };
             match HeaderValue::try_from(https_uri.to_string()) {

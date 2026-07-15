@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use super::common::disabled_service;
@@ -53,7 +53,7 @@ impl ServerSetup<(), (), (), (), (), (), ()> {
         MissingCallback,
         MissingCallback,
         MissingCallback,
-        impl ConnectedFn<ConnectionState = ()>,
+        impl ConnectedFn<(), ConnectionState = ()>,
         impl ConnectionFailedFn,
         impl DisconnectedFn<()>,
     > {
@@ -62,7 +62,7 @@ impl ServerSetup<(), (), (), (), (), (), ()> {
             respond: MissingCallback,
             respond_to_monitoring: MissingCallback,
             respond_to_control: MissingCallback,
-            connected: |_| {},
+            connected: |_, _| {},
             connection_failed: |_| {},
             disconnected: |_| {},
         }
@@ -70,14 +70,14 @@ impl ServerSetup<(), (), (), (), (), (), ()> {
 }
 
 impl<
-        Reconfigure,
-        Respond,
-        RespondToMonitoring,
-        RespondToControl,
-        Connected,
-        ConnectionFailed,
-        Disconnected,
-    >
+    Reconfigure,
+    Respond,
+    RespondToMonitoring,
+    RespondToControl,
+    Connected,
+    ConnectionFailed,
+    Disconnected,
+>
     ServerSetup<
         Reconfigure,
         Respond,
@@ -97,6 +97,8 @@ impl<
     /// Note that calling this wipes out [`self.respond`](Self::respond), and populates
     /// [`self.respond_to_monitoring`](Self::respond_to_monitoring)
     /// and [`self.respond_to_control`](Self::respond_to_control) with stubs.
+    ///
+    /// Note that calling this wipes out [`self.connected`](Self::connected).
     pub fn with_reconfigure<AC, AS: AppState, R: ReconfigureFn<AC, AS>>(
         self,
         reconfigure: R,
@@ -105,7 +107,7 @@ impl<
         MissingCallback,
         impl ResponseFn<AS>,
         impl ResponseFn<AS>,
-        Connected,
+        impl ConnectedFn<AS, ConnectionState = ()>,
         ConnectionFailed,
         Disconnected,
     > {
@@ -114,7 +116,7 @@ impl<
             respond: MissingCallback,
             respond_to_monitoring: disabled_service,
             respond_to_control: disabled_service,
-            connected: self.connected,
+            connected: |_, _| {},
             connection_failed: self.connection_failed,
             disconnected: self.disconnected,
         }
@@ -216,7 +218,7 @@ impl<
     /// New connection callback used for monitoring purposes.
     ///
     /// Note that calling this wipes out [`self.disconnected`](Self::disconnected).
-    pub fn with_connected<C>(
+    pub fn with_connected<AC, AS, C>(
         self,
         connected: C,
     ) -> ServerSetup<
@@ -229,7 +231,8 @@ impl<
         impl DisconnectedFn<C::ConnectionState>,
     >
     where
-        C: ConnectedFn,
+        Reconfigure: ReconfigureFn<AC, AS>,
+        C: ConnectedFn<AS>,
     {
         ServerSetup {
             reconfigure: self.reconfigure,
@@ -270,7 +273,7 @@ impl<
     }
 
     /// Disconnection callback used for monitoring purposes.
-    pub fn with_disconnected<D>(
+    pub fn with_disconnected<AS, D>(
         self,
         disconnected: D,
     ) -> ServerSetup<
@@ -283,7 +286,7 @@ impl<
         D,
     >
     where
-        Connected: ConnectedFn,
+        Connected: ConnectedFn<AS>,
         D: DisconnectedFn<Connected::ConnectionState>,
     {
         ServerSetup {

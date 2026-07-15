@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module contains functionality for creating an `ExemptionTokenRequest`.
@@ -7,12 +7,14 @@
 use std::fmt::Display;
 
 use quickdna::{DnaSequence, NucleotideAmbiguous};
-use rasn::{types::*, Decode, Encode};
+use rasn::{Decode, Encode, types::*};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::chain::Chain;
+use crate::{Digestible, TokenKind, impl_boilerplate_for_token_request};
 use crate::{
+    IssuanceError, KeyAvailable, KeyMismatchError, KeyUnavailable, SigningKeyPair,
     asn::ToASN1DerBytes,
     error::EncodeError,
     impl_boilerplate_for_token, impl_boilerplate_for_token_request_version,
@@ -28,9 +30,7 @@ use crate::{
         role::Exemption,
     },
     tokens::{TokenData, TokenGroup},
-    IssuanceError, KeyAvailable, KeyMismatchError, KeyUnavailable, SigningKeyPair,
 };
-use crate::{impl_boilerplate_for_token_request, Digestible, TokenKind};
 
 use super::digest::{ExemptionTokenDigest, ExemptionTokenRequestDigest};
 use super::{authenticator::Authenticator, organism::Organism};
@@ -756,9 +756,9 @@ mod test {
     use crate::test_helpers::{create_etr_with_options, create_issuing_exemption_token_bundle};
     use crate::tokens::exemption::et::{EtrBuilder, NonComplianceCause, NonCompliantChildToken};
     use crate::{
-        test_helpers::{create_etr, create_exemptions, create_leaf_cert},
         Exemption, ExemptionToken, ExemptionTokenRequest, Expiration, GenbankId, IssuanceError,
         Organism, PemDecodable, PemEncodable, Sequence, SequenceIdentifier, SigningKeyPair,
+        test_helpers::{create_etr, create_exemptions, create_leaf_cert},
     };
 
     #[test]

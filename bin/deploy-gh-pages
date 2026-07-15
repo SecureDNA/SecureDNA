@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+# Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+# Deploy one or more directories to a `gh-pages` branch in a SINGLE commit.
+#
+# This replaces multiple invocations of JamesIves/github-pages-deploy-action,
+# which each made their own commit/push and clashed when run concurrently.
+# Here every (source -> target) mapping is applied to a single working tree and
+# pushed as one commit, with a fetch+reapply+retry loop so that concurrent
+# deploys from other jobs/workflows don't cause a hard failure.
+#
+# The target repository defaults to the current one ($GITHUB_REPOSITORY) but can
+# be overridden with --repo, so the monorepo's CI can publish to a *different*
+# repo's Pages site (e.g. SecureDNA/securedna.org -> https://securedna.org/).
+# The target branch is expected to already exist.
+#
+# Usage:
+#   bin/deploy-gh-pages [--repo OWNER/REPO] \
+#     -m "<commit message>" <SRC:DST> [<SRC:DST> ...]
+#
+#   SRC  Path (relative to the repo root, or absolute) to a directory whose
+#        *contents* will be published.
+#   DST  Destination path within the gh-pages branch (leading "/" optional).
+#        Use "/" (or an empty destination) to publish to the branch root.
+#        The destination is cleaned before the source contents are copied in,
+#        matching the default `clean: true` behaviour of the upstream action.
+#        Cleaning the root preserves `.git`, `CNAME`, `.nojekyll`, and any path
+#        that is itself the destination of another mapping in the same run (so
+#        e.g. publishing a site to "/" won't wipe a sibling "/docs" deploy or
+#        the branch's existing CNAME).
+#
+# Options:
+#   -m, --message MSG   Commit message (required).
+#   -r, --repo  O/R     Target "owner/repo" (default: $GITHUB_REPOSITORY).
+#
+# Environment:
+#   GITHUB_TOKEN        Token with write access to the *target* repo (required).
+#                       For a cross-repo deploy this must be a PAT / GitHub App
+#                       token that can write to --repo, not the default
+#                       per-repo GITHUB_TOKEN.
+#   GITHUB_REPOSITORY   "owner/repo" used when --repo is not given.
+#   GIT_AUTHOR_NAME     Commit author/committer name  (optional).
+#   GIT_AUTHOR_EMAIL    Commit author/committer email (optional).
+#
+# Examples:
+#   # Frontends -> this repo's Pages (https://pages.securedna.org/...):
+#   bin/deploy-gh-pages -m "Deploy staging ($GITHUB_SHA)" \
+#     frontend/elgui/dist:/staging/exemption \
+#     frontend/onboarding/dist:/staging/onboarding
+#
+#   # Quarto content -> the securedna.org repo (https://securedna.org/):
+#   bin/deploy-gh-pages --repo SecureDNA/securedna.org \
+#     -m "Deploy site ($GITHUB_SHA)" \
+#     website/_site:/ \
+#     docs/quarto/_book:/docs
+
+set -euo pipefail
+
+readonly BRANCH="gh-pages"
+readonly MAX_ATTEMPTS=8
+
+die() {
+  echo "deploy-gh-pages: $*" >&2
+  exit 1
+}
+
+usage() {
+  echo "Usage: $0 [--repo OWNER/REPO] -m <message> <SRC:DST> [<SRC:DST> ...]" >&2
+}
+
+message=""
+repo_arg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -m|--message)
+      [ $# -ge 2 ] || { usage; die "missing argument for $1"; }
+      message="$2"
+      shift 2
+      ;;
+    -r|--repo)
+      [ $# -ge 2 ] || { usage; die "missing argument for $1"; }
+      repo_arg="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      usage
+      die "unknown option: $1"
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+[ -n "$message" ] || { usage; die "a commit message (-m) is required"; }
+[ $# -ge 1 ] || { usage; die "at least one SRC:DST mapping is required"; }
+[ -n "${GITHUB_TOKEN:-}" ] || die "GITHUB_TOKEN is not set"
+
+repo="${repo_arg:-${GITHUB_REPOSITORY:-}}"
+[ -n "$repo" ] || die "no target repository (pass --repo or set GITHUB_REPOSITORY)"
+case "$repo" in
+  */*) ;;
+  *) die "invalid repository (expected OWNER/REPO): $repo" ;;
+esac
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+# Parse and validate mappings up front, resolving sources to absolute paths so
+# they survive the `cd` into the temporary checkout below. An empty destination
+# (from "/" or "") means the branch root.
+declare -a sources targets
+# Top-level paths that a root-clean must preserve: Pages infrastructure files
+# plus the first path component of every non-root destination.
+declare -a protected_root=(".git" "CNAME" ".nojekyll")
+for mapping in "$@"; do
+  case "$mapping" in
+    *:*) ;;
+    *) die "invalid mapping (expected SRC:DST): $mapping" ;;
+  esac
+  src="${mapping%%:*}"
+  dst="${mapping#*:}"
+  # Resolve src relative to the repo root if it is not absolute.
+  case "$src" in
+    /*) ;;
+    *) src="$repo_root/$src" ;;
+  esac
+  [ -d "$src" ] || die "source directory does not exist: $src"
+  src="$(cd "$src" && pwd)"
+  # Normalise dst: strip leading/trailing slashes; reject traversal.
+  dst="${dst#/}"
+  dst="${dst%/}"
+  case "/$dst/" in
+    *"/../"*) die "destination must not contain '..': $dst" ;;
+  esac
+  sources+=("$src")
+  targets+=("$dst")
+  [ -n "$dst" ] && protected_root+=("${dst%%/*}")
+done
+
+# This mysterious number is the user ID for github-actions[bot], and
+# is part of the canonical git email for that bot:
+# https://www.junian.dev/tech/github-actions-bot-username-email-address/
+author_name="${GIT_AUTHOR_NAME:-github-actions[bot]}"
+author_email="${GIT_AUTHOR_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
+remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${repo}.git"
+
+workdir="$(mktemp -d)"
+cleanup() { rm -rf "$workdir"; }
+trap cleanup EXIT
+
+echo "Cloning $repo ($BRANCH)..."
+git clone --quiet --depth=1 --branch "$BRANCH" --single-branch "$remote" "$workdir"
+cd "$workdir"
+git config user.name "$author_name"
+git config user.email "$author_email"
+
+# Remove every top-level entry of the branch root except those in
+# protected_root, so a "/" deploy refreshes the site without deleting .git,
+# CNAME, or sibling deploys (e.g. /docs).
+clean_root() {
+  local entry base p keep
+  shopt -s dotglob nullglob
+  for entry in "$workdir"/*; do
+    base="$(basename "$entry")"
+    keep=
+    for p in "${protected_root[@]}"; do
+      [ "$base" = "$p" ] && { keep=1; break; }
+    done
+    [ -n "$keep" ] || rm -rf -- "$entry"
+  done
+  shopt -u dotglob nullglob
+}
+
+apply_mappings() {
+  local i src dst
+  for i in "${!sources[@]}"; do
+    src="${sources[$i]}"
+    dst="${targets[$i]}"
+    if [ -z "$dst" ]; then
+      echo "  ${src#"$repo_root"/} -> / (root)"
+      clean_root
+      cp -a -- "$src/." "$workdir/"
+    else
+      echo "  ${src#"$repo_root"/} -> /$dst"
+      rm -rf -- "${workdir:?}/$dst"
+      mkdir -p -- "$workdir/$dst"
+      cp -a -- "$src/." "$workdir/$dst/"
+    fi
+  done
+}
+
+attempt=1
+while :; do
+  echo "Deploy to $repo ($BRANCH), attempt $attempt/$MAX_ATTEMPTS"
+  # Sync working tree to the latest remote state, then (re)apply the mappings.
+  git fetch --quiet --depth=1 origin "$BRANCH"
+  git reset --quiet --hard "origin/$BRANCH"
+  git clean -qffdx
+
+  apply_mappings
+
+  git add --all
+  if git diff --cached --quiet; then
+    echo "No changes to deploy."
+    exit 0
+  fi
+
+  git commit --quiet -m "$message"
+
+  if git push origin "HEAD:$BRANCH"; then
+    echo "Pushed to $repo ($BRANCH)."
+    exit 0
+  fi
+
+  if [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
+    die "push failed after $MAX_ATTEMPTS attempts"
+  fi
+  # Back off a little to let the conflicting push settle, then retry. The loop
+  # re-syncs to the latest remote branch and reapplies our mappings on top.
+  sleep_for=$(( (RANDOM % 5) + attempt ))
+  echo "Push rejected (concurrent update?); retrying in ${sleep_for}s..."
+  sleep "$sleep_for"
+  attempt=$((attempt + 1))
+done

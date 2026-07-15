@@ -4,3 +4,7 @@ packages:
   - onboarding
   - tsgen
   - web-interface
+allowBuilds:
+  '@swc/core': true
+  core-js: true
+  esbuild: true

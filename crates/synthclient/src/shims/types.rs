@@ -1,18 +1,16 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::env;
-use std::fmt;
 use std::net::IpAddr;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::Context;
-use clap::{crate_version, ArgAction, Args, CommandFactory, Parser};
-use serde::{de, Deserialize, Deserializer};
+use clap::{ArgAction, Args, CommandFactory, Parser, crate_version};
+use serde::Deserialize;
 use tokio::sync::{Mutex, Semaphore};
 use url::Url;
 
@@ -22,7 +20,9 @@ use crate::shims::event_store::Connection;
 use crate::web_cache::WebCache;
 use doprf_client::server_selection::{ServerEnumerationSource, ServerSelector};
 use minhttp::mpserver::{cli::ServerConfigSource, traits::RelativeConfig};
-use scep_client_helpers::{scep_version, ClientCerts};
+use scep_client_helpers::{ClientCerts, scep_version};
+use shared_types::FriendlyDuration;
+use shared_types::deserialize_via_parse;
 use shared_types::metrics::SynthClientMetrics;
 use shared_types::server_selection::Tier;
 
@@ -301,47 +301,6 @@ impl EnumerationArgs {
     }
 }
 
-/// A wrapper around `std::time::Duration` that supports parsing from strings
-/// like "1day", "2weeks", "3min", etc.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FriendlyDuration(pub Duration);
-
-impl FromStr for FriendlyDuration {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let Some(i) = s.find(char::is_alphabetic) else {
-            return Err("must specify a unit like `12hr` or `2days`".to_owned());
-        };
-
-        let amount: u64 = s[..i]
-            .trim()
-            .parse()
-            .map_err(|e| format!("failed to parse amount: {e}"))?;
-
-        let unit_string = s[i..].trim().to_ascii_lowercase();
-        let unit = match unit_string.as_str() {
-            "s" | "sec" | "second" | "seconds" => 1,
-            "m" | "min" | "minute" | "minutes" => 60,
-            "h" | "hr" | "hour" | "hours" => 3600,
-            "d" | "day" | "days" => 24 * 3600,
-            "wk" | "week" | "weeks" => 7 * 24 * 3600,
-            _ => return Err(format!("unknown unit {unit_string:?}")),
-        };
-
-        let Some(seconds) = amount.checked_mul(unit) else {
-            return Err("duration is greater than 2^64 seconds".to_owned());
-        };
-        Ok(FriendlyDuration(Duration::from_secs(seconds)))
-    }
-}
-
-impl fmt::Display for FriendlyDuration {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}s", self.0.as_secs())
-    }
-}
-
 #[derive(Args, Clone, Debug, Deserialize)]
 pub struct SelectionRefreshArgs {
     #[clap(
@@ -350,10 +309,7 @@ pub struct SelectionRefreshArgs {
         env = "SECUREDNA_SYNTHCLIENT_SOFT_TIMEOUT",
         default_value_t = SelectionRefreshArgs::default_soft_timeout(),
      )]
-    #[serde(
-        deserialize_with = "deserialize_via_parse",
-        default = "SelectionRefreshArgs::default_soft_timeout"
-    )]
+    #[serde(default = "SelectionRefreshArgs::default_soft_timeout")]
     pub soft_timeout: FriendlyDuration,
 
     #[clap(
@@ -362,10 +318,7 @@ pub struct SelectionRefreshArgs {
         env = "SECUREDNA_SYNTHCLIENT_BLOCKING_TIMEOUT",
         default_value_t = SelectionRefreshArgs::default_blocking_timeout(),
      )]
-    #[serde(
-        deserialize_with = "deserialize_via_parse",
-        default = "SelectionRefreshArgs::default_blocking_timeout"
-    )]
+    #[serde(default = "SelectionRefreshArgs::default_blocking_timeout")]
     pub blocking_timeout: FriendlyDuration,
 
     #[clap(
@@ -463,16 +416,6 @@ impl RelativeConfig for CertificateArgs {
     }
 }
 
-fn deserialize_via_parse<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-where
-    D: Deserializer<'de>,
-    T: FromStr,
-    <T as FromStr>::Err: std::fmt::Display,
-{
-    let s = String::deserialize(deserializer)?;
-    FromStr::from_str(&s).map_err(de::Error::custom)
-}
-
 pub struct SynthClientState {
     pub app_cfg: Config,
     pub is_serving_https: bool,
@@ -503,91 +446,11 @@ impl SynthClientState {
         }
     }
 
-    pub fn limit_config(&self, screening_type: ScreeningType) -> LimitConfiguration {
+    pub fn limit_config(&self, screening_type: ScreeningType) -> LimitConfiguration<'_> {
         LimitConfiguration {
             memory_limit: self.app_cfg.memorylimit,
             max_request_bp: self.max_request_bp(screening_type),
             limits: &self.limits,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[test]
-    fn test_parse_friendly_duration() {
-        assert_eq!(
-            FriendlyDuration::from_str("3min"),
-            Ok(FriendlyDuration(Duration::from_secs(180)))
-        );
-        assert_eq!(
-            FriendlyDuration::from_str("1D"),
-            Ok(FriendlyDuration(Duration::from_secs(24 * 3600)))
-        );
-        assert_eq!(
-            FriendlyDuration::from_str("2 weeks"),
-            Ok(FriendlyDuration(Duration::from_secs(1_209_600)))
-        );
-        assert_eq!(
-            FriendlyDuration::from_str("-2 days"),
-            Err("failed to parse amount: invalid digit found in string".to_owned())
-        );
-        assert_eq!(
-            FriendlyDuration::from_str("2"),
-            Err("must specify a unit like `12hr` or `2days`".to_owned())
-        );
-        assert_eq!(
-            FriendlyDuration::from_str("weeks"),
-            Err("failed to parse amount: cannot parse integer from empty string".to_owned())
-        );
-        assert_eq!(
-            FriendlyDuration::from_str("2 xyz"),
-            Err("unknown unit \"xyz\"".to_owned())
-        );
-        assert_eq!(
-            FriendlyDuration::from_str("10000000000000000000 weeks"),
-            Err("duration is greater than 2^64 seconds".to_owned())
-        );
-    }
-
-    #[test]
-    fn test_display_friendly_duration() {
-        assert_eq!(
-            FriendlyDuration(Duration::from_secs(180)).to_string(),
-            "180s"
-        );
-        assert_eq!(
-            FriendlyDuration(Duration::from_secs(86400)).to_string(),
-            "86400s"
-        );
-    }
-
-    #[test]
-    fn test_serde_friendly_duration() {
-        #[derive(Deserialize, PartialEq, Debug)]
-        struct TestStruct {
-            #[serde(deserialize_with = "deserialize_via_parse")]
-            duration: FriendlyDuration,
-        }
-
-        let test = TestStruct {
-            duration: FriendlyDuration(Duration::from_secs(7200)),
-        };
-
-        // Test deserialization with the original string format
-        let json_s = r#"{"duration":"7200s"}"#;
-        let deserialized_s: TestStruct = serde_json::from_str(json_s).unwrap();
-        assert_eq!(test, deserialized_s);
-
-        // Test deserialization with the friendly format
-        let json_alt = r#"{"duration":"2h"}"#;
-        let deserialized_alt: TestStruct = serde_json::from_str(json_alt).unwrap();
-        assert_eq!(test, deserialized_alt);
-
-        let json_invalid = r#"{"duration":"2years"}"#;
-        assert!(serde_json::from_str::<TestStruct>(json_invalid).is_err());
     }
 }

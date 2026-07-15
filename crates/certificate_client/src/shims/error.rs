@@ -1,11 +1,11 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::PathBuf;
 
 use certificates::{
-    file::FileError, CertificateBundleError, ExpirationError, IssuanceError, KeyLoadError,
-    KeyMismatchError, KeyWriteError,
+    CertificateBundleError, ExpirationError, IssuanceError, KeyLoadError, KeyMismatchError,
+    KeyWriteError, file::FileError,
 };
 
 use crate::shims::audit::ENCRYPTED_SCREENING_RESPONSE_TAG;
@@ -19,11 +19,15 @@ pub enum CertCliError {
     CertificateBundleError(#[from] CertificateBundleError),
     #[error("Unsuccessfully attempted to create a default directory at {:?} for your certificate files.", .0)]
     DefaultDirectoryCreation(PathBuf),
-    #[error("Unsuccessfully attempted to determine a default directory for your certificate files. Please supply destinations for the files you are creating.")]
+    #[error(
+        "Unsuccessfully attempted to determine a default directory for your certificate files. Please supply destinations for the files you are creating."
+    )]
     DefaultDirectoryPath,
     #[error("Unable to issue: {0}.")]
     IssuanceError(#[from] IssuanceError),
-    #[error("Please enter at least one issuer's public key in order to inspect possible paths to that issuer.")]
+    #[error(
+        "Please enter at least one issuer's public key in order to inspect possible paths to that issuer."
+    )]
     IssuerPublicKeyRequired,
     #[error("Public key supplied could not be parsed.")]
     PublicKeyError,
@@ -33,23 +37,35 @@ pub enum CertCliError {
     KeyDecode,
     #[error("Could not use private key provided. Perhaps you entered the wrong passphrase")]
     KeyDecrypt,
-    #[error("Could not use private key provided. Perhaps the private key does not correspond to the certificate")]
+    #[error(
+        "Could not use private key provided. Perhaps the private key does not correspond to the certificate"
+    )]
     KeyMismatch,
     #[error("Unable to display the certificate in the format requested.")]
     FormatError,
     #[error("Unable to create a certificate with the supplied expiry information: {0}.")]
     Expiration(#[from] ExpirationError),
-    #[error("Cannot merge certificate files {0} and {1} because they are not derived from the same certificate request.")]
+    #[error(
+        "Cannot merge certificate files {0} and {1} because they are not derived from the same certificate request."
+    )]
     CouldNotMerge(PathBuf, PathBuf),
-    #[error("No valid certificate(s) found in the file provided. This may mean that the certificate has expired.")]
+    #[error(
+        "No valid certificate(s) found in the file provided. This may mean that the certificate has expired."
+    )]
     NoSuitableCertificate,
-    #[error("Where a public key is supplied for audit purposes, the audit recipient's email address must also be provided.")]
+    #[error(
+        "Where a public key is supplied for audit purposes, the audit recipient's email address must also be provided."
+    )]
     MissingAuditEmail,
-    #[error("Where an email address is supplied for audit purposes, the audit recipient's public key must also be provided.")]
+    #[error(
+        "Where an email address is supplied for audit purposes, the audit recipient's public key must also be provided."
+    )]
     MissingAuditPublicKey,
     #[error(transparent)]
     CouldNotReadPassphrase(#[from] PassphraseReaderError),
-    #[error("Please supply no more than one option from --create-new-key, --key-from-hex, --key-from-file.")]
+    #[error(
+        "Please supply no more than one option from --create-new-key, --key-from-hex, --key-from-file."
+    )]
     TooManyKeyArgs,
     #[error(transparent)]
     FileError(FileError),
@@ -75,7 +91,9 @@ pub enum CertCliError {
     EncryptionOutputFileWrite(PathBuf, String),
     #[error("Attachments are not supported on this file type.")]
     AttachmentsNotSupported,
-    #[error("Unexpected file contents. Check that the file contains the tag '{ENCRYPTED_SCREENING_RESPONSE_TAG}'.")]
+    #[error(
+        "Unexpected file contents. Check that the file contains the tag '{ENCRYPTED_SCREENING_RESPONSE_TAG}'."
+    )]
     UnexpectedAuditFileContents,
     #[error("The domain name provided is not valid")]
     InvalidDomain,

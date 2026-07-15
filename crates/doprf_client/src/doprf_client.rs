@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::num::NonZeroUsize;
@@ -13,6 +13,7 @@ use crate::instant::get_now;
 use crate::scep_client::{ClientConfig, HdbClient, KeyserverSetClient};
 use crate::server_selection::{ChosenSelectionSubset, SelectedKeyserver, ServerSelector};
 use crate::server_version_handler::LastServerVersionHandler;
+pub use crate::splice::RequestStreaming;
 use crate::stream::{HashingConfig, HashingStreamError};
 use crate::windows::{OrderWindow, OrderWindows};
 use certificates::{ExemptionTokenGroup, TokenBundle};
@@ -30,7 +31,7 @@ use shared_types::et::WithOtps;
 use shared_types::hash::HashSpec;
 use shared_types::requests::RequestContext;
 use shared_types::requests::RequestId;
-use shared_types::synthesis_permission::Region;
+use shared_types::synthesis_permission::RawRegion;
 
 #[derive(Clone)]
 pub struct ScreeningParams {
@@ -38,7 +39,7 @@ pub struct ScreeningParams {
     pub include_debug_info: bool,
     /// Whether the client requests verifiable screening
     pub verifiable_screening: bool,
-    pub region: Region,
+    pub region: RawRegion,
     /// Exemption tokens.
     pub ets: Vec<WithOtps<TokenBundle<ExemptionTokenGroup>>>,
     /// Hex digest of SHA3-256 hash of the JSON posted to synthclient. Used for
@@ -85,7 +86,6 @@ pub struct DoprfConfig<'a, S> {
     /// keyservers have to vary in speed. (larger values were determined to benefit performance
     /// during testing)
     ///
-    /// [`Future`]: std::future::Future
     /// [`Stream`]: futures::Stream
     /// [`StreamExt::buffered`]: futures::StreamExt::buffered
     pub parallelism_per_request: NonZeroUsize,
@@ -93,6 +93,11 @@ pub struct DoprfConfig<'a, S> {
     ///
     /// See [`parallelism_per_request`](Self::parallelism_per_request) for details.
     pub server_parallelism_limit: Arc<Semaphore>,
+    /// Determines whether to depend on the assumption that outgoing HTTP requests can be streamed
+    /// bidirectionally. If bidirectional streaming is assumed, query blinding/verification
+    /// only uses a fixed amount of memory, but attempting to consume the entire request
+    /// before providing a response (like our WASM code does) will lead to deadlock.
+    pub request_streaming: RequestStreaming,
 }
 
 impl<S> DoprfConfig<'_, S> {
@@ -155,12 +160,14 @@ struct DoprfWindows<I> {
 
 impl DoprfWindows<()> {
     /// Turn a sequence into hashable windows.
-    fn create<N: ToNucleotideLike + Copy, S: AsRef<[N]>>(
-        sequences: impl Iterator<Item = S>,
+    fn create<N: ToNucleotideLike + Copy, S: AsRef<[N]>, SI: Iterator<Item = S>>(
+        sequences: SI,
         hash_spec: &HashSpec,
         max_windows: u64,
-    ) -> Result<DoprfWindows<impl (Iterator<Item = (String, HashTag)>) + Clone + 'static>, DoprfError>
-    {
+    ) -> Result<
+        DoprfWindows<impl Iterator<Item = (String, HashTag)> + Clone + 'static + use<N, S, SI>>,
+        DoprfError,
+    > {
         // gah, I didn't think this through... oh well, temporary hack it is
         let sequences = sequences.map(|seq| seq.as_ref().to_vec());
         let windows = OrderWindows::from_sequences(sequences, hash_spec)?;
@@ -275,7 +282,7 @@ impl<'a, S> DoprfClient<'a, S> {
             client_config,
             common,
             HdbOpenParams {
-                region: config.params.region,
+                region: config.params.region.clone(),
                 with_exemption: !config.params.ets.is_empty(),
                 verifiable: if config.params.verifiable_screening {
                     VerifiableScreeningRequested::Requested
@@ -339,11 +346,13 @@ impl<'a, S> DoprfClient<'a, S> {
 
     /// Window the given sequences using the hash spec from the current HDB
     /// connection and the configured max window size.
-    fn window<N: ToNucleotideLike + Copy, T: AsRef<[N]>>(
+    fn window<N: ToNucleotideLike + Copy, T: AsRef<[N]>, TI: Iterator<Item = T>>(
         &self,
-        sequences: impl Iterator<Item = T>,
-    ) -> Result<DoprfWindows<impl (Iterator<Item = (String, HashTag)>) + Clone + 'static>, DoprfError>
-    {
+        sequences: TI,
+    ) -> Result<
+        DoprfWindows<impl Iterator<Item = (String, HashTag)> + Clone + 'static + use<S, N, T, TI>>,
+        DoprfError,
+    > {
         DoprfWindows::create(
             sequences,
             &self.hdb_client.state.hash_spec,
@@ -352,14 +361,16 @@ impl<'a, S> DoprfClient<'a, S> {
     }
 
     /// Connect to the chosen keyservers to hash the given windows.
-    async fn hash(
+    async fn hash<I: Iterator<Item = (String, HashTag)> + Clone + Send + 'static>(
         &self,
-        windows: impl Iterator<Item = (String, HashTag)> + Clone + Send + 'static,
+        windows: I,
     ) -> Result<
         impl TryStream<
-                Ok = (Vec<CompressedCompletedHashValue>, Vec<HashTag>),
-                Error = HashingStreamError<DoprfError>,
-            > + 'static,
+            Ok = (Vec<CompressedCompletedHashValue>, Vec<HashTag>),
+            Error = HashingStreamError<DoprfError>,
+        >
+        + 'static
+        + use<S, I>,
         DoprfError,
     > {
         let ks = self.connect_to_keyservers().await?;
@@ -376,6 +387,7 @@ impl<'a, S> DoprfClient<'a, S> {
                 .hash(
                     windows,
                     ks.keyserve_fns(),
+                    self.config.request_streaming,
                     self.active_security_key.clone().into(),
                 )
                 .await?;
@@ -544,6 +556,7 @@ mod tests {
         // take a first spin
         process(DoprfConfig {
             api_client: &mock_api_client,
+            request_streaming: RequestStreaming::Bidirectional,
             server_selector: selector.clone(),
             request_ctx: &request_ctx,
             sequences: &[dna.as_slice()],
@@ -552,7 +565,7 @@ mod tests {
             server_version_handler: &Default::default(),
             params: ScreeningParams {
                 certs: certs.clone(),
-                region: Region::All,
+                region: RawRegion::ALL,
                 include_debug_info: false,
                 verifiable_screening: false,
                 ets: vec![],

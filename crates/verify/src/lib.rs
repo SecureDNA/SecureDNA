@@ -1,27 +1,27 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
 
 use certificates::{
-    key::error::SignatureParseError, key_traits::HasAssociatedSigningKey, ChainTraversal,
-    ChainValidationError, Exemption, FixedClock, Infrastructure, Issued, PublicKey, Signature,
-    SignatureVerificationError, TokenBundle, TokenBundleError, ValidationError,
+    ChainTraversal, ChainValidationError, Exemption, FixedClock, Infrastructure, Issued, PublicKey,
+    Signature, SignatureVerificationError, TokenBundle, TokenBundleError, ValidationError,
+    key::error::SignatureParseError, key_traits::HasAssociatedSigningKey,
 };
 use doprf_client::error::DoprfError;
 use hdb_api::{
-    verification::{check_verification, CheckVerificationError},
     BaseHdbScreeningResult, HdbScreeningResult, HdbVerification,
+    verification::{CheckVerificationError, check_verification},
 };
 use quickdna::{FastaParseError, Located, NucleotideAmbiguous, TranslationError};
-use rotation::{parse_rotations, RotationParseError};
+use rotation::{RotationParseError, parse_rotations};
 use sha3::{Digest, Sha3_256};
 use synthclient::{
     api::{ApiResponse, CheckFastaRequest},
     parsefasta::parse_fasta,
 };
 use thiserror::Error;
-use time::{format_description::well_known::Iso8601, OffsetDateTime};
+use time::{OffsetDateTime, format_description::well_known::Iso8601};
 
 use fetch::HistoryFetcher;
 use timeline::Timeline;
@@ -52,9 +52,13 @@ fn list_check_token_errors(errors: &[(i64, CheckTokenError)]) -> String {
 
 #[derive(Debug, Error)]
 pub enum VerificationError {
-    #[error("The request body is invalid: {0}. It should be a JSON object in the same format as accepted by the /screen endpoint.")]
+    #[error(
+        "The request body is invalid: {0}. It should be a JSON object in the same format as accepted by the /screen endpoint."
+    )]
     BadRequestJson(serde_json::Error),
-    #[error("The response body is invalid: {0}. It should be a JSON object returned by synthclient from the /screen endpoint.")]
+    #[error(
+        "The response body is invalid: {0}. It should be a JSON object returned by synthclient from the /screen endpoint."
+    )]
     BadResponseJson(serde_json::Error),
     #[error("The response body's `response_json` field is invalid: {0}.")]
     BadInnerResponseJson(serde_json::Error),
@@ -70,7 +74,9 @@ pub enum VerificationError {
     InHdb(#[from] CheckVerificationError),
     #[error("Could not recreate synthclient response from HDB response: {0}")]
     RecreationFailed(#[from] DoprfError),
-    #[error("Recreating synthclient response from HDB response yielded a different result: original = {0:?}, recreated = {1:?}")]
+    #[error(
+        "Recreating synthclient response from HDB response yielded a different result: original = {0:?}, recreated = {1:?}"
+    )]
     RecreationMismatch(Box<ApiResponse>, Box<ApiResponse>),
     #[error("Could not download history: {0}")]
     FetchHistoryFailed(anyhow::Error),
@@ -78,7 +84,9 @@ pub enum VerificationError {
     BadHistory(#[from] RotationParseError),
     #[error("The HDB response timestamp is invalid: {0}")]
     InvalidHdbTimestamp(time::error::Parse),
-    #[error("The public key does not match the history. The verifiable result contains {0:?}, but the history says the valid keys at the time of this result were {1:?}.")]
+    #[error(
+        "The public key does not match the history. The verifiable result contains {0:?}, but the history says the valid keys at the time of this result were {1:?}."
+    )]
     InvalidPublicKey(String, Vec<String>),
     #[error("The signature in the verifiable screening result cannot be parsed.")]
     SignatureParseError(#[from] SignatureParseError),
@@ -267,7 +275,7 @@ pub async fn verify(
 mod tests {
     use certificates::{TokenBundle, VerifierTokenGroup};
 
-    use crate::{fetch::HistoryFetcher, verify, VerificationError};
+    use crate::{VerificationError, fetch::HistoryFetcher, verify};
 
     enum TestHistoryFetcher {
         Normal,

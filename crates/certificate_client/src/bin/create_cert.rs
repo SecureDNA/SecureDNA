@@ -1,11 +1,11 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use certificate_client::default_filepath::cli_default_directory;
 use clap::Parser;
+use std::io::Write;
 use std::io::stderr;
 use std::io::stdout;
-use std::io::Write;
 
 use certificate_client::shims::create_cert;
 

@@ -1,13 +1,13 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::collections::BTreeSet;
 
-use rasn::{types::Constraints, AsnType, Decode, Decoder, Encode, Encoder, Tag};
+use rasn::{AsnType, Decode, Decoder, Encode, Encoder, Tag, types::Constraints};
 use serde::Serialize;
 
 use crate::{
-    key_state::KeyUnavailable, pem::PemTaggable, shared_components::role::Role, Certificate,
+    Certificate, key_state::KeyUnavailable, pem::PemTaggable, shared_components::role::Role,
 };
 
 /// Holds a set of certificates which were responsible for issuing a particular certificate or token.
@@ -114,11 +114,11 @@ where
 #[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use crate::{
+        Builder, CertificateChain, CertificateRequest, DecodeError, IssuerAdditionalFields,
+        KeyUnavailable, Manufacturer, PemDecodable, PemEncodable, RequestBuilder, Role,
         asn::{FromASN1DerBytes, ToASN1DerBytes},
         key::signing::SigningKeyPair,
         shared_components::role::{Exemption, Infrastructure},
-        Builder, CertificateChain, CertificateRequest, DecodeError, IssuerAdditionalFields,
-        KeyUnavailable, Manufacturer, PemDecodable, PemEncodable, RequestBuilder, Role,
     };
 
     #[test]

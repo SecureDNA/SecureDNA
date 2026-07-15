@@ -1,14 +1,12 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
-
-use std::future::Future;
 
 use certificates::revocation::RevocationList;
 use certificates::{
-    key_traits::CanLoadSigningKey, PublicKey, SigningKeyPair, SynthesizerTokenGroup, TokenBundle,
-    TokenGroup,
+    PublicKey, SigningKeyPair, SynthesizerTokenGroup, TokenBundle, TokenGroup,
+    key_traits::CanLoadSigningKey,
 };
-use hyper::{body::Incoming, Request, StatusCode};
+use hyper::{Request, StatusCode, body::Incoming};
 use minhttp::response::GenericResponse;
 use shared_types::hash::HashSpec;
 use tokio::sync::RwLock;
@@ -16,6 +14,7 @@ use tracing::info;
 
 use scep::cookie::SessionCookie;
 use scep::states::{ServerSessions, ServerStateForClient};
+use scep::types::SynthToken;
 use scep::version::ClientVersion;
 
 pub struct ServerState<T: TokenGroup> {
@@ -50,7 +49,7 @@ where
     T::Token: CanLoadSigningKey + Clone + std::fmt::Debug,
     T::AssociatedRole: std::fmt::Debug,
     T::ChainType: std::fmt::Debug,
-    GetClientVersion: FnOnce(certificates::Id) -> GetClientVersionFut,
+    GetClientVersion: FnOnce(&SynthToken) -> GetClientVersionFut,
     GetClientVersionFut: Future<Output = Option<u64>>,
     RecordOpenEvent: FnOnce(TokenBundle<SynthesizerTokenGroup>, u64) -> RecordOpenEventFut,
     RecordOpenEventFut: Future<Output = ()>,

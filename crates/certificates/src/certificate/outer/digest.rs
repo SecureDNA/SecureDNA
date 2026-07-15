@@ -1,13 +1,14 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::certificate::{CertificateVersion, RequestVersion};
 use crate::Authenticator;
+use crate::certificate::{CertificateVersion, RequestVersion};
 use crate::{
+    CertificateRequest,
     certificate::inner::{CertificateInner, HierarchyLevel, Issuer, RequestInner, Subject},
     key::signing::Signature,
     shared_components::{
@@ -16,7 +17,6 @@ use crate::{
         role::Role,
     },
     utility::combine_and_dedup_items,
-    CertificateRequest,
 };
 
 use super::Certificate;
@@ -187,10 +187,9 @@ fn capitalize_first(input: &str) -> String {
 #[cfg(all(test, feature = "cert_tests"))]
 mod test {
     use crate::{
-        concat_with_newline,
-        test_helpers::{self, expected_cert_display, expected_cert_request_display},
         Builder, Description, Digestible, Exemption, Infrastructure, Issued,
-        IssuerAdditionalFields, Manufacturer, RequestBuilder, SigningKeyPair,
+        IssuerAdditionalFields, Manufacturer, RequestBuilder, SigningKeyPair, concat_with_newline,
+        test_helpers::{self, expected_cert_display, expected_cert_request_display},
     };
 
     #[test]

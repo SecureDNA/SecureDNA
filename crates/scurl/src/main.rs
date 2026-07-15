@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{
@@ -13,12 +13,12 @@ use clap::{ArgAction, CommandFactory, FromArgMatches, Parser};
 use scep::{
     error::ClientPrevalidation, states::OpenedClientState, types::VerifiableScreeningRequested,
 };
-use serde::{de::DeserializeOwned, Serialize};
-use tracing::{error, Level};
+use serde::{Serialize, de::DeserializeOwned};
+use tracing::{Level, error};
 use tracing_subscriber::FmtSubscriber;
 
 use certificates::{
-    key_traits::CanLoadSigningKey, DatabaseTokenGroup, KeyserverTokenGroup, TokenGroup,
+    DatabaseTokenGroup, KeyserverTokenGroup, TokenGroup, key_traits::CanLoadSigningKey,
 };
 use doprf::{
     party::KeyserverId,
@@ -27,12 +27,12 @@ use doprf::{
 };
 use hdb_api::HdbScreeningResult;
 use http_client::body::Json;
-use http_client::{service::util::force_http_if, BaseApiClient, HttpError};
+use http_client::{BaseApiClient, HttpError, service::util::force_http_if};
 use packed_ristretto::PackedRistrettos;
 use scep::cookie::SessionCookie;
 use scep::version::ClientVersion;
 use scep_client_helpers::{
-    scep_client::HdbOpenParams, ClientCerts, ScepClient, ScepClientOpenCommon,
+    ClientCerts, ScepClient, ScepClientOpenCommon, scep_client::HdbOpenParams,
 };
 use securedna_versioning::version::get_version;
 use shared_types::{
@@ -40,7 +40,7 @@ use shared_types::{
     server_selection::{
         HdbQualificationResponse, KeyserverQualificationResponse, QualificationRequest, Tier,
     },
-    synthesis_permission::Region,
+    synthesis_permission::RawRegion,
 };
 
 #[derive(Debug, Parser)]
@@ -226,7 +226,9 @@ impl Arguments {
         };
 
         if run_scep && client_certs.is_none() {
-            anyhow::bail!("--token-path, --keypair-path, and --passphrase-path are required when using scurl for SCEP.");
+            anyhow::bail!(
+                "--token-path, --keypair-path, and --passphrase-path are required when using scurl for SCEP."
+            );
         }
 
         Ok(Config {
@@ -576,7 +578,7 @@ impl Scurlable for HdbserverScurlable {
                     debug_info: false,
                 },
                 HdbOpenParams {
-                    region: Region::All,
+                    region: RawRegion::ALL,
                     with_exemption: false,
                     verifiable: verifiable_screening,
                     fasta_sha3_256_hex: hex::encode(vec![0u8; 32]),
@@ -600,11 +602,13 @@ impl Scurlable for HdbserverScurlable {
         client
             .screen(
                 session_id,
-                &PackedRistrettos::new(vec![TaggedHash {
-                    tag: HashTag::new(true, 0, 0),
-                    hash: CompletedHashValue::hash_from_bytes_for_tests_only(&[1]).compress(),
-                }
-                .into()]),
+                &PackedRistrettos::new(vec![
+                    TaggedHash {
+                        tag: HashTag::new(true, 0, 0),
+                        hash: CompletedHashValue::hash_from_bytes_for_tests_only(&[1]).compress(),
+                    }
+                    .into(),
+                ]),
             )
             .await
     }

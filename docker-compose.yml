@@ -1,5 +1,10 @@
 version: '3'
 
+# Note: This is *a* possible configuration for SecureDNA, suitable
+# for local testing, but it no longer mirrors the production setup.
+# It is used by the bin/start_test_environment script; see also
+# bin/local_test_environment for a non-Docker equivalent.
+
 # SecureDNA env vars are picked up through `.env` in the repo root.
 
 x-environment: &keyserver-common-env

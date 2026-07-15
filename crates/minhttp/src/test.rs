@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Test utilities for simulated networks
@@ -63,12 +63,12 @@ impl FakeNetwork {
     /// Returns a [`Listener`] (a callable that generates a [`Stream`](futures::Stream) of
     /// incoming connections). After returning, the given `addr` may be
     /// [`connect`](Self::connect)ed to.
-    pub fn listen(&self, addr: SocketAddr) -> std::io::Result<impl Listener> {
+    pub fn listen(&self, addr: SocketAddr) -> std::io::Result<impl Listener + use<>> {
         let mut ports = self.ports.lock().unwrap();
-        if let Some(port) = ports.get(&addr) {
-            if !port.is_closed() {
-                return Err(std::io::Error::from(std::io::ErrorKind::AddrInUse));
-            }
+        if let Some(port) = ports.get(&addr)
+            && !port.is_closed()
+        {
+            return Err(std::io::Error::from(std::io::ErrorKind::AddrInUse));
         }
 
         let (tx, rx) = mpsc::unbounded_channel();
@@ -84,7 +84,7 @@ impl FakeNetwork {
     }
 
     /// Open a port to listen on, returning a [`ListenFn`].
-    pub fn listen_fn(self: &Arc<Self>) -> impl ListenFn {
+    pub fn listen_fn(self: &Arc<Self>) -> impl ListenFn + use<> {
         let this = self.clone();
         move |addr| async move { this.listen(addr) }
     }

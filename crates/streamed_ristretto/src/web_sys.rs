@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Tools for implementing [`web_sys`] clients (WIP)
@@ -6,7 +6,7 @@
 use http::HeaderValue;
 use web_sys::Headers;
 
-use crate::stream::{MessageError, DEFAULT_CONTENT_TYPE_STR};
+use crate::stream::{DEFAULT_CONTENT_TYPE_STR, MessageError};
 
 /// Checks that the given header map has the expected content-type
 ///

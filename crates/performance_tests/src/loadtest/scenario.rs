@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use goose::logger::GooseLog;
 use goose::metrics::{GooseMetric, GooseRequestMetric};
 use goose::prelude::Transaction;
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{header::CONTENT_TYPE, Body};
+use reqwest::{Body, header::CONTENT_TYPE};
 
 use doprf::prf::{CompressedCompletedHashValue, CompressedQuery};
 use packed_ristretto::datatype::HTTP_MIME_TYPE as PACKED_RISTRETTO_MIME_TYPE;
@@ -96,18 +96,17 @@ fn goose_hack_send_request_metric_to_parent(
     request_metric: GooseRequestMetric,
 ) -> TransactionResult {
     // If requests-file is enabled, send a copy of the raw request to the logger thread.
-    if !user.config.request_log.is_empty() {
-        if let Some(logger) = user.logger.as_ref() {
-            if let Err(e) = logger.send(Some(GooseLog::Request(request_metric.clone()))) {
-                return Err(Box::new(e.into()));
-            }
-        }
+    if !user.config.request_log.is_empty()
+        && let Some(logger) = user.logger.as_ref()
+        && let Err(e) = logger.send(Some(GooseLog::Request(request_metric.clone())))
+    {
+        return Err(Box::new(e.into()));
     }
 
-    if let Some(metrics_channel) = user.metrics_channel.clone() {
-        if let Err(e) = metrics_channel.send(GooseMetric::Request(Box::new(request_metric))) {
-            return Err(Box::new(e.into()));
-        }
+    if let Some(metrics_channel) = user.metrics_channel.clone()
+        && let Err(e) = metrics_channel.send(GooseMetric::Request(Box::new(request_metric)))
+    {
+        return Err(Box::new(e.into()));
     }
 
     Ok(())

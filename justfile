@@ -1,4 +1,4 @@
-# Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+# Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 # Runs the system using docker in the background, but additionally links test hdb to where the docker-compose.yml expects to find it.
@@ -101,6 +101,7 @@ public version dirpath:
         --exclude .git \
         --exclude .github \
         --exclude CHANGELOG.md \
+        --exclude website \
         --exclude '*.internal.*' \
         . "$dir"
     cd ..

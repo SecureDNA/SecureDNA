@@ -1,12 +1,12 @@
 [package]
 name = "http_client"
-edition = "2021"
+edition = "2024"
 license.workspace = true
 version.workspace = true
 publish.workspace = true
 
 [dependencies]
-async-channel = "2.3.1"
+async-channel = "2.5.0"
 bytes = "1"
 futures = "0.3.27"
 http = "1.1.0"

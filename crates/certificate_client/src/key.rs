@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{
@@ -10,8 +10,8 @@ use clap::Parser;
 
 use certificates::file::{KEY_PRIV_EXT, KEY_PUB_EXT};
 use certificates::{
-    file::{load_public_key_from_file, save_keypair_to_file},
     PublicKey, SigningKeyPair,
+    file::{load_public_key_from_file, save_keypair_to_file},
 };
 
 use crate::default_filepath::set_appropriate_filepath_and_create_default_dir_if_required;

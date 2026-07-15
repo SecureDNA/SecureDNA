@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use bytes::Bytes;
@@ -252,11 +252,11 @@ mod tests {
 
     #[tokio::test]
     async fn lookup_fake_native() {
-        assert!(!flaky(
-            || NativeDns.lookup("donotmakethissubdomainorthetestswillbreak.securedna.org",)
-        )
-        .await
-        .unwrap());
+        assert!(
+            !flaky(|| NativeDns.lookup("donotmakethissubdomainorthetestswillbreak.securedna.org",))
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]

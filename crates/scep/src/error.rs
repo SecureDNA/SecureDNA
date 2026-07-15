@@ -1,10 +1,11 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::types::ClientRequestType;
 use certificates::{Exemption, Manufacturer, SignatureVerificationError, TokenBundleError};
 use doprf::party::KeyserverId;
 use shared_types::error::{InvalidClientTokenBundle, InvalidInfrastructureTokenBundle};
+use shared_types::synthesis_permission::RawRegion;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ScepError<Inner: std::error::Error> {
@@ -61,7 +62,9 @@ pub enum ServerAuthentication {
     InvalidSignature,
     #[error(transparent)]
     RevokedCert(InvalidClientTokenBundle<Manufacturer>),
-    #[error("provided hash_total_count {hash_total_count} is unreasonable based on nucleotide_total_count {nucleotide_total_count}")]
+    #[error(
+        "provided hash_total_count {hash_total_count} is unreasonable based on nucleotide_total_count {nucleotide_total_count}"
+    )]
     HtcUnreasonable {
         hash_total_count: u64,
         nucleotide_total_count: u64,
@@ -94,6 +97,8 @@ pub enum Screen {
     EtValidation(String),
     #[error("client asked for verifiable screening but it is not configured on the server")]
     VerifiableScreeningUnavailable,
+    #[error("client's supplied region is unrecognized: {:?}", .0.as_ref())]
+    UnrecognizedRegion(RawRegion),
 }
 
 #[derive(Debug, thiserror::Error)]

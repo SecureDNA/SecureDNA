@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Public traits used to simplify functional interfaces.
@@ -7,16 +7,16 @@
 //! in Rust. This contains traits for async fn types (and anything related/complicated)
 //! that show up in the MPServer API, in the hopes of simplifying said API.
 
-use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 
-use futures::{future::Either, Stream};
-use hyper::{body::Incoming, Request};
+use futures::{Stream, future::Either};
+use hyper::{Request, body::Incoming};
 use sha2::Sha256;
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use crate::peer::Peer;
 use crate::response::GenericResponse;
 use crate::server::ConnectionError;
 
@@ -33,24 +33,24 @@ pub trait ValidServerSetup<AC, AS> {
         impl ResponseFn<AS>,
         impl ResponseFn<AS>,
         impl ResponseFn<AS>,
-        impl ConnectedFn<ConnectionState = Self::ConnectionState>,
+        impl ConnectedFn<AS, ConnectionState = Self::ConnectionState>,
         impl ConnectionFailedFn,
         impl DisconnectedFn<Self::ConnectionState>,
     >;
 }
 
 impl<
-        AC: 'static,
-        AS: AppState,
-        Reconfigure: ReconfigureFn<AC, AS>,
-        Respond: ResponseFn<AS>,
-        RespondToMonitoring: ResponseFn<AS>,
-        RespondToControl: ResponseFn<AS>,
-        CS: ConnectionState,
-        Connected: ConnectedFn<ConnectionState = CS>,
-        ConnectionFailed: ConnectionFailedFn,
-        Disconnected: DisconnectedFn<CS>,
-    > ValidServerSetup<AC, AS>
+    AC: 'static,
+    AS: AppState,
+    Reconfigure: ReconfigureFn<AC, AS>,
+    Respond: ResponseFn<AS>,
+    RespondToMonitoring: ResponseFn<AS>,
+    RespondToControl: ResponseFn<AS>,
+    CS: ConnectionState,
+    Connected: ConnectedFn<AS, ConnectionState = CS>,
+    ConnectionFailed: ConnectionFailedFn,
+    Disconnected: DisconnectedFn<CS>,
+> ValidServerSetup<AC, AS>
     for ServerSetup<
         Reconfigure,
         Respond,
@@ -70,7 +70,7 @@ impl<
         impl ResponseFn<AS>,
         impl ResponseFn<AS>,
         impl ResponseFn<AS>,
-        impl ConnectedFn<ConnectionState = Self::ConnectionState>,
+        impl ConnectedFn<AS, ConnectionState = Self::ConnectionState>,
         impl ConnectionFailedFn,
         impl DisconnectedFn<Self::ConnectionState>,
     > {
@@ -101,19 +101,19 @@ where
     type Error = E;
 }
 
-/// Similar to `async fn(Arc<AS>, SocketAddr, Request<Incoming>) -> GenericResponse`
+/// Similar to `async fn(Arc<AS>, Peer, Request<Incoming>) -> GenericResponse`
 ///
 /// [`ResponseFn`] is used by [`ServerSetup`] to control how the server responds to incoming
 /// requests. `AS` should be an [`AppState`].
 pub trait ResponseFn<AS>:
-    'static + Clone + Send + Sync + FnOnce(Arc<AS>, SocketAddr, Request<Incoming>) -> Self::Future
+    'static + Clone + Send + Sync + FnOnce(Arc<AS>, Peer, Request<Incoming>) -> Self::Future
 {
     type Future: Future<Output = GenericResponse> + Send;
 }
 
 impl<AS, F, Fut> ResponseFn<AS> for F
 where
-    F: 'static + Clone + Send + Sync + FnOnce(Arc<AS>, SocketAddr, Request<Incoming>) -> Fut,
+    F: 'static + Clone + Send + Sync + FnOnce(Arc<AS>, Peer, Request<Incoming>) -> Fut,
     Fut: Future<Output = GenericResponse> + Send,
 {
     type Future = Fut;
@@ -150,21 +150,21 @@ pub trait AppState: Send + Sync + 'static {}
 
 impl<T> AppState for T where T: Send + Sync + 'static {}
 
-/// Similar to `fn(SocketAddr) -> impl ConnectionState`
+/// Similar to `fn(Peer) -> impl ConnectionState`
 ///
 /// [`ConnectedFn`] is used by [`ServerSetup`] to customize connection state/diagnostics.
 /// The [`ConnectedFn`] must return an [`impl ConnectionState`](ConnectionState), which is
 /// then kept alive for as long as the connection and passed to a [`DisconnectedFn`] when
-/// the connection is terminated.
-pub trait ConnectedFn:
-    'static + Clone + Send + Sync + FnMut(SocketAddr) -> Self::ConnectionState
+/// the connection is terminated. `AS` should be an [`AppState`].
+pub trait ConnectedFn<AS>:
+    'static + Clone + Send + Sync + FnMut(Arc<AS>, Peer) -> Self::ConnectionState
 {
     type ConnectionState: ConnectionState;
 }
 
-impl<F, CS> ConnectedFn for F
+impl<AS, F, CS> ConnectedFn<AS> for F
 where
-    F: 'static + Clone + Send + Sync + FnMut(SocketAddr) -> CS,
+    F: 'static + Clone + Send + Sync + FnMut(Arc<AS>, Peer) -> CS,
     CS: ConnectionState,
 {
     type ConnectionState = CS;

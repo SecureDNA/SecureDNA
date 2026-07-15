@@ -1,0 +1,153 @@
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+/*-- scss:defaults --*/
+$primary: rgb(165, 207, 223) !default;
+$primary-contrast: black !default;
+$secondary: #070720 !default;
+$secondary-contrast: black !default;
+$btn-border-radius: 99em !default;
+$gray: rgb(200, 200, 220) !default;
+
+$link-color: darken($primary, 30%);
+
+$navbar-bg: $primary;
+$navbar-fg: $primary-contrast;
+$footer-bg: $primary;
+$footer-fg: $primary-contrast;
+
+/*-- scss:rules --*/
+
+/* Header */
+
+// #quarto-header>nav.navbar {
+//     padding: 0;
+//     display: grid;
+//     grid-template-columns: [screen-start] 1.5em [screen-start-inset] 5fr [page-start page-start-inset] 35px [body-start-outset] 35px [body-start] 1.5em [body-content-start] minmax(500px, calc(850px - 3em)) [body-content-end] 1.5em [body-end] 35px [body-end-outset] 35px [page-end-inset page-end] 5fr [screen-end-inset] 1.5em
+// }
+
+// #quarto-header>nav>.navbar-container {
+//     padding: 1em 0;
+//     grid-column: body-content-start / body-content-end;
+// }
+
+.quarto-title-banner {
+    margin-top: -8em;
+    padding-top: 8em;
+}
+
+.nav-item>a {
+    display: inline-block;
+    padding: 0.4em 1em !important;
+}
+
+.nav-item:last-child>a {
+    /* "Donate" link */
+    background: $secondary;
+    color: $secondary-contrast;
+    border-radius: 10em;
+}
+
+.dropdown-menu {
+    background: #707070d8;
+    border-radius: 0.5em;
+    overflow: clip;
+    min-width: 50px;
+}
+
+.navbar .dropdown-item {
+    color: white;
+    padding: 0.7em 1em;
+    border-radius: 0.5em;
+}
+
+
+.navbar .dropdown-item:hover {
+    color: black;
+}
+
+/* Title banner */
+
+.quarto-title-banner {
+    background: url("./images/shapes.svg") $primary;
+    padding-block: 12em;
+}
+
+/* Main document: tweak for pages ending in .light div */
+
+#quarto-document-content {
+    grid-row-end: page-bottom;
+    margin-bottom: 0;
+}
+
+#quarto-document-content>*:last-child {
+    padding-bottom: 3em;
+}
+
+/* Callouts */
+
+.callout .callout-header {
+	padding: 8px 8px 6px 15px !important;
+}
+.callout .callout-body-container {
+    padding: 2px 8px 8px 15px !important;
+}
+
+/* Buttons */
+
+.btn {
+    border-radius: var(--bs-btn-border-radius);
+}
+
+.btn.social-link {
+    border-radius: 4px;
+    width: 2em;
+    height: 2em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn.social-link>img {
+    width: 1.25em;
+    height: 1.25em;
+}
+
+/* Sidebar */
+
+nav.sidebar .chapter-number {
+    font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+}
+
+/* Light-blue background section */
+
+.light {
+    padding-block: 1em;
+    background: linear-gradient(346deg,
+            #00d4ff18 26.89%,
+            #0bd5f218 64.9%,
+            #2ad7d018 137.75%,
+            #5bdc9818 232.77%,
+            #9be25218 343.63%);
+}
+
+/* Publications */
+
+.pub {
+    margin-bottom: 2em;
+}
+
+.pub a {
+    font-weight: bold;
+}
+
+.pub p:last-child {
+    opacity: 0.7;
+    font-size: 0.8rem;
+}
+
+/* Footer */
+
+footer.footer .nav-footer {
+    padding: 0;
+}

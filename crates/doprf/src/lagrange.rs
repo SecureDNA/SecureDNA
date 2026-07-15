@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{iter::Sum, ops::Mul};
@@ -52,7 +52,7 @@ pub fn lagrange_coefficient_at_zero(x_i: Scalar, x_coords: &[Scalar]) -> Scalar 
 
 /// Produce the coefficients of the Lagrange polynomial corresponding to these x
 /// coordinates, evaluated at 0. Produces one coefficient for each input.
-pub fn lagrange_coefficients_at_zero(x_coords: &[Scalar]) -> impl Iterator<Item = Scalar> {
+pub fn lagrange_coefficients_at_zero(x_coords: &[Scalar]) -> impl Iterator<Item = Scalar> + use<> {
     // https://en.wikipedia.org/wiki/Lagrange_polynomial
     use std::mem::replace;
     let zero = Scalar::ZERO;

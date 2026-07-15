@@ -1,10 +1,11 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use serde::Serialize;
 use std::marker::PhantomData;
 
 use crate::{
+    Exemption,
     asn::ToASN1DerBytes,
     error::EncodeError,
     key::signing::{PublicKey, SigningKeyPair},
@@ -12,14 +13,13 @@ use crate::{
         common::{Id, Signed},
         role::{Role, RoleGuard},
     },
-    Exemption,
 };
-use rasn::{types::*, Decode, Encode};
+use rasn::{Decode, Encode, types::*};
 
 use super::{
+    CertificateData, CertificateInner, ExemptionSubject1,
     common::{Common, Issuer1, IssuerAdditionalFields, Subject},
     hierarchy::{HierarchyLevel, Root},
-    CertificateData, CertificateInner, ExemptionSubject1,
 };
 
 /// Certificate request, only contains certificate fields that are provided by the certificate subject.

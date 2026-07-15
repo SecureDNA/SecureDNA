@@ -1,7 +1,7 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use pem::{encode_config, parse, EncodeConfig, LineEnding, Pem};
+use pem::{EncodeConfig, LineEnding, Pem, encode_config, parse};
 
 use crate::{
     asn::{FromASN1DerBytes, ToASN1DerBytes},

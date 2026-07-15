@@ -1,12 +1,12 @@
-// Copyright 2021-2024 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use anyhow::Context;
-use base64::{prelude::BASE64_STANDARD, Engine};
+use base64::{Engine, prelude::BASE64_STANDARD};
 use bytes::Bytes;
 use http_client::BaseApiClient;
-use serde_json::{json, Value};
-use tracing::warn;
+use serde_json::{Value, json};
+use tracing::{error, warn};
 
 use crate::mail_template::{AuditTemplate, AuditTemplateFields};
 
@@ -14,7 +14,7 @@ use crate::mail_template::{AuditTemplate, AuditTemplateFields};
 /// with an `audit_email`: if a screening request is denied, we email the
 /// customer about it.
 pub struct MailService {
-    pub sendgrid_api_key: String,
+    pub smtp2go_api_key: String,
     pub audit_template: AuditTemplate,
 }
 
@@ -34,40 +34,48 @@ pub struct Email {
     pub attachments: Vec<Attachment>,
 }
 
+/// Format a name and email into a string suitable for SMTP2GO, like `Name <email@example.com>`.
+fn name_and_email(name: &str, email: &str) -> String {
+    match name.trim() {
+        "" => email.to_string(),
+        trimmed => format!("{trimmed} <{email}>"),
+    }
+}
+
 impl MailService {
     pub async fn send(&self, api_client: BaseApiClient, email: &Email) -> anyhow::Result<()> {
         let body: Value = json!({
-            "personalizations": [{"to": [{"email": email.to_email, "name": email.to_name}]}],
-            "from": {"email": email.from_email, "name": email.from_name},
+            "sender": name_and_email(&email.from_name, &email.from_email),
+            "to": [name_and_email(&email.to_name, &email.to_email)],
             "subject": email.subject,
-            "content": [{"type": "text/plain", "value": email.body}],
+            "text_body": email.body,
             "attachments": email.attachments.iter().map(|a| json!({
-                "content": BASE64_STANDARD.encode(&a.content),
+                "fileblob": BASE64_STANDARD.encode(&a.content),
                 "filename": a.filename,
-                "type": a.content_type,
-                "disposition": "attachment",
+                "mimetype": a.content_type,
             })).collect::<Vec<_>>(),
         });
 
         let body_bytes =
-            serde_json::to_vec(&body).context("Could not encode SendGrid API request")?;
+            serde_json::to_vec(&body).context("Could not encode smtp2go API request")?;
 
         let response_bytes: Bytes = api_client
             .raw_post(
-                "https://api.sendgrid.com/v3/mail/send",
+                "https://api.smtp2go.com/v3/email/send",
                 body_bytes.into(),
                 "application/json",
-                &[(
-                    "Authorization".to_owned(),
-                    format!("Bearer {}", self.sendgrid_api_key),
-                )],
+                &[("X-Smtp2go-Api-Key".to_owned(), self.smtp2go_api_key.clone())],
                 None,
             )
             .await
-            .context("Could not send SendGrid API request")?;
+            .map_err(|e| {
+                error!("Error sending smtp2go API request: {e}");
+                e
+            })
+            .context("Could not send smtp2go API request")?;
 
         if !response_bytes.is_empty() {
-            warn!("Got non-empty success response from SendGrid: {response_bytes:?}");
+            warn!("Got non-empty success response from smtp2go: {response_bytes:?}");
         }
         Ok(())
     }
@@ -145,11 +153,11 @@ Synthesis permission was DENIED. (THIS IS A TEST)
 "#;
 
     #[tokio::test]
-    async fn can_send_mail_using_sendgrid() {
-        let sendgrid_api_key = match std::env::var("SECUREDNA_TEST_SENDGRID_API_KEY") {
+    async fn can_send_mail_using_smtp2go() {
+        let smtp2go_api_key = match std::env::var("SECUREDNA_TEST_SMTP2GO_API_KEY") {
             Ok(val) if !val.is_empty() => val,
             _ => {
-                debug!("SECUREDNA_TEST_SENDGRID_API_KEY is not set -- skipping SendGrid test.");
+                debug!("SECUREDNA_TEST_SMTP2GO_API_KEY is not set -- skipping smtp2go test.");
                 return;
             }
         };
@@ -158,7 +166,7 @@ Synthesis permission was DENIED. (THIS IS A TEST)
             toml::from_str(TEST_TEMPLATE).expect("failed to read audit template TOML file");
 
         let mail_service = MailService {
-            sendgrid_api_key,
+            smtp2go_api_key,
             audit_template,
         };
 
@@ -166,11 +174,11 @@ Synthesis permission was DENIED. (THIS IS A TEST)
             .send(
                 BaseApiClient::new_external(),
                 &Email {
-                    from_email: "sendgrid@securedna.org".to_owned(),
-                    from_name: "SecureDNA SendGrid test".to_owned(),
+                    from_email: "audit@securedna.org".to_string(),
+                    from_name: "SecureDNA smtp2go test".to_owned(),
                     to_email: "lynn@securedna.org".to_owned(),
-                    to_name: "SecureDNA SendGrid test recipient".to_owned(),
-                    subject: "SecureDNA SendGrid test".to_owned(),
+                    to_name: "SecureDNA smtp2go test recipient".to_owned(),
+                    subject: "SecureDNA smtp2go test".to_owned(),
                     body: "It works!".to_owned(),
                     attachments: vec![Attachment {
                         content: b"The quick brown fox jumps over the lazy dog.".to_vec(),
@@ -180,7 +188,8 @@ Synthesis permission was DENIED. (THIS IS A TEST)
                 },
             )
             .await;
-        assert_eq!(response.ok(), Some(()));
+
+        assert_eq!(response.unwrap(), ());
     }
 
     #[test]
@@ -202,6 +211,10 @@ Synthesis permission was DENIED. (THIS IS A TEST)
                 vec![],
             )
             .unwrap();
+        assert_eq!(email.from_email, "audit@securedna.org");
+        assert_eq!(email.from_name, "SecureDNA (test)");
+        assert_eq!(email.to_email, "gene@example.org");
+        assert_eq!(email.to_name, "Gene Doe");
         assert_eq!(
             email.subject,
             "SecureDNA audit notice: hazard denied (THIS IS A TEST)"
@@ -257,8 +270,9 @@ event_description = ""
         )
         .err()
         .expect("should error");
-        assert!(err
-            .to_string()
-            .contains("unknown template variable {weird}"));
+        assert!(
+            err.to_string()
+                .contains("unknown template variable {weird}")
+        );
     }
 }

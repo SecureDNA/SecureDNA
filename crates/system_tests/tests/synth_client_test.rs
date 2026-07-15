@@ -1,5 +1,5 @@
 #![cfg(feature = "run_system_tests")]
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::env::VarError;
@@ -13,8 +13,8 @@ use sha3::{Digest, Sha3_256};
 
 use certificates::file::{load_certificate_bundle_from_file, load_keypair_from_file};
 use certificates::test_helpers::{
-    create_et_bundle_from_leaf_bundle, create_et_bundle_with_exemptions, create_exemptions,
-    BreakableSignature,
+    BreakableSignature, create_et_bundle_from_leaf_bundle, create_et_bundle_with_exemptions,
+    create_exemptions,
 };
 use hdb_api::HdbVerification;
 
@@ -102,7 +102,7 @@ fn construct_request(fasta: &str) -> CheckFastaRequest {
     CheckFastaRequest {
         fasta: String::from(fasta),
         common: RequestCommon {
-            region: synthclient::api::Region::All,
+            region: synthclient::api::Region::all(),
             provider_reference: None,
             ets: vec![],
             verifiable_screening: false,
@@ -179,12 +179,31 @@ fn test_screen_invalid_fasta() {
 }
 
 #[test]
+fn test_screen_fasta_no_records() {
+    test_screen_error("", 400, |err| {
+        assert_error!(
+            err,
+            ApiError::InvalidInput(_),
+            "No records were specified in the FASTA file"
+        );
+    });
+
+    test_screen_error("  \n\n", 400, |err| {
+        assert_error!(
+            err,
+            ApiError::InvalidInput(_),
+            "No records were specified in the FASTA file"
+        );
+    });
+}
+
+#[test]
 fn test_screen_fasta_empty() {
     test_screen_error(">empty\n", 400, |err| {
         assert_error!(
             err,
             ApiError::InvalidInput(_),
-            "No sequences were specified"
+            "No sequences were specified in record"
         );
     });
 }
@@ -558,7 +577,7 @@ fn test_screen_with_exemptions(
         .json::<CheckFastaRequest>(&CheckFastaRequest {
             fasta: String::from(HAZARD_SEQ),
             common: RequestCommon {
-                region: synthclient::api::Region::All,
+                region: synthclient::api::Region::all(),
                 provider_reference: None,
                 ets: vec![et_with_otp],
                 verifiable_screening: false,
@@ -601,7 +620,7 @@ fn test_verifiable() {
             fasta,
             common: RequestCommon {
                 provider_reference: None,
-                region: synthclient::api::Region::All,
+                region: synthclient::api::Region::all(),
                 ets: vec![],
                 verifiable_screening: true,
             },

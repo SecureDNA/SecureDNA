@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 #![cfg(feature = "centralized_keygen")]
 
@@ -11,8 +11,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{cell::RefCell, collections::HashMap};
 
-use doprf_client::error::DoprfError;
 use doprf_client::ScreeningParams;
+use doprf_client::error::DoprfError;
 use futures::{future, pin_mut};
 use hdb_api::verification::check_verification;
 use http_client::HttpError;
@@ -28,19 +28,22 @@ use doprf::{active_security::Commitment, shims::genactivesecuritykey};
 use doprf_client::server_selection::{
     ServerEnumerationSource, ServerSelectionConfig, ServerSelector,
 };
-use doprf_client::{server_version_handler::LastServerVersionHandler, DoprfConfig};
+use doprf_client::{
+    DoprfConfig, RequestStreaming, server_version_handler::LastServerVersionHandler,
+};
 use hdb::shims::genhdb;
 use hdb_api::{ConsolidatedHazardResult, HitRegion};
-use http_client::{service::util::https_to_http, BaseApiClient};
+use http_client::{BaseApiClient, service::util::https_to_http};
 use minhttp::mpserver::common::{default_listen_fn, read_no_disk, stub_cfg};
-use minhttp::mpserver::{traits::ValidServerSetup, ExternalWorld, PlaneConfig, ServerConfig};
+use minhttp::mpserver::{ExternalWorld, PlaneConfig, ServerConfig, traits::ValidServerSetup};
 use pipeline_bridge::OrganismType;
 use quickdna::{DnaSequence, Nucleotide};
 use scep_client_helpers::ClientCerts;
 use sha3::{Digest, Sha3_256};
 use shared_types::{
+    WINDOW_LENGTH_AA,
     requests::{RequestContext, RequestId},
-    synthesis_permission::{Region, SynthesisPermission},
+    synthesis_permission::{RawRegion, SynthesisPermission},
 };
 
 enum Scenario {
@@ -259,7 +262,7 @@ async fn integration_test(
         keypair_passphrase_file: format!("{certs_dir}/database-token.passphrase").into(),
         allow_insecure_cookie: true,
         event_store_path: ":memory:".into(),
-        audit_sendgrid_api_key_file: None,
+        audit_smtp2go_api_key_file: None,
         audit_template_file: None,
         verifier_token_file: Some(format!("{certs_dir}/verifier-token.vt").into()),
         verifier_keypair_file: Some(format!("{certs_dir}/verifier-token.priv").into()),
@@ -271,6 +274,9 @@ async fn integration_test(
         totp_cert_file: format!("{certs_dir}/exemption-leaf.cert").into(),
         totp_access_passphrase_file: format!("{certs_dir}/totp-access.passphrase").into(),
         verifier_history_url: Some("https://example.org".into()),
+        soft_timeout: None,
+        hard_timeout: None,
+        hashes_per_sec_timeout: None,
     };
     let server_config = Arc::new(ServerConfig {
         main: PlaneConfig {
@@ -315,6 +321,9 @@ async fn integration_test(
             keypair_passphrase_file: keyserver_file_base.with_extension("passphrase"),
             allow_insecure_cookie: true,
             event_store_path: ":memory:".into(),
+            soft_timeout: None,
+            hard_timeout: None,
+            hashes_per_sec_timeout: None,
         };
         let server_config = Arc::new(ServerConfig {
             main: PlaneConfig {
@@ -400,7 +409,7 @@ async fn integration_test(
 
         let server_versions = Arc::new(tokio::sync::Mutex::new(HashMap::<String, u64>::new()));
 
-        let run_query = |records: Vec<String>, region: Region| {
+        let run_query = |records: Vec<String>, region: RawRegion| {
             let server_selector = &server_selector;
             let request_ctx = &request_ctx;
             let api_client = api_client.clone();
@@ -420,6 +429,7 @@ async fn integration_test(
             async move {
                 doprf_client::process(DoprfConfig {
                     api_client: &api_client,
+                    request_streaming: RequestStreaming::Bidirectional,
                     server_selector: server_selector.clone(),
                     request_ctx,
                     sequences: &sequences[..],
@@ -474,7 +484,7 @@ async fn integration_test(
                     ],
                 };
 
-                let run_query_and_map_results = |records: Vec<String>, region: Region| async move {
+                let run_query_and_map_results = |records: Vec<String>, region: RawRegion| async move {
                     run_query(records, region)
                         .await
                         .unwrap()
@@ -493,7 +503,7 @@ async fn integration_test(
                 };
 
                 // based on the tags, `Us`, `Prc`, and no-region requests should be denied...
-                for region in [Region::Us, Region::Prc, Region::All] {
+                for region in [RawRegion::US, RawRegion::PRC, RawRegion::ALL] {
                     assert_eq!(
                         run_query_and_map_results(
                             vec![
@@ -529,7 +539,7 @@ async fn integration_test(
                             HAZ_RUNT.to_owned(),
                             "GACCCCCAATCACCGCCTCATACTTCTTTG".to_owned(),
                         ],
-                        Region::Eu
+                        RawRegion::EU
                     )
                     .await,
                     vec![(
@@ -557,7 +567,7 @@ async fn integration_test(
                             HAZ_NORMAL.to_owned(),
                             HAZ_RUNT.to_owned(),
                         ],
-                        Region::All
+                        RawRegion::ALL
                     )
                     .await,
                     vec![
@@ -567,7 +577,7 @@ async fn integration_test(
                                 record: 0,
                                 hit_regions: vec![HitRegion {
                                     seq_range_start: 0,
-                                    seq_range_end: 60
+                                    seq_range_end: 3 * WINDOW_LENGTH_AA
                                 }],
                                 synthesis_permission: SynthesisPermission::Denied,
                                 most_likely_organism: t_integrationitis.clone(),
@@ -627,7 +637,7 @@ async fn integration_test(
                             HAZ_AA_DNA.to_owned(),
                             "CATTAG".to_owned(),
                         ],
-                        Region::All
+                        RawRegion::ALL
                     )
                     .await,
                     vec![
@@ -685,7 +695,7 @@ async fn integration_test(
                                 record: 8,
                                 hit_regions: vec![HitRegion {
                                     seq_range_start: 0,
-                                    seq_range_end: 60
+                                    seq_range_end: 3 * WINDOW_LENGTH_AA
                                 }],
                                 synthesis_permission: SynthesisPermission::Denied,
                                 most_likely_organism: t_integrationitis.clone(),
@@ -717,6 +727,7 @@ async fn integration_test(
                     let certs = client_certs.clone();
                     let output = doprf_client::process(DoprfConfig {
                         api_client: &api_client,
+                        request_streaming: RequestStreaming::Bidirectional,
                         server_selector: server_selector.clone(),
                         request_ctx,
                         sequences: &sequences[..],
@@ -748,7 +759,7 @@ async fn integration_test(
                             certs,
                             include_debug_info: false,
                             verifiable_screening: true,
-                            region: Region::All,
+                            region: RawRegion::ALL,
                             ets: vec![],
                             fasta_sha3_256_hex,
                         },
@@ -770,7 +781,7 @@ async fn integration_test(
             } => {
                 let error = run_query(
                     vec!["GACCCCCAATCACCGCCTCATACTTCTTTG".to_owned()],
-                    Region::Us,
+                    RawRegion::US,
                 )
                 .await
                 .expect_err("should flag bad keyserver response");
@@ -781,7 +792,7 @@ async fn integration_test(
                 assert_eq!(ids, [KeyserverId::try_from(corrupted_share_id).unwrap()]);
             }
             Scenario::AuditNotConfigured => {
-                let error = run_query(vec![HAZ_NORMAL.to_owned()], Region::Us)
+                let error = run_query(vec![HAZ_NORMAL.to_owned()], RawRegion::US)
                     .await
                     .expect_err("should flag audit-not-configured response");
 

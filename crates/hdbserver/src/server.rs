@@ -1,9 +1,7 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fs::{self, File};
-use std::future::Future;
-use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::{Arc, Weak};
 
@@ -14,19 +12,21 @@ use hyper::body::Incoming;
 use hyper::{Method, Request, StatusCode};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
-use tracing::{error, info, warn};
+use tracing::{Span, error, info, warn};
 
 use certificates::{DatabaseTokenGroup, Exemption, Issued, Manufacturer, VerifierTokenGroup};
 use hdb::{Database, HazardLookupTable};
 use minhttp::error::ErrWrapper;
+use minhttp::mpserver::common::ConnectionTimeouts;
 use minhttp::mpserver::traits::ValidServerSetup;
 use minhttp::mpserver::{MultiplaneServer, ServerConfig};
-use minhttp::response::{self, ErrResponse, GenericResponse};
+use minhttp::peer::Peer;
+use minhttp::response::{self, GenericResponse};
 use scep_server_helpers::server::ServerState;
 use securedna_versioning::version::get_version;
 use shared_types::hash::HashSpec;
 use shared_types::http::add_cors_headers;
-use shared_types::metrics::{get_metrics_output, HdbMetrics};
+use shared_types::metrics::{HdbMetrics, get_metrics_output};
 use shared_types::requests::RequestId;
 use shared_types::server_versions::HdbVersion;
 
@@ -42,6 +42,7 @@ const SERVER_VERSION: u64 = 2;
 pub fn server_setup() -> impl ValidServerSetup<Config, HdbServerState> {
     MultiplaneServer::builder()
         .with_reconfigure(reconfigure)
+        .with_connected(connected)
         .with_response(respond)
         .with_response_to_monitoring(respond_to_monitoring_plane)
 }
@@ -55,18 +56,6 @@ async fn reconfigure(
 
     info!("Attempting load of hdbserver version {}", get_version());
 
-    let version = {
-        let build_info = get_hdb_build_info(&app_cfg.database);
-        match &build_info {
-            Ok(build_info) => info!("HDB Build Info: {build_info:?}"),
-            Err(err) => warn!("{err:?}"),
-        }
-        HdbVersion {
-            server_version: get_version(),
-            hdb_timestamp: build_info.ok().map(|bi| bi.build_timestamp),
-        }
-    };
-
     info!("Starting HDB server");
     // The database-related datastructures (mostly indexes) are rather memory intensive,
     // so we should try to reuse them if the database path hasn't changed. However, we need
@@ -78,6 +67,7 @@ async fn reconfigure(
     if cfg_database_path != &database_path {
         info!("Interpreting database path {cfg_database_path:?} as {database_path:?}");
     }
+    let version;
     let database;
     let hlt;
     if let Some(previous_state) = prev_state
@@ -85,9 +75,24 @@ async fn reconfigure(
         .filter(|ps| ps.database_path == database_path)
     {
         info!("database path is unchanged from {database_path:?}; reusing existing database");
+        version = previous_state.version.clone();
+        match &version.hdb_timestamp {
+            Some(timestamp) => info!("Existing database was built on {timestamp:?}"),
+            None => info!("Existing database has unknown build date."),
+        }
         database = previous_state.database.clone();
         hlt = previous_state.hlt.clone();
     } else {
+        let build_info = get_hdb_build_info(&app_cfg.database);
+        match &build_info {
+            Ok(build_info) => info!("HDB Build Info: {build_info:?}"),
+            Err(err) => warn!("Couldn't read HDB build info: {err:?}"),
+        }
+        version = HdbVersion {
+            server_version: get_version(),
+            hdb_timestamp: build_info.ok().map(|bi| bi.build_timestamp),
+        };
+
         database = Database::open(&database_path)
             .with_context(|| format!("failed to open database: {database_path:?}"))?
             .into();
@@ -231,18 +236,18 @@ async fn reconfigure(
                 --verifier-keypair-file, or --verifier-history-url is specified, \
                 all of them must be specified."
             )
-            .into())
+            .into());
         }
     };
 
     let mail_service = match (
-        &app_cfg.audit_sendgrid_api_key_file,
+        &app_cfg.audit_smtp2go_api_key_file,
         &app_cfg.audit_template_file,
     ) {
         (Some(api_key_path), Some(template_path)) => {
             let api_key = tokio::fs::read_to_string(api_key_path)
                 .await
-                .context("failed to open SendGrid API key file")?
+                .context("failed to open smtp2go API key file")?
                 .trim()
                 .to_string();
             let audit_template_toml = tokio::fs::read_to_string(template_path)
@@ -252,25 +257,31 @@ async fn reconfigure(
                 .context("failed to read audit template TOML file")?;
 
             Some(MailService {
-                sendgrid_api_key: api_key,
+                smtp2go_api_key: api_key,
                 audit_template,
             })
         }
         (None, None) => {
             warn!(
-                "Starting without audit email configuration because --audit-sendgrid-api-key \
-                (or SECUREDNA_HDBSERVER_AUDIT_SENDGRID_API_KEY_FILE) is not set. \
+                "Starting without audit email configuration because --audit-smtp2go-api-key-file \
+                (or SECUREDNA_HDBSERVER_AUDIT_SMTP2GO_API_KEY_FILE) is not set. \
                 Any requests that would necessitate sending audit email will be denied!"
             );
             None
         }
         _ => {
             return Err(anyhow::anyhow!(
-                "If either of --audit-sendgrid-api-key or --audit-template-file is specified, \
+                "If either of --audit-smtp2go-api-key-file or --audit-template-file is specified, \
                 both of them must be specified."
             )
-            .into())
+            .into());
         }
+    };
+
+    let connection_timeouts = ConnectionTimeouts {
+        soft: app_cfg.soft_timeout.map(|d| d.0),
+        hard: app_cfg.hard_timeout.map(|d| d.0),
+        hashes_per_sec: app_cfg.hashes_per_sec_timeout,
     };
 
     Ok(Arc::new(HdbServerState {
@@ -300,6 +311,7 @@ async fn reconfigure(
         persistence_connection,
         verifier,
         mail_service,
+        connection_timeouts,
     }))
 }
 
@@ -318,12 +330,18 @@ fn get_hdb_build_info(database: &Path) -> anyhow::Result<BuildInfo> {
     serde_json::from_reader(f).context("Could not parse BUILD_INFO.json file.")
 }
 
+fn connected(app_state: Arc<HdbServerState>, peer: Peer) {
+    peer.set_timeouts(app_state.connection_timeouts.for_new_connection());
+}
+
+#[tracing::instrument(skip_all, fields(request_id))]
 async fn respond(
     hdbs_state: Arc<HdbServerState>,
-    peer: SocketAddr,
+    peer: Peer,
     request: Request<Incoming>,
 ) -> GenericResponse {
     let request_id = RequestId::from(request.headers());
+    Span::current().record("request_id", &request_id.0);
     let method = request.method().clone();
     let headers = request.headers().clone();
 
@@ -346,7 +364,7 @@ async fn respond(
                 handle_scep_err(
                     &hdbs_state.metrics,
                     &request_id,
-                    peer,
+                    &peer,
                     scep_endpoint_open(&hdbs_state, request),
                 ),
             )
@@ -358,7 +376,7 @@ async fn respond(
                 handle_scep_err(
                     &hdbs_state.metrics,
                     &request_id,
-                    peer,
+                    &peer,
                     scep_endpoint_authenticate(&hdbs_state, request),
                 ),
             )
@@ -370,8 +388,9 @@ async fn respond(
                 handle_scep_err(
                     &hdbs_state.metrics,
                     &request_id,
-                    peer,
+                    &peer,
                     crate::screening::scep_endpoint_screen(
+                        &peer,
                         &request_id,
                         hdbs_state.clone(),
                         request,
@@ -386,7 +405,7 @@ async fn respond(
                 handle_scep_err(
                     &hdbs_state.metrics,
                     &request_id,
-                    peer,
+                    &peer,
                     crate::screening::scep_endpoint_screen_with_exemption(
                         &request_id,
                         hdbs_state.clone(),
@@ -402,7 +421,7 @@ async fn respond(
                 handle_scep_err(
                     &hdbs_state.metrics,
                     &request_id,
-                    peer,
+                    &peer,
                     crate::screening::scep_endpoint_exemption(
                         &request_id,
                         hdbs_state.clone(),
@@ -418,8 +437,9 @@ async fn respond(
                 handle_scep_err(
                     &hdbs_state.metrics,
                     &request_id,
-                    peer,
+                    &peer,
                     crate::screening::scep_endpoint_exemption_seq_hashes(
+                        &peer,
                         &request_id,
                         hdbs_state.clone(),
                         request,
@@ -470,22 +490,22 @@ async fn handle_post(
 
 async fn handle_err(
     metrics: &Option<Arc<HdbMetrics>>,
-    future: impl Future<Output = Result<GenericResponse, ErrResponse>>,
+    future: impl Future<Output = Result<GenericResponse, GenericResponse>>,
 ) -> GenericResponse {
     let result_response = future.await;
     match (result_response, &metrics) {
-        (Err(ErrResponse(r)), Some(metrics)) => {
+        (Err(r), Some(metrics)) => {
             metrics.bad_requests.inc();
             r
         }
-        (Ok(r) | Err(ErrResponse(r)), _) => r,
+        (Ok(r) | Err(r), _) => r,
     }
 }
 
 async fn handle_scep_err<F, E>(
     metrics: &Option<Arc<HdbMetrics>>,
     request_id: &RequestId,
-    peer: SocketAddr,
+    peer: &Peer,
     future: F,
 ) -> GenericResponse
 where
@@ -496,8 +516,12 @@ where
     match result_response {
         Ok(r) => r,
         Err(e) => {
-            let ErrResponse(r) =
-                scep_server_helpers::log_and_convert_scep_error_to_response(&e, request_id, peer);
+            peer.graceful_shutdown();
+            let r = scep_server_helpers::log_and_convert_scep_error_to_response(
+                &e,
+                request_id,
+                peer.addr(),
+            );
             if let Some(metrics) = metrics {
                 metrics.bad_requests.inc();
             }
@@ -508,7 +532,7 @@ where
 
 async fn respond_to_monitoring_plane(
     _hdbs_state: Arc<HdbServerState>,
-    _peer: SocketAddr,
+    _peer: Peer,
     request: Request<Incoming>,
 ) -> GenericResponse {
     match (request.method(), request.uri().path()) {
@@ -529,17 +553,28 @@ async fn scep_endpoint_open(
         &server_state.scep,
         SERVER_VERSION,
         &server_state.hash_spec,
-        |client_mid| async move {
-            match event_store::last_protocol_version_for_client(
-                &server_state.persistence_connection,
-                client_mid,
-            )
-            .await
-            {
-                Ok(maybe_id) => maybe_id,
-                Err(e) => {
-                    error!("error fetching last client version for {client_mid}: {e}");
-                    None
+        |synth_token| {
+            let not_benchtop = synth_token.serial_number().trim().is_empty();
+            let client_mid = *synth_token.issuance_id();
+            async move {
+                // Allow version skew in centralized provider setups, which might share tokens
+                // across several containers, but don't allow rollbacks in individual benchtops,
+                // which must use individualized tokens.
+                if not_benchtop {
+                    return None;
+                }
+
+                match event_store::last_protocol_version_for_client(
+                    &server_state.persistence_connection,
+                    client_mid,
+                )
+                .await
+                {
+                    Ok(maybe_id) => maybe_id,
+                    Err(e) => {
+                        error!("error fetching last client version for {client_mid}: {e}");
+                        None
+                    }
                 }
             }
         },
@@ -627,7 +662,7 @@ mod test {
             keypair_passphrase_file: "test/certs/database-token.passphrase".into(),
             allow_insecure_cookie: true,
             event_store_path: Config::default_event_store_path(),
-            audit_sendgrid_api_key_file: None,
+            audit_smtp2go_api_key_file: None,
             audit_template_file: None,
             verifier_token_file: Some("test/certs/verifier-token.vt".into()),
             verifier_keypair_file: Some("test/certs/verifier-token.priv".into()),
@@ -637,6 +672,9 @@ mod test {
             totp_cert_file: "test/certs/exemption-leaf.cert".into(),
             totp_access_passphrase_file: "test/certs/totp-access.passphrase".into(),
             verifier_history_url: Some("https://example.com".into()),
+            soft_timeout: None,
+            hard_timeout: None,
+            hashes_per_sec_timeout: None,
         };
         let server_config = ServerConfig {
             main: PlaneConfig {

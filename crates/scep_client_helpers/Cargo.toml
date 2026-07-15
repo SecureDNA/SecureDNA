@@ -1,6 +1,6 @@
 [package]
 name = "scep_client_helpers"
-edition = "2021"
+edition = "2024"
 license.workspace = true
 version.workspace = true
 publish.workspace = true
@@ -17,7 +17,7 @@ scep = { path = "../scep" }
 shared_types = { path = "../shared_types", default-features = false }
 
 anyhow = "1.0.75"
-bytes = "1.10.0"
+bytes = "1.11.1"
 cookie = "0.18.0"
 futures = "0.3.27"
 include_dir = "0.7.3"

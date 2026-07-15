@@ -1,9 +1,7 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Utilities for working with [`HttpService`]s
-
-use std::future::Future;
 
 use http::header::{Entry, HeaderName, HeaderValue, InvalidHeaderValue};
 use http::uri::{Scheme, Uri};
@@ -15,10 +13,10 @@ use shared_types::requests::RequestId;
 use super::HttpService;
 
 pub use super::dyns::{
-    arced, boxed, ArcedHttpService, BoxedBody, BoxedError, BoxedHttpService, DynHttpService,
-    IntoDynHttpService,
+    ArcedHttpService, BoxedBody, BoxedError, BoxedHttpService, DynHttpService, IntoDynHttpService,
+    arced, boxed,
 };
-pub use super::outsourced::{outsourced, outsourced_with_response_capacity, OutsourcedBody};
+pub use super::outsourced::{OutsourcedBody, outsourced, outsourced_with_response_capacity};
 
 /// Adapter from `async fn(Request) -> Result<Response, Error>` to [`Service`].
 ///

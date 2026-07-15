@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{
@@ -7,22 +7,22 @@ use std::{
 };
 
 use pkcs8::{
-    der::zeroize::ZeroizeOnDrop, spki::AlgorithmIdentifier, ObjectIdentifier, PrivateKeyInfo,
-    SecretDocument,
+    ObjectIdentifier, PrivateKeyInfo, SecretDocument, der::zeroize::ZeroizeOnDrop,
+    spki::AlgorithmIdentifier,
 };
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use thiserror::Error;
 
 use crate::{
+    DecodeError, EncodeError, PemDecodable, PemEncodable,
     asn::{FromASN1DerBytes, ToASN1DerBytes},
     asn_encode_as_octet_string_impl,
     pem::PemTaggable,
-    DecodeError, EncodeError, PemDecodable, PemEncodable,
 };
 
 use super::{
-    error::{KeyFromPkcs8Error, KeyIntoPkcs8Error},
     EncryptableKeypair,
+    error::{KeyFromPkcs8Error, KeyIntoPkcs8Error},
 };
 
 /// <http://oid-info.com/get/1.3.132.0.10>
@@ -221,11 +221,11 @@ mod tests {
     use std::str::FromStr;
 
     use crate::{
-        key::{
-            ecies::{encrypt_for_recipient, EciesKeyPair},
-            EncryptableKeypair,
-        },
         EciesPublicKey,
+        key::{
+            EncryptableKeypair,
+            ecies::{EciesKeyPair, encrypt_for_recipient},
+        },
     };
 
     #[test]

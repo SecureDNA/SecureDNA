@@ -1,8 +1,7 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt::Debug;
-use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, RwLock};
 
@@ -13,20 +12,21 @@ use futures::{StreamExt, TryStream, TryStreamExt};
 use hdb::Exemptions;
 use http_body_util::{BodyExt, StreamBody};
 use hyper::body::{Body, Frame, Incoming};
-use hyper::header::{HeaderValue, CONTENT_TYPE};
+use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
 use certificates::revocation::RevocationList;
 use certificates::{
-    key_traits::CanLoadSigningKey, PublicKey, SigningKeyPair, TokenBundle, TokenGroup,
+    PublicKey, SigningKeyPair, TokenBundle, TokenGroup, key_traits::CanLoadSigningKey,
 };
 use doprf::prf::{
     CompressedCompletedHashValue, CompressedHashPart, CompressedQuery, DecodeError, HashPart, Query,
 };
 use doprf::tagged::TaggedHash;
 use minhttp::nursery::Nursery;
+use minhttp::peer::Peer;
 use minhttp::response::{self, GenericResponse};
 use minhttp::server::Server;
 use minhttp::signal::{fast_shutdown_requested, graceful_shutdown_requested};
@@ -36,10 +36,10 @@ use scep::steps::{server_et_client, server_et_seq_hashes_client};
 use scep::types::ScreenWithExemptionParams;
 use shared_types::hash::HashSpec;
 use shared_types::requests::RequestId;
-use streamed_ristretto::hyper::{check_content_length, from_request, BodyStream};
-use streamed_ristretto::stream::{check_content_type, HasShortErrorMsg, RistrettoError, HASH_SIZE};
-use streamed_ristretto::util::chunked;
 use streamed_ristretto::HasContentType;
+use streamed_ristretto::hyper::{BodyStream, check_content_length, from_request};
+use streamed_ristretto::stream::{HASH_SIZE, HasShortErrorMsg, RistrettoError, check_content_type};
+use streamed_ristretto::util::chunked;
 
 use crate::mock_screening::mock_screen;
 
@@ -86,7 +86,7 @@ impl TestServer {
         let stop_server = Arc::new(tokio::sync::Notify::new());
 
         let server_task_nursery = {
-            let mut server_task_nursery = minhttp::nursery::Nursery::new();
+            let server_task_nursery = minhttp::nursery::Nursery::new();
             let finished_setup = finished_setup.clone();
             let stop_server = stop_server.clone();
             tokio::spawn(server_task_nursery.chaperone(async move {
@@ -169,7 +169,7 @@ where
             let request_id = RequestId::from(request.headers());
             async move { respond(server_state.clone(), &request_id, peer, request).await }
         })
-        .connected(|c| info!("connection from {c}"))
+        .connected(|c| info!("connection from {}", c.addr()))
         .failed(move |c| error!("connection failed: {c}"))
         .serve(connections);
 
@@ -195,7 +195,7 @@ where
 async fn respond<T>(
     server_state: Arc<ServerState<T>>,
     request_id: &RequestId,
-    peer: SocketAddr,
+    peer: Peer,
     request: Request<Incoming>,
 ) -> GenericResponse
 where
@@ -204,6 +204,7 @@ where
     T::AssociatedRole: Debug,
     T::ChainType: Debug,
 {
+    let peer = peer.addr();
     info!("{request_id}: got request");
 
     fn ok_or_err<I: std::error::Error + 'static>(
@@ -214,7 +215,7 @@ where
         match r {
             Ok(r) => r,
             Err(e) => {
-                scep_server_helpers::log_and_convert_scep_error_to_response(&e, request_id, peer).0
+                scep_server_helpers::log_and_convert_scep_error_to_response(&e, request_id, peer)
             }
         }
     }

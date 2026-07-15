@@ -1,17 +1,17 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use hyper::StatusCode;
 use shared_types::server_versions::HdbVersion;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use certificates::{DatabaseTokenGroup, KeyAvailable, PublicKey, VerifierToken};
 use hdb::{Database, HazardLookupTable};
 use hdb_api::verification::Verifier;
-use minhttp::response::{self, GenericResponse};
+use minhttp::mpserver::common::ConnectionTimeouts;
+use scep::error::ScepError;
 use scep_server_helpers::server::ServerState;
 use shared_types::hash::HashSpec;
 use shared_types::metrics::HdbMetrics;
@@ -41,18 +41,16 @@ pub struct HdbServerState {
     /// Uses a different token than the one used for SCEP
     pub verifier: Option<Verifier<VerifierToken<KeyAvailable>>>,
     pub mail_service: Option<MailService>,
+    pub connection_timeouts: ConnectionTimeouts,
 }
 
 impl HdbServerState {
-    pub fn throttle_heavy_requests(&self) -> Result<OwnedSemaphorePermit, GenericResponse> {
+    pub fn throttle_heavy_requests(
+        &self,
+    ) -> Result<OwnedSemaphorePermit, ScepError<scep::error::Screen>> {
         self.heavy_requests
             .clone()
             .try_acquire_owned()
-            .map_err(|_| {
-                response::text(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "Server is overloaded. Try again later.",
-                )
-            })
+            .map_err(|_| ScepError::Overloaded)
     }
 }

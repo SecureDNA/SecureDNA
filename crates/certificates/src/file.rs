@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fs;
@@ -8,10 +8,6 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::key::ecies::EciesKeyPair;
-use crate::key::error::{KeyLoadError, KeyWriteError};
-use crate::key::signing::SigningKeyPair;
-use crate::key::EncryptableKeypair;
 use crate::Attachment;
 use crate::CertificateBundle;
 use crate::CertificateRequest;
@@ -29,6 +25,10 @@ use crate::SynthesizerTokenGroup;
 use crate::TokenBundle;
 use crate::TokenGroup;
 use crate::VerifierTokenGroup;
+use crate::key::EncryptableKeypair;
+use crate::key::ecies::EciesKeyPair;
+use crate::key::error::{KeyLoadError, KeyWriteError};
+use crate::key::signing::SigningKeyPair;
 
 pub const CERT_EXT: &str = "cert";
 pub const CERT_REQUEST_EXT: &str = "certr";
@@ -318,10 +318,10 @@ fn save_to_file(contents: String, path: &Path) -> Result<(), FileError> {
 }
 
 fn validate_extension(path: &Path, expected_ext: &str) -> Result<(), FileError> {
-    if let Some(ext) = path.extension() {
-        if ext == expected_ext {
-            return Ok(());
-        }
+    if let Some(ext) = path.extension()
+        && ext == expected_ext
+    {
+        return Ok(());
     }
     Err(FileError::UnexpectedFileExtension(
         path.to_owned(),
@@ -349,9 +349,13 @@ pub enum FileError {
     CouldNotReadFromFile(PathBuf),
     #[error("The supplied file {:?} does not have the expected extension ({}). Please check that you are using the correct tool, and that you are providing files in the correct order.", .0, .1)]
     UnexpectedFileExtension(PathBuf, String),
-    #[error("Unable to load a {1} from the supplied file {0:?}. Perhaps the provided role type was not accurate.")]
+    #[error(
+        "Unable to load a {1} from the supplied file {0:?}. Perhaps the provided role type was not accurate."
+    )]
     UnexpectedCertFileContents(PathBuf, String),
-    #[error("Unable to load a {1} from the supplied file {0:?}. Perhaps the provided token type was not accurate.")]
+    #[error(
+        "Unable to load a {1} from the supplied file {0:?}. Perhaps the provided token type was not accurate."
+    )]
     UnexpectedTokenFileContents(PathBuf, String),
     #[error("Public key supplied could not be parsed.")]
     PublicKeyError,
@@ -379,15 +383,15 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::{
-        file::{
-            load_cert_request_from_file, save_cert_request_to_file, save_token_request_to_file,
-            FileError, CERT_REQUEST_EXT,
-        },
         Attachment, Builder, CertificateBundle, CertificateChain, DatabaseTokenGroup,
         DatabaseTokenRequest, Domain, Exemption, HltTokenGroup, HltTokenRequest, Infrastructure,
         IssuerAdditionalFields, KeyserverTokenGroup, KeyserverTokenRequest, PublicKey,
         RequestBuilder, SigningKeyPair, SynthesizerTokenGroup, SynthesizerTokenRequest,
         VerifierTokenGroup, VerifierTokenRequest,
+        file::{
+            CERT_REQUEST_EXT, FileError, load_cert_request_from_file, save_cert_request_to_file,
+            save_token_request_to_file,
+        },
     };
 
     use crate::file::{

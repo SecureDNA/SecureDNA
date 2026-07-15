@@ -1,11 +1,10 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! End-to-end streamed hashing via keyservers
 //!
 //! [`HashingConfig::hash`] is the main function of interest.
 
-use std::future::Future;
 use std::num::NonZeroUsize;
 use std::ops::RangeInclusive;
 use std::sync::Arc;
@@ -20,7 +19,7 @@ use doprf::party::KeyserverId;
 use doprf::prf::{CompressedCompletedHashValue, CompressedHashPart, SECURITY_PARAMETER};
 use doprf::queryset::QueryError;
 
-use crate::splice::{send_to_keyservers, BatchedQueries, KeyserverError};
+use crate::splice::{BatchedQueries, KeyserverError, RequestStreaming, send_to_keyservers};
 
 /// Errors occuring during initial invocation of [`HashingConfig::hash`]
 #[derive(thiserror::Error, Debug)]
@@ -138,12 +137,14 @@ impl<E, R> HashingConfig<E, R> {
         &mut self,
         windows: WI,
         keyserver_fns: Vec<(KeyserverId, KF)>,
+        keyserver_fn_streaming: RequestStreaming,
         active_security_key: Arc<ActiveSecurityKey>,
     ) -> Result<
         impl TryStream<
-                Ok = (Vec<CompressedCompletedHashValue>, Vec<M>),
-                Error = HashingStreamError<S::Error>,
-            > + Send,
+            Ok = (Vec<CompressedCompletedHashValue>, Vec<M>),
+            Error = HashingStreamError<S::Error>,
+        > + Send
+        + use<E, R, WI, W, M, KF, Fut, S>,
         HashingStartupError<Fut::Error>,
     >
     where
@@ -191,10 +192,15 @@ impl<E, R> HashingConfig<E, R> {
 
         // Actually send the blinded queries to the keyservers and get hashparts back
         let buffer_size = self.keyserver_disparity_cap;
-        let hashpart_batches =
-            send_to_keyservers(total_queries, query_batches, keyserver_fns, buffer_size)
-                .await
-                .map_err(HashingStartupError::AccessingKeyservers)?;
+        let hashpart_batches = send_to_keyservers(
+            total_queries,
+            query_batches,
+            keyserver_fns,
+            keyserver_fn_streaming,
+            buffer_size,
+        )
+        .await
+        .map_err(HashingStartupError::AccessingKeyservers)?;
 
         // Execute post-keyserver crypto (verification, recombination, etc), possibly in parallel.
         let executor = self.executor.clone();

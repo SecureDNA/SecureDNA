@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Contains [`Verifier`], used for active security.
@@ -218,7 +218,7 @@ impl Verifier {
 mod tests {
     use super::*;
 
-    use quickcheck::{quickcheck, TestResult};
+    use quickcheck::{TestResult, quickcheck};
     use rand::rngs::OsRng;
     use rand::seq::SliceRandom;
 

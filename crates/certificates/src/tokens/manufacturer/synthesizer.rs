@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module contains functionality for creating an `SynthesizerTokenRequest`.
@@ -7,11 +7,13 @@
 use std::fmt::Display;
 
 use addr::parse_domain_name;
-use rasn::{types::*, Decode, Encode};
+use rasn::{Decode, Encode, types::*};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
+    CertificateChain, Digestible, KeyAvailable, KeyUnavailable, Manufacturer, SigningKeyPair,
+    TokenKind,
     asn::ToASN1DerBytes,
     error::EncodeError,
     impl_boilerplate_for_token, impl_boilerplate_for_token_request,
@@ -27,8 +29,6 @@ use crate::{
         CompatibleIdentity, ComponentVersionGuard, Expiration, Id, Signed, VersionedComponent,
     },
     tokens::{TokenData, TokenGroup},
-    CertificateChain, Digestible, KeyAvailable, KeyUnavailable, Manufacturer, SigningKeyPair,
-    TokenKind,
 };
 
 use super::digest::{SynthesizerTokenDigest, SynthesizerTokenRequestDigest};
@@ -439,16 +439,16 @@ impl_key_boilerplate_for_token! {SynthesizerToken}
 
 #[cfg(all(test, feature = "cert_tests"))]
 mod test {
+    use crate::SystemClock;
     use crate::key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded};
     use crate::test_helpers::create_intermediate_bundle;
-    use crate::SystemClock;
     use crate::{
+        Builder, Description, Digestible, Expiration, Issued, IssuerAdditionalFields, Manufacturer,
+        RequestBuilder, SigningKeyPair, SynthesizerTokenRequest,
         test_helpers::{
             create_leaf_cert, create_synth_token_request, expected_synthesizer_token_display,
         },
         tokens::manufacturer::synthesizer::{AuditRecipient, Domain},
-        Builder, Description, Digestible, Expiration, Issued, IssuerAdditionalFields, Manufacturer,
-        RequestBuilder, SigningKeyPair, SynthesizerTokenRequest,
     };
 
     #[test]
@@ -489,7 +489,9 @@ mod test {
             "XL",
             "10AK",
             "10000 base pairs per day",
-            Some("anna@example.com (03f29057c21d3eb14815eefa0127895b57278fd41c2bad78861ff7a5b1c9b5adae)"),
+            Some(
+                "anna@example.com (03f29057c21d3eb14815eefa0127895b57278fd41c2bad78861ff7a5b1c9b5adae)",
+            ),
             &format!("(public key: {})", token.issuer_public_key()),
         );
         let text = token.into_digest().to_string();

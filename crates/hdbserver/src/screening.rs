@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -11,14 +11,15 @@ use hyper::body::{Body, Incoming};
 use hyper::{Request, StatusCode};
 use sha3::Digest;
 use sha3::Sha3_256;
-use tracing::{error, info, warn};
+use tracing::{Span, error, info, warn};
 
 use certificates::{ChainTraversal, Issued};
 use doprf::prf::CompressedCompletedHashValue;
 use doprf::tagged::{HashTag, TaggedHash};
-use hdb::consolidate_windows::{consolidate_windows, HashId};
+use hdb::consolidate_windows::{HashId, consolidate_windows};
 use hdb::{Exemptions, HdbConfig, HdbParams};
 use hdb_api::HdbScreeningResult;
+use minhttp::peer::Peer;
 use minhttp::response::{self, GenericResponse};
 use scep::cookie::SessionCookie;
 use scep::error::ScepError;
@@ -26,12 +27,12 @@ use scep::states::{EtState, ServerStateForClient};
 use scep::steps::{server_et_client, server_et_seq_hashes_client};
 use scep::types::{ScreenCommon, ScreenWithExemptionParams, VerifiableScreeningRequested};
 use shared_types::requests::RequestId;
-use shared_types::synthesis_permission::SynthesisPermission;
-use streamed_ristretto::hyper::{check_content_length, from_request};
-use streamed_ristretto::stream::{check_content_type, ShortErrorMsg, StreamableRistretto};
+use shared_types::synthesis_permission::{Region, SynthesisPermission};
 use streamed_ristretto::HasContentType;
+use streamed_ristretto::hyper::{check_content_length, from_request};
+use streamed_ristretto::stream::{ShortErrorMsg, StreamableRistretto, check_content_type};
 
-use crate::audit::{send_audit_email_and_log, try_verify, AuditReason};
+use crate::audit::{AuditReason, send_audit_email_and_log, try_verify};
 use crate::event_store;
 use crate::state::HdbServerState;
 use crate::validation::exemptions_after_validation;
@@ -76,11 +77,19 @@ impl StreamableRistretto for UnparsedTaggedHash {
     }
 }
 
+#[tracing::instrument(
+    name = "screen",
+    skip_all,
+    fields(client_mid, issued_to, chain, region, screened_bp, hash_count)
+)]
 pub async fn scep_endpoint_screen(
+    peer: &Peer,
     request_id: &RequestId,
     hdbs_state: Arc<HdbServerState>,
     request: Request<Incoming>,
 ) -> Result<GenericResponse, scep::error::ScepError<scep::error::Screen>> {
+    let span = Span::current();
+
     check_content_type(request.headers(), TaggedHash::CONTENT_TYPE)
         .context("in screen")
         .map_err(scep::error::ScepError::InvalidMessage)?;
@@ -100,14 +109,26 @@ pub async fn scep_endpoint_screen(
     let debug_info = client_state.open_request().debug_info;
     let cert_chain = client_state.open_request().cert_chain.clone();
     let audit_recipient = cert_chain.token.audit_recipient().clone();
+    span.record("client_mid", tracing::field::display(client_mid));
 
     let hash_count_from_content_len =
         check_content_length(request.body().size_hint().exact(), TaggedHash::SIZE)
             .context("in screen")
             .map_err(scep::error::ScepError::InvalidMessage)?;
 
+    // Ensure we don't disconnect people during large requests.
+    let timeouts = (hdbs_state.connection_timeouts).for_hash_count(hash_count_from_content_len);
+    peer.relax_timeouts(timeouts);
+
     let (params, client_state) =
         scep::steps::server_screen_client(hash_count_from_content_len, client_state)?;
+    let cert_chain = client_state.open_request.cert_chain;
+    span.record("issued_to", cert_chain.token.issuer_description());
+    let chain = cert_chain.chain().into_iter();
+    // We skip the first two certs because they should belong to SecureDNA,
+    // so they're probably just spam, not informative.
+    let chain: Vec<_> = chain.skip(2).map(|ci| ci.user_friendly_text()).collect();
+    span.record("chain", tracing::field::debug(chain));
 
     let ScreenCommon {
         region,
@@ -116,19 +137,24 @@ pub async fn scep_endpoint_screen(
         fasta_sha3_256_hex,
         synthclient_version,
     } = params;
+    let region = Region::try_from(region).map_err(scep::error::Screen::UnrecognizedRegion)?;
+    span.record("region", tracing::field::debug(region));
+    // The order things are recorded seems to influence how they're presented, so we put
+    // this below region so it's by hash_count.
+    span.record(
+        "screened_bp",
+        client_state.open_request.nucleotide_total_count,
+    );
 
-    let permit = match hdbs_state.throttle_heavy_requests() {
-        Ok(permit) => permit,
-        Err(err_response) => return Ok(err_response),
-    };
+    let permit = hdbs_state.throttle_heavy_requests()?;
 
     let (ets, exemptions) = match client_state.et_state {
         EtState::NoEt => (vec![], NO_EXEMPTIONS.clone()),
         EtState::AwaitingEtSize | EtState::PromisedEt { .. } => {
-            return Err(scep::error::Screen::ScreenBeforeEt.into())
+            return Err(scep::error::Screen::ScreenBeforeEt.into());
         }
         EtState::EtNeedsHashes { .. } => {
-            return Err(scep::error::Screen::ScreenBeforeEtHashes.into())
+            return Err(scep::error::Screen::ScreenBeforeEtHashes.into());
         }
         EtState::EtReady { ets, hashes } => {
             let data_to_sign = Sha3_256::new()
@@ -157,21 +183,12 @@ pub async fn scep_endpoint_screen(
     let num_hashes = check_content_length(request.body().size_hint().exact(), TaggedHash::SIZE)
         .context("in screen")
         .map_err(ScepError::InvalidMessage)?;
-    info!("{request_id}: Processing request of size {num_hashes}");
+    span.record("hash_count", num_hashes);
+    info!("Processing request");
 
     let queries = from_request(request)
         .context("in screen")
         .map_err(ScepError::InvalidMessage)?;
-
-    struct LogDone(RequestId);
-
-    impl Drop for LogDone {
-        fn drop(&mut self) {
-            info!("{}: Done.", self.0);
-        }
-    }
-
-    let logdone = LogDone(request_id.clone());
 
     let screen_evt_id = match event_store::insert_screen_event(
         &hdbs_state.persistence_connection,
@@ -184,7 +201,7 @@ pub async fn scep_endpoint_screen(
     {
         Ok(id) => Some(id),
         Err(e) => {
-            error!("Failed to persist screen event for {client_mid}: {e}");
+            error!(message = "Failed to persist screen event", error = %e);
             None
         }
     };
@@ -195,7 +212,6 @@ pub async fn scep_endpoint_screen(
     let hdb_responses: Result<Vec<_>, anyhow::Error> = queries
         .map(move |query| {
             let _permit = &permit;
-            let _logdone = &logdone;
 
             let hash_id_and_query = query.map(|query: UnparsedTaggedHash| {
                 let hash_id = HashId::new(query.hash_tag(), last_record);
@@ -248,7 +264,7 @@ pub async fn scep_endpoint_screen(
     let hdb_responses = match hdb_responses {
         Ok(r) => r,
         Err(err) => {
-            warn!("Error while processing HDB records: {err:?}");
+            warn!(message = "Error while processing HDB records", error = ?err);
             if let Some(metrics) = &hdbs_state.metrics {
                 metrics.io_errors.inc();
             }
@@ -271,23 +287,11 @@ pub async fn scep_endpoint_screen(
     let base =
         consolidation.to_base_hdb_screening_result(provider_reference, hdb_version, timestamp);
 
-    let chain = client_state.open_request.cert_chain.chain().into_iter();
-    // We skip the first two certs because they should belong to SecureDNA,
-    // so they're probably just spam, not informative.
-    let chain: Vec<_> = chain.skip(2).map(|ci| ci.user_friendly_text()).collect();
     let merged_permission =
         SynthesisPermission::merge(base.results.iter().map(|r| r.synthesis_permission));
-    info!(
-        message = "screened",
-        %client_mid,
-        issued_to=client_state.open_request.cert_chain.token.issuer_description(),
-        ?chain,
-        screened_bp=client_state.open_request.nucleotide_total_count,
-        hash_count=num_hashes,
-        %merged_permission,
-    );
-    if let Some(screen_evt_id) = screen_evt_id {
-        if let Err(e) = event_store::insert_screen_result(
+    info!(message = "screened", %merged_permission);
+    if let Some(screen_evt_id) = screen_evt_id
+        && let Err(e) = event_store::insert_screen_result(
             &hdbs_state.persistence_connection,
             screen_evt_id,
             shared_types::synthesis_permission::SynthesisPermission::merge(
@@ -295,12 +299,8 @@ pub async fn scep_endpoint_screen(
             ),
         )
         .await
-        {
-            error!(
-                "Failed to persist screening result for {}: {e}",
-                client_state.open_request.client_mid()
-            );
-        }
+    {
+        error!(message = "Failed to persist screening result", error = %e);
     }
 
     let response = match verifiable {
@@ -462,6 +462,7 @@ pub async fn scep_endpoint_exemption(
 }
 
 pub async fn scep_endpoint_exemption_seq_hashes(
+    peer: &Peer,
     _request_id: &RequestId,
     hdbs_state: Arc<HdbServerState>,
     request: Request<Incoming>,
@@ -477,6 +478,17 @@ pub async fn scep_endpoint_exemption_seq_hashes(
         .ok_or_else(|| {
             scep::error::ScepError::InvalidMessage(anyhow::anyhow!("unknown cookie {cookie}"))
         })?;
+
+    let hash_count_from_content_len = check_content_length(
+        request.body().size_hint().exact(),
+        CompressedCompletedHashValue::SIZE,
+    )
+    .context("in exemption-seq-hashes")
+    .map_err(scep::error::ScepError::InvalidMessage)?;
+
+    // Ensure we don't disconnect people during large requests.
+    let timeouts = (hdbs_state.connection_timeouts).for_hash_count(hash_count_from_content_len);
+    peer.relax_timeouts(timeouts);
 
     let hashes: Vec<_> = from_request::<_, CompressedCompletedHashValue>(request)
         .context("in exemption-seq-hashes")

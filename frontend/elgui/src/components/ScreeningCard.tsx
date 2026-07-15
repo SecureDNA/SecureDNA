@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+ * Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
  * SPDX-License-Identifier: MIT OR Apache-2.0
  */
 
@@ -25,7 +25,10 @@ import { sha256 } from "src/util/hash";
 
 import type { ScreeningWorkerParams } from "src/screening/types";
 
-async function cachedScreening(
+const semaphores = new Set<Promise<void>>();
+const maxConcurrentJobs = 10;
+
+export async function cachedScreening(
   params: ScreeningWorkerParams,
   callback: (progress: ScreeningProgress) => void,
 ): Promise<void> {
@@ -38,16 +41,12 @@ async function cachedScreening(
     const result: ApiResponse = JSON.parse(cached);
     callback({ done: true, result });
   } else {
-    performScreening(params, (p) => {
-      // if (p.done) {
-      //   try {
-      //     sessionStorage.setItem(key, JSON.stringify(shrinkResult(p.result)));
-      //   } catch (e) {
-      //     console.warn("sessionStorage is full");
-      //   }
-      // }
-      callback(p);
-    });
+    while (semaphores.size >= maxConcurrentJobs) {
+      await Promise.race(semaphores.values());
+    }
+    const promise = performScreening(params, callback);
+    semaphores.add(promise);
+    promise.finally(() => semaphores.delete(promise));
   }
 }
 

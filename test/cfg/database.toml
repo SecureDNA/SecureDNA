@@ -39,5 +39,5 @@ verifier_history_url = "https://example.com"
 totp_cert_file = "../certs/exemption-leaf.cert"
 totp_access_passphrase_file = "../certs/totp-access.passphrase"
 
-# audit_sendgrid_api_key_file = "./sendgrid-api-key.txt"
+# audit_smtp2go_api_key_file = "./smtp2go-api-key.txt"
 # audit_template_file = "./audit-email-template.toml"

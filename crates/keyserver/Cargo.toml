@@ -2,20 +2,20 @@
 name = "keyserver"
 version = { workspace = true }
 publish = { workspace = true }
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 anyhow = "1.0.75"
-bytes = "1.10.0"
-clap = { version = "4.5.0", features = ["cargo", "derive", "env"] }
+bytes = "1.11.1"
+clap = { version = "4.5.60", features = ["cargo", "derive", "env"] }
 futures = "0.3.28"
 http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["http1", "server"] }
 num_cpus = "1.16.0"
 serde = { workspace = true }
 serde_json = "1.0"
-tokio = { version = "1.45.1", features = ["full"] }
-toml = "0.8.12"
+tokio = { version = "1.50.0", features = ["full"] }
+toml = "1.1.0"
 tracing = { workspace = true }
 
 certificates = { path = "../certificates" }

@@ -1,8 +1,7 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::convert::Infallible;
-use std::future::Future;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,15 +13,15 @@ use shared_types::et::WithOtps;
 
 use crate::error::DoprfError;
 use crate::retry_if;
-use crate::server_selection::{bad_flag::ServerBadFlag, SelectedHdb, SelectedKeyserver};
+use crate::server_selection::{SelectedHdb, SelectedKeyserver, bad_flag::ServerBadFlag};
 use crate::splice::BatchedQueries;
 use certificates::{DatabaseTokenGroup, ExemptionTokenGroup, KeyserverTokenGroup, TokenBundle};
 use doprf::party::{KeyserverId, KeyserverIdSet};
 use doprf::prf::{CompressedCompletedHashValue, CompressedHashPart};
 use doprf::tagged::TaggedHash;
 use hdb_api::HdbScreeningResult;
-use http_client::service::util::BoxedError;
 use http_client::BaseApiClient;
+use http_client::service::util::BoxedError;
 use scep::states::OpenedClientState;
 use scep_client_helpers::{ClientCerts, ScepClient};
 

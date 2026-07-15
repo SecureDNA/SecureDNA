@@ -1,0 +1,71 @@
+# Verifiable screening
+
+As a DNA provider, you may want to keep auditable records indicating that your
+orders were screened. To help with this, SecureDNA offers a setting called
+**verifiable screening**. When this setting is enabled, responses to screening
+requests contain information that cryptographically ensures that the request
+and response have not been tampered with.
+
+The response contains cryptographic hashes signed with SecureDNA's private key.
+"Verifying" the response means computing the same _hash_ on your end, to
+conclude that you and SecureDNA saw the same data, and checking the enclosed
+_signature_ and _public key_ to ensure the response wasn't produced by someone
+else.
+
+## Usage
+
+To enable verifiable screening, add `"verifiable_screening": true` to your
+`/v1/screen` JSON request body. See [Synthclient API](../api/index.qmd).
+
+The resulting JSON response from the synthclient API, containing a
+`"verifiable"` field, can serve as an auditable record of this synthesis
+request. It's your responsibility to hold on to these records, **and the request
+bodies, exactly as submitted to synthclient**. Without the byte-for-byte exact
+JSON string, you won't be able to run back the verification process. See the
+next section for advice on how to automate this.
+
+## Storage
+
+Synthclient may be configured to automatically store verifiable screening
+results. In the configuration file, add a line like:
+
+```
+store_verifiable_results = "./path"
+```
+
+Now synthclient will, for any request with `"verifiable_screening": true` in
+the request body, create a directory with two files like:
+
+```
+./path/2025-01-01T00_00_00.0000000Z/request.json
+./path/2025-01-01T00_00_00.0000000Z/response.json
+```
+
+## Verification
+
+synthclient comes with a command-line tool for running the verification process
+on a verifiable response.
+
+> [!NOTE]
+> Verification may fail if performed on a different version of synthclient.
+> Check the `synthclient_version` field of the API response and install the
+> appropriate version of synthclient.
+
+The `sdna-verify` command line tool is part of `synthclient-tools`. See
+[the README](https://github.com/SecureDNA/SecureDNA/blob/main/docs/synthclient-tools_README.md)
+for information on how to install and use these tools.
+
+To verify a request-response pair:
+
+```
+sdna-verify path/to/request.json path/to/response.json
+```
+
+For more information, see `sdna-verify --help`.
+
+## Limitations
+
+Verifiable screening is intended to facilitite *auditing*, not
+*forensics*.  It is no substitute for adequate internal security and
+configuration controls, and auditors are likely to insist on those if
+they wish to trust the integrity of the process.

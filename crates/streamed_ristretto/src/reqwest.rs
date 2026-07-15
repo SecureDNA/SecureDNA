@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Tools for implementing [`reqwest`] clients
@@ -16,12 +16,12 @@ use reqwest::{Body, RequestBuilder, Response};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::contenttype::HasContentType;
-pub use crate::stream::{
-    check_content_length, HasShortErrorMsg, MessageError, RistrettoError, StreamableRistretto,
-    HASH_SIZE,
-};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::stream::{decode, ConversionError};
+use crate::stream::{ConversionError, decode};
+pub use crate::stream::{
+    HASH_SIZE, HasShortErrorMsg, MessageError, RistrettoError, StreamableRistretto,
+    check_content_length,
+};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::util;
 
@@ -79,7 +79,7 @@ pub fn check_content_type(
 /// Provides a `hyper`-compatible copy of content-type headers
 ///
 /// If possible, it avoids copying and just passes the reference through unchanged.
-fn convert_content_type_headers(headers: &reqwest::header::HeaderMap) -> Cow<http::HeaderMap> {
+fn convert_content_type_headers(headers: &reqwest::header::HeaderMap) -> Cow<'_, http::HeaderMap> {
     if let Some(headers) = (headers as &dyn Any).downcast_ref::<http::HeaderMap>() {
         // Should optimize down to no-op whenever hyper and reqwest use the same version of http...
         Cow::Borrowed(headers)

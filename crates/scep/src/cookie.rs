@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{fmt, str::FromStr};
@@ -21,7 +21,7 @@ impl SessionCookie {
     /// allowing it to be transported over http://. This is useful for local testing.
     ///
     /// This should only be used by v1 SCEP.
-    pub fn to_http_cookie(&self, allow_insecure: bool) -> Cookie {
+    pub fn to_http_cookie(&self, allow_insecure: bool) -> Cookie<'_> {
         Cookie::build((Self::COOKIE_NAME.to_owned(), self.to_string()))
             .secure(!allow_insecure)
             .http_only(true)
@@ -107,7 +107,7 @@ impl FromStr for SessionCookie {
 
 impl Distribution<SessionCookie> for Standard {
     fn sample<R: rand::prelude::Rng + ?Sized>(&self, rng: &mut R) -> SessionCookie {
-        SessionCookie(rng.gen())
+        SessionCookie(rng.r#gen())
     }
 }
 
@@ -141,7 +141,7 @@ mod tests {
 
     use std::convert::Infallible;
 
-    use quickcheck::{quickcheck, Arbitrary, Gen};
+    use quickcheck::{Arbitrary, Gen, quickcheck};
     use rand::Rng;
 
     impl Arbitrary for SessionCookie {
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn test_header_extraction() {
-        let cookie: SessionCookie = rand::thread_rng().gen();
+        let cookie: SessionCookie = rand::thread_rng().r#gen();
         let headers = HeaderMap::from_iter([(
             http::header::COOKIE,
             cookie.to_http_cookie(false).to_string().parse().unwrap(),
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_header_invalid() {
-        let session: SessionCookie = rand::thread_rng().gen();
+        let session: SessionCookie = rand::thread_rng().r#gen();
         let (header, _) = session.to_http_header();
         let value = HeaderValue::from_static("foobar");
 
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_cookie_invalid() {
-        let session: SessionCookie = rand::thread_rng().gen();
+        let session: SessionCookie = rand::thread_rng().r#gen();
         let mut cookie = session.to_http_cookie(false);
         cookie.set_value("foobar");
 
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_header_multiple() {
-        let session: SessionCookie = rand::thread_rng().gen();
+        let session: SessionCookie = rand::thread_rng().r#gen();
 
         let header = session.to_http_header();
         let headers = HeaderMap::from_iter([header.clone(), header.clone()]);
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_cookie_multiple() {
-        let session: SessionCookie = rand::thread_rng().gen();
+        let session: SessionCookie = rand::thread_rng().r#gen();
         let cookie = session.to_http_cookie(false);
 
         let header = (http::header::COOKIE, cookie.to_string().parse().unwrap());

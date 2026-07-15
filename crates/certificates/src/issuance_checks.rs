@@ -1,18 +1,18 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use serde::Serialize;
 
+use crate::key::EncryptableKeypair;
 use crate::key::error::KeyLoadError;
 use crate::key::signing::SigningKeyPair;
-use crate::key::EncryptableKeypair;
 use crate::{
+    CertificateBundle, ChainItemDigestValidationError, ChainTraversal, ExemptionTokenGroup,
+    ExemptionTokenRequest, HierarchyKind, KeyMismatchError, Role, TokenBundle, TokenGroup,
     certificate::certificate_bundle::CertificateError,
     key_traits::CanLoadSigningKey,
     tokens::exemption::et::{EtLoadKeyError, NonCompliantChildToken},
     traversal::ExpiryWarning,
-    CertificateBundle, ChainItemDigestValidationError, ChainTraversal, ExemptionTokenGroup,
-    ExemptionTokenRequest, HierarchyKind, KeyMismatchError, Role, TokenBundle, TokenGroup,
 };
 use crate::{ChainValidationError, Clock};
 

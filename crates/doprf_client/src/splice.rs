@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Keyserver stream splicing
@@ -21,14 +21,13 @@
 //!
 //! The primary entrypoint is [`send_to_keyservers`].
 use std::fmt;
-use std::future::Future;
 use std::num::NonZeroUsize;
-use std::pin::{pin, Pin};
+use std::pin::{Pin, pin};
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
+use std::task::{Context, Poll, ready};
 
+use flume::r#async::RecvStream;
 use futures::{Stream, StreamExt, TryFuture, TryStream, TryStreamExt};
-use tokio::sync::mpsc;
 
 use doprf::party::KeyserverId;
 use doprf::prf::{CompressedHashPart, CompressedQuery};
@@ -50,6 +49,25 @@ pub enum KeyserverError<E> {
     /// A keyserver yielded more [`CompressedHashPart`]s than [`CompressedQuery`]s sent to it.
     #[error("keyserver {keyserver_id} response too long")]
     TooLong { keyserver_id: KeyserverId },
+}
+
+/// Describes the streaming behavior of `keyserver_fns`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RequestStreaming {
+    /// Assume bidirectional streaming is supported.
+    ///
+    /// Query metadata is stored using a limited amount of memory, which in turn limits how
+    /// many queries a `keyserver_fn` can see before it must start streaming responses back.
+    /// This allows processing enormous orders with limited memory, but the `keyserver_fn`s
+    /// **MUST NOT** expect all queries up front, or that may cause a deadlock.
+    #[default]
+    Bidirectional,
+    /// Make no assumptions about behavior of HTTP requests.
+    ///
+    /// Don't place limits on how much query metadata can be stored. This allows non-streaming
+    /// `keyserver_fn`s to be used without causing a deadlock, but may cause memory usage
+    /// to baloon if there are network problems (or if non-streaming `keyserver_fn`s are used).
+    Unspecified,
 }
 
 /// Fan out stream of queries to keyservers and recombine responses into a single stream.
@@ -92,6 +110,7 @@ pub async fn send_to_keyservers<Q, M, F, Fut, HP, SE, RE>(
     total_queries: u64,
     batched_queries: Q,
     keyserver_fns: Vec<(KeyserverId, F)>,
+    keyserver_fn_streaming: RequestStreaming,
     max_buffered_batches: NonZeroUsize,
 ) -> Result<BatchedHashParts<M, HP>, SE>
 where
@@ -101,14 +120,17 @@ where
     Fut: TryFuture<Ok = HP, Error = SE>,
     HP: TryStream<Ok = CompressedHashPart, Error = RE> + Unpin,
 {
-    let (metadata_sender, metadata_receiver) = mpsc::channel(max_buffered_batches.get());
+    let (metadata_sender, metadata_receiver) = match keyserver_fn_streaming {
+        RequestStreaming::Bidirectional => flume::bounded(max_buffered_batches.get()),
+        RequestStreaming::Unspecified => flume::unbounded(),
+    };
     let ((senders, ks_ids), futures): (_, Vec<_>) = keyserver_fns
         .into_iter()
         .map(|(ks_id, keyserver_fn)| {
-            let (sender, receiver) = mpsc::channel(max_buffered_batches.get());
+            let (sender, receiver) = flume::bounded(max_buffered_batches.get());
             let batched_queries = BatchedQueries {
                 remaining_queries: total_queries,
-                receiver,
+                receiver: receiver.into_stream(),
             };
             let future = keyserver_fn(batched_queries);
             ((sender, ks_id), future)
@@ -142,8 +164,8 @@ where
 async fn pump_input<M>(
     total_queries: u64,
     batches: impl Stream<Item = (Arc<[CompressedQuery]>, M)>,
-    senders: Vec<mpsc::Sender<Arc<[CompressedQuery]>>>,
-    metadata_sender: mpsc::Sender<BatchMetadata<M>>,
+    senders: Vec<flume::Sender<Arc<[CompressedQuery]>>>,
+    metadata_sender: flume::Sender<BatchMetadata<M>>,
 ) {
     let mut remaining_queries = total_queries;
     let mut batches = pin!(batches);
@@ -159,13 +181,13 @@ async fn pump_input<M>(
             custom_metadata,
         };
         metadata_sender
-            .send(metadata)
+            .send_async(metadata)
             .await
             .expect("BUG: metadata channel closed too early.");
         for sender in &senders {
             // Errors are fine here: The keyserver_fn must have dropped the BatchedQueries.
             // Presumably it might have done that as part of cleanup before returning an error?
-            let _ = sender.send(batch.clone()).await;
+            let _ = sender.send_async(batch.clone()).await;
         }
     }
     assert_eq!(
@@ -186,7 +208,7 @@ async fn pump_input<M>(
 pub struct BatchedQueries {
     remaining_queries: u64,
     #[pin]
-    receiver: mpsc::Receiver<Arc<[CompressedQuery]>>,
+    receiver: RecvStream<'static, Arc<[CompressedQuery]>>,
 }
 
 impl BatchedQueries {
@@ -200,8 +222,8 @@ impl Stream for BatchedQueries {
     type Item = Arc<[CompressedQuery]>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
-        let result = this.receiver.poll_recv(cx);
+        let this = self.project();
+        let result = this.receiver.poll_next(cx);
         match result {
             // pump_input has already checked that this math should succeed; if not,
             // it would have panicked, complaining about sending more queries than declared
@@ -233,12 +255,12 @@ struct BatchMetadata<T> {
 
 /// Stream of [`HashParts`] and per-batch metadata returned from [`send_to_keyservers`].
 #[pin_project::pin_project]
-pub struct BatchedHashParts<M, S> {
+pub struct BatchedHashParts<M: 'static, S> {
     /// Shuffles data from our input stream to the keyservers and `metadata_receiver`.
     pump_input: Pin<Box<dyn Future<Output = ()> + Send>>,
     /// Tells us what size batch to expect next.
     #[pin]
-    metadata_receiver: mpsc::Receiver<BatchMetadata<M>>,
+    metadata_receiver: RecvStream<'static, BatchMetadata<M>>,
     /// Which keyserver the corresponding index in `output_streams` goes to.
     keyserver_ids: Vec<KeyserverId>,
     /// HashPart streams returning from keyservers to us.
@@ -254,13 +276,13 @@ pub struct BatchedHashParts<M, S> {
 impl<M, S> BatchedHashParts<M, S> {
     fn new(
         pump_input: Pin<Box<dyn Future<Output = ()> + Send>>,
-        metadata_receiver: mpsc::Receiver<BatchMetadata<M>>,
+        metadata_receiver: flume::Receiver<BatchMetadata<M>>,
         keyserver_ids: Vec<KeyserverId>, // Not using KeyserverIdSet because order matters
         output_streams: Vec<S>,
     ) -> Self {
         Self {
             pump_input,
-            metadata_receiver,
+            metadata_receiver: metadata_receiver.into_stream(),
             keyserver_ids,
             output_streams,
             metadata: None,
@@ -314,11 +336,7 @@ impl<M, S> BatchedHashParts<M, S> {
     }
 
     fn terminate(self: Pin<&mut Self>) {
-        let mut this = self.project();
-
-        // Should be no-op because `is_terminated` prevents us from reaching `pump_input`;
-        // just doing this to increase the chances of any unexpected control flow panicking.
-        this.metadata_receiver.close();
+        let this = self.project();
 
         *this.is_terminated = true;
         *this.keyserver_ids = vec![];
@@ -335,7 +353,7 @@ where
     type Item = Result<(HashParts, M), KeyserverError<S::Error>>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        let mut this = self.as_mut().project();
+        let this = self.as_mut().project();
 
         if *this.is_terminated {
             return Poll::Ready(None);
@@ -347,7 +365,7 @@ where
         let metadata = match this.metadata {
             Some(metadata) => metadata,
             None => {
-                let Some(metadata) = ready!(this.metadata_receiver.poll_recv(cx)) else {
+                let Some(metadata) = ready!(this.metadata_receiver.poll_next(cx)) else {
                     // Ok, we've gotten to the end of the metadata stream...
                     // Double-check that all keyserver streams have finished up too.
                     // No big deal if this is Pending; if so, we should end up here again.
@@ -473,11 +491,13 @@ mod tests {
             })
             .to_vec();
 
+        let keyserver_fn_streaming = RequestStreaming::Bidirectional;
         let max_buffered_batches = 4.try_into().unwrap();
         let Ok(hashparts) = send_to_keyservers(
             total_queries,
             query_batches,
             keyserver_fns,
+            keyserver_fn_streaming,
             max_buffered_batches,
         )
         .await;
@@ -584,11 +604,13 @@ mod tests {
             })
             .to_vec();
 
+        let keyserver_fn_streaming = RequestStreaming::Bidirectional;
         let max_buffered_batches = 1.try_into().unwrap();
         let err = send_to_keyservers(
             total_queries,
             query_batches,
             keyserver_fns,
+            keyserver_fn_streaming,
             max_buffered_batches,
         )
         .await
@@ -629,11 +651,13 @@ mod tests {
             })
             .to_vec();
 
+        let keyserver_fn_streaming = RequestStreaming::Bidirectional;
         let max_buffered_batches = 1.try_into().unwrap();
         let Ok(hashparts) = send_to_keyservers(
             total_queries,
             query_batches,
             keyserver_fns,
+            keyserver_fn_streaming,
             max_buffered_batches,
         )
         .await;
@@ -680,11 +704,13 @@ mod tests {
             })
             .to_vec();
 
+        let keyserver_fn_streaming = RequestStreaming::Bidirectional;
         let max_buffered_batches = 1.try_into().unwrap();
         let Ok(hashparts) = send_to_keyservers(
             total_queries,
             query_batches,
             keyserver_fns,
+            keyserver_fn_streaming,
             max_buffered_batches,
         )
         .await;
@@ -738,11 +764,13 @@ mod tests {
             })
             .to_vec();
 
+        let keyserver_fn_streaming = RequestStreaming::Bidirectional;
         let max_buffered_batches = 1.try_into().unwrap();
         let Ok(hashparts) = send_to_keyservers(
             total_queries,
             query_batches,
             keyserver_fns,
+            keyserver_fn_streaming,
             max_buffered_batches,
         )
         .await;
@@ -799,8 +827,8 @@ mod tests {
         let (throttles, keyserver_fns): (Vec<_>, Vec<_>) = [1, 2, 3]
             .into_iter()
             .map(|ks_id| {
-                let (throttle_tx, mut throttle_rx) = mpsc::channel::<()>(4);
-                let throttle = futures::stream::poll_fn(move |cx| throttle_rx.poll_recv(cx));
+                let (throttle_tx, throttle_rx) = flume::bounded::<()>(4);
+                let throttle = throttle_rx.into_stream();
 
                 let keyserve = move |batched_queries: BatchedQueries| async move {
                     // Ensure we read from the batches when a keyserver really would.
@@ -818,6 +846,7 @@ mod tests {
             })
             .collect();
 
+        let keyserver_fn_streaming = RequestStreaming::Bidirectional;
         // Unrealistally low, but makes it easier to predict how things should behave.
         let max_buffered_batches = 1.try_into().unwrap();
 
@@ -825,6 +854,7 @@ mod tests {
             total_queries,
             query_batches,
             keyserver_fns,
+            keyserver_fn_streaming,
             max_buffered_batches,
         )
         .await;
@@ -838,7 +868,7 @@ mod tests {
 
         // Tell keyserver1 (KS1) to process one hash and KS2/3 to process a couple each.
         for ks in [0, 1, 1, 2, 2] {
-            throttles[ks].send(()).await.unwrap();
+            throttles[ks].send_async(()).await.unwrap();
         }
         // After this, the way things should look is:
         // (Q = query, H = processed hashpart, B# = batch, KS# = keyserver)
@@ -857,7 +887,7 @@ mod tests {
         assert!(input_batches_read < 4); // ...but not all batches due to queue size of 1.
 
         for ks in [0, 0, 0, 0, 1, 1, 1, 1, 2] {
-            throttles[ks].send(()).await.unwrap();
+            throttles[ks].send_async(()).await.unwrap();
         }
         // Ok, now things should look like:
         //     B1 B2 B3 B4
@@ -874,7 +904,7 @@ mod tests {
         assert_eq!(*query_batches_read.lock().unwrap(), 4);
 
         for ks in [0, 2, 2, 2] {
-            throttles[ks].send(()).await.unwrap();
+            throttles[ks].send_async(()).await.unwrap();
         }
         // Ok, now things should look like:
         //     B1 B2 B3 B4
@@ -908,11 +938,13 @@ mod tests {
             })
             .to_vec();
 
+        let keyserver_fn_streaming = RequestStreaming::Bidirectional;
         let max_buffered_batches = 5.try_into().unwrap();
         let _ = send_to_keyservers(
             total_queries,
             query_batches,
             keyserver_fns,
+            keyserver_fn_streaming,
             max_buffered_batches,
         )
         .await;
@@ -938,11 +970,13 @@ mod tests {
             })
             .to_vec();
 
+        let keyserver_fn_streaming = RequestStreaming::Bidirectional;
         let max_buffered_batches = 5.try_into().unwrap();
         let _ = send_to_keyservers(
             total_queries,
             query_batches,
             keyserver_fns,
+            keyserver_fn_streaming,
             max_buffered_batches,
         )
         .await;
@@ -953,13 +987,13 @@ mod tests {
         let query_batches = futures::stream::pending::<(Arc<[CompressedQuery]>, ())>();
         let total_queries = 5;
 
-        let (query_batches_tx, mut query_batches_rx) = mpsc::channel(4);
+        let (query_batches_tx, query_batches_rx) = flume::bounded(4);
 
         let keyserver_fns = [2, 3, 5]
             .map(move |ks_id| {
                 let query_batches_tx = query_batches_tx.clone();
                 let keyserve = async move |batched_queries: BatchedQueries| {
-                    query_batches_tx.send(batched_queries).await.unwrap();
+                    query_batches_tx.send_async(batched_queries).await.unwrap();
                     let stream =
                         futures::stream::pending::<Result<CompressedHashPart, Infallible>>();
                     Ok::<_, Infallible>(stream)
@@ -969,11 +1003,13 @@ mod tests {
             })
             .to_vec();
 
+        let keyserver_fn_streaming = RequestStreaming::Bidirectional;
         let max_buffered_batches = 5.try_into().unwrap();
         let hashparts = send_to_keyservers(
             total_queries,
             query_batches,
             keyserver_fns,
+            keyserver_fn_streaming,
             max_buffered_batches,
         )
         .await
@@ -983,8 +1019,53 @@ mod tests {
         // failure), we DON'T want to trigger the "sent fewer queries than declared" panic.
         drop(hashparts);
         for _ in 0..3 {
-            let mut batches = query_batches_rx.recv().await.unwrap();
+            let mut batches = query_batches_rx.recv_async().await.unwrap();
             assert!(batches.next().now_or_never().is_none());
         }
+    }
+
+    #[tokio::test]
+    async fn unknown_streaming_doesnt_limit_batches() {
+        let query_batches = futures::stream::iter([
+            (Arc::from_iter([dummy("query"); 1]), "metadata"),
+            (Arc::from_iter([dummy("query"); 1]), "metadata"),
+        ]);
+        let total_queries = 2;
+
+        let keyserver_fns = [2, 3, 5]
+            .map(|ks_id| {
+                let keyserve = async move |mut batched_queries: BatchedQueries| {
+                    // consume entire request before returning response
+                    while batched_queries.next().await.is_some() {}
+
+                    let stream =
+                        futures::stream::pending::<Result<CompressedHashPart, Infallible>>();
+                    Ok::<_, Infallible>(stream)
+                };
+                let ks_id = KeyserverId::try_from(ks_id).unwrap();
+                (ks_id, keyserve)
+            })
+            .to_vec();
+
+        // We set `max_buffered_batches` lower than the total number of batches (2),
+        // so when the `keyserver_fn` tries to consume the entire request, it'll blow
+        // past the `max_buffered_batches` limit... if we used `RequestStreaming::Bidirectional`
+        // the splicing code would refuse to hand over more of the request to the `keyserver_fns`
+        // until they started streaming stuff back, but the `keyserver_fns` don't stream so
+        // that'd lead to a deadlock. This comes up in the WASM environment where some browsers
+        // don't support bidirectional streaming, so we need to be able to disable just the
+        // metadata limits.
+        // TL;DR: This test should hang if `RequestStreaming::Bidirectional` is used,
+        // but not if `RequestStreaming::Unspecified` is used.
+        let keyserver_fn_streaming = RequestStreaming::Unspecified;
+        let max_buffered_batches = 1.try_into().unwrap();
+        let _ = send_to_keyservers(
+            total_queries,
+            query_batches,
+            keyserver_fns,
+            keyserver_fn_streaming,
+            max_buffered_batches,
+        )
+        .await;
     }
 }

@@ -1,17 +1,18 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::net::SocketAddr;
 
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use hyper::header::{HeaderValue, CONTENT_TYPE};
+use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::{Request, Response};
 use tokio::net::TcpListener;
 use tracing::info;
 
-use minhttp::signal::{fast_shutdown_requested, graceful_shutdown_requested};
 use minhttp::Server;
+use minhttp::peer::Peer;
+use minhttp::signal::{fast_shutdown_requested, graceful_shutdown_requested};
 
 #[tokio::main]
 async fn main() {
@@ -43,10 +44,7 @@ async fn main() {
     };
 }
 
-async fn respond(
-    _request: Request<Incoming>,
-    _peer: SocketAddr,
-) -> minhttp::response::GenericResponse {
+async fn respond(_request: Request<Incoming>, _peer: Peer) -> minhttp::response::GenericResponse {
     let msg = "Hello world!\n";
     let body = Full::from(msg).map_err(|_| unreachable!()).boxed();
     let mut response = Response::new(body);

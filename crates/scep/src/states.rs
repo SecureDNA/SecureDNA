@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::collections::{HashMap, HashSet};
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn server_sessions_double_add() {
-        let cookie: SessionCookie = rand::thread_rng().gen();
+        let cookie: SessionCookie = rand::thread_rng().r#gen();
         let mut sessions = ServerSessions::<u8>::new();
         sessions.add_session(cookie, 1).unwrap();
         assert_eq!(sessions.add_session(cookie, 2).unwrap_err(), &1);
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn server_sessions_double_take() {
-        let cookie: SessionCookie = rand::thread_rng().gen();
+        let cookie: SessionCookie = rand::thread_rng().r#gen();
         let mut sessions = ServerSessions::<u8>::new();
         sessions.add_session(cookie, 1).unwrap();
         assert_eq!(sessions.take_session(&cookie).unwrap(), 1);

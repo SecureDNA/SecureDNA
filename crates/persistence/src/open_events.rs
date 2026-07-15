@@ -1,10 +1,10 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Shared certs / open_events logic
 
 use rusqlite::OptionalExtension;
-use tokio_rusqlite::{params, Connection};
+use tokio_rusqlite::{Connection, params};
 use tracing::error;
 
 use certificates::{Id, Issued, SynthesizerTokenGroup, TokenBundle};

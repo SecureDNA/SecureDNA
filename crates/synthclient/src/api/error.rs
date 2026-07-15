@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::borrow::Cow;
@@ -91,13 +91,13 @@ impl ApiWarning {
 
     pub fn too_short() -> Self {
         Self::TooShort(Fields::new(
-            "Permission was granted because the order was too short for SecureDNA to detect hazards."
+            "Permission was granted because the order was too short for SecureDNA to detect hazards.",
         ))
     }
 
     pub fn too_ambiguous() -> Self {
         Self::TooAmbiguous(Fields::new(
-            "Permission was granted because the order was too ambiguous for SecureDNA to detect hazards."
+            "Permission was granted because the order was too ambiguous for SecureDNA to detect hazards.",
         ))
     }
 }
@@ -108,7 +108,9 @@ impl ApiError {
     }
 
     pub fn root_not_found(uri: impl std::fmt::Display) -> Self {
-        Self::NotFound(Fields::new(format!("Failed to load the web interface from {uri}. If that page is otherwise reachable, your network configuration may be preventing synthclient from accessing the internet.")))
+        Self::NotFound(Fields::new(format!(
+            "Failed to load the web interface from {uri}. If that page is otherwise reachable, your network configuration may be preventing synthclient from accessing the internet."
+        )))
     }
 
     pub fn generic_internal_server_error() -> Self {
@@ -141,16 +143,29 @@ impl From<CheckFastaError> for ApiError {
                     format!("Error parsing FASTA: {error}\n\n{BAD_NUCLEOTIDE_HINT}")
                 } else {
                     format!("Error parsing FASTA: {error}")
-                }.into();
+                }
+                .into();
                 ApiError::InvalidInput(Fields {
                     additional_info,
                     line_number_range: Some((err.line_number as u64, err.line_number as u64)),
                 })
-            },
-            CheckFastaError::EmptyFastaSequence(id) => ApiError::InvalidInput(Fields::new(format!("No sequences were specified in record {id}."))),
-            CheckFastaError::WindowError(err) => ApiError::InternalServerError(Fields::new(format!("Unexpected response from internal server (hdb): {err}"))),
+            }
+            CheckFastaError::NoRecords => {
+                ApiError::InvalidInput(Fields::new("No records were specified in the FASTA file."))
+            }
+            CheckFastaError::EmptyRecord(id) => ApiError::InvalidInput(Fields::new(format!(
+                "No sequences were specified in record {id}."
+            ))),
+            CheckFastaError::WindowError(err) => ApiError::InternalServerError(Fields::new(
+                format!("Unexpected response from internal server (hdb): {err}"),
+            )),
             CheckFastaError::DoprfError(err) => match err {
-                DoprfError::HttpError(ref err @ HttpError::RequestError { status: Some(status), .. }) if status == 413 || status == 429 => {
+                DoprfError::HttpError(
+                    ref err @ HttpError::RequestError {
+                        status: Some(status),
+                        ..
+                    },
+                ) if status == 413 || status == 429 => {
                     // we return 413 for SCEP ratelimit overages as a non-retriable too many requests
                     ApiError::TooManyRequests(Fields::new(if status == 413 {
                         format!("certificate daily ratelimit exceeded: {err}")
@@ -158,11 +173,19 @@ impl From<CheckFastaError> for ApiError {
                         err.to_string()
                     }))
                 }
-                err => ApiError::InternalServerError(Fields::new(format!("Unexpected error while processing sequences: {err}")))
+                err => ApiError::InternalServerError(Fields::new(format!(
+                    "Unexpected error while processing sequences: {err}"
+                ))),
             },
-            CheckFastaError::RequestSizeTooBig(request_size, max_request_size) => ApiError::RequestTooBig(Fields::new(format!("Request of {request_size}bp exceeds configured limit of {max_request_size}bp."))),
+            CheckFastaError::RequestSizeTooBig(request_size, max_request_size) => {
+                ApiError::RequestTooBig(Fields::new(format!(
+                    "Request of {request_size}bp exceeds configured limit of {max_request_size}bp."
+                )))
+            }
             CheckFastaError::TemporaryMemoryLimitsReached(request_size, _max_system_size) => {
-                ApiError::InternalServerError(Fields::new(format!("Request of {request_size}bp exceeds current system memory capacity. Please try again later.")))
+                ApiError::InternalServerError(Fields::new(format!(
+                    "Request of {request_size}bp exceeds current system memory capacity. Please try again later."
+                )))
             }
         }
     }

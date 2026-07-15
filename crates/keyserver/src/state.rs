@@ -1,17 +1,17 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use hyper::StatusCode;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use certificates::KeyserverTokenGroup;
 use doprf::party::KeyserverId;
 use doprf::prf::KeyShare;
-use minhttp::response::{self, GenericResponse};
+use minhttp::mpserver::common::ConnectionTimeouts;
+use scep::error::ScepError;
 use scep_server_helpers::server::ServerState;
 use shared_types::metrics::KeyserverMetrics;
 use shared_types::server_selection::KeyInfo;
@@ -34,18 +34,16 @@ pub struct KeyserverState {
     pub scep: ServerState<KeyserverTokenGroup>,
     pub persistence_path: PathBuf,
     pub persistence_connection: Connection,
+    pub connection_timeouts: ConnectionTimeouts,
 }
 
 impl KeyserverState {
-    pub fn throttle_heavy_requests(&self) -> Result<OwnedSemaphorePermit, GenericResponse> {
+    pub fn throttle_heavy_requests(
+        &self,
+    ) -> Result<OwnedSemaphorePermit, ScepError<scep::error::Keyserve>> {
         self.heavy_requests
             .clone()
             .try_acquire_owned()
-            .map_err(|_| {
-                response::text(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "Server is overloaded. Try again later.",
-                )
-            })
+            .map_err(|_| ScepError::Overloaded)
     }
 }

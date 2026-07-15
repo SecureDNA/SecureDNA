@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{
@@ -8,20 +8,20 @@ use std::{
     time::Duration,
 };
 
-use futures::{future::join, stream::FuturesUnordered, StreamExt};
+use futures::{StreamExt, future::join, stream::FuturesUnordered};
 use rand::seq::IteratorRandom;
 use serde::de::DeserializeOwned;
 use tracing::info;
 
 use crate::{
     error::DoprfError,
-    instant::{get_now, Instant},
+    instant::{Instant, get_now},
     retry_if,
     server_selection::dns::*,
 };
 use doprf::{active_security::ActiveSecurityKey, party::KeyserverId};
-use http_client::body::Json;
 use http_client::BaseApiClient;
+use http_client::body::Json;
 use shared_types::server_selection::{
     HdbQualificationResponse, KeyserverQualificationResponse, QualificationRequest, Role, Tier,
 };
@@ -427,7 +427,9 @@ async fn enumerate_role(
             Ok(true) => domains.push(domain),
             Ok(false) => break,
             Err(e) => {
-                info!("server selection: got DNS service error during enumeration, stopping early: {e}");
+                info!(
+                    "server selection: got DNS service error during enumeration, stopping early: {e}"
+                );
                 break;
             }
         }
@@ -533,18 +535,25 @@ enum GenerationSelectionError {
     NoKeyserversSupportGeneration { generation: u32 },
     #[error("no hdbs support generation {generation}")]
     NoHdbsSupportGeneration { generation: u32 },
-    #[error("keyservers reported different thresholds for generation {generation}: {found_thresholds:?}")]
+    #[error(
+        "keyservers reported different thresholds for generation {generation}: {found_thresholds:?}"
+    )]
     MismatchedThresholdForGeneration {
         generation: u32,
         found_thresholds: HashSet<u32>,
     },
-    #[error("for generation {generation}, {threshold} keyservers are needed, but only {keyserver_count} were found")]
+    #[error(
+        "for generation {generation}, {threshold} keyservers are needed, but only {keyserver_count} were found"
+    )]
     NotEnoughKeyserversForThreshold {
         generation: u32,
         threshold: u32,
         keyserver_count: u32,
     },
-    #[error("could not select active security key for generation {generation}, error: {error}, received these values and counts {:?}", active_security_key_occurances)]
+    #[error(
+        "could not select active security key for generation {generation}, error: {error}, received these values and counts {:?}",
+        active_security_key_occurances
+    )]
     NoValidActiveSecurityKey {
         generation: u32,
         active_security_key_occurances: HashMap<ActiveSecurityKey, u32>,
@@ -567,7 +576,7 @@ fn try_server_selection_for_generation(
 
         match found_thresholds.len() {
             0 => {
-                return Err(GenerationSelectionError::NoKeyserversSupportGeneration { generation })
+                return Err(GenerationSelectionError::NoKeyserversSupportGeneration { generation });
             }
             1 => found_thresholds.into_iter().next().unwrap(),
             // TODO: do we want to handle this more gracefully, like with a majority vote? see wiki
@@ -575,7 +584,7 @@ fn try_server_selection_for_generation(
                 return Err(GenerationSelectionError::MismatchedThresholdForGeneration {
                     generation,
                     found_thresholds,
-                })
+                });
             }
         }
     };
@@ -776,8 +785,8 @@ pub mod test_utils {
     }
 
     pub async fn peek_selector_selection(selector: &ServerSelector) -> Arc<ServerSelection> {
-        async fn unreachable_infail(
-        ) -> Result<(Arc<ServerSelection>, Instant), std::convert::Infallible> {
+        async fn unreachable_infail()
+        -> Result<(Arc<ServerSelection>, Instant), std::convert::Infallible> {
             unreachable!();
         }
         // immediately accept any selection, such that refresh will never be called

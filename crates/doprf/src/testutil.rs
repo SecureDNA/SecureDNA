@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::num::NonZeroU32;
@@ -11,7 +11,7 @@ use rand::{CryptoRng, Rng, RngCore, SeedableRng};
 
 use crate::active_security::ActiveSecurityKey;
 use crate::party::{KeyserverId, KeyserverIdSet};
-use crate::prf::{generate_keyshares, CompressedHashPart, CompressedQuery, KeyShare};
+use crate::prf::{CompressedHashPart, CompressedQuery, KeyShare, generate_keyshares};
 
 #[derive(Clone)]
 pub(crate) struct TestRng {

@@ -3,10 +3,10 @@ name = "securedna_versioning"
 version = { workspace = true }
 publish = { workspace = true }
 license = { workspace = true }
-edition = "2021"
+edition = "2024"
 build = "build.rs"
 
 [dependencies]
 
 [build-dependencies]
-vergen = { version = "8.3.2", features = ["git", "git2"] }
+vergen-git2 = { version = "9.1" }

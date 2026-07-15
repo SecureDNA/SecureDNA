@@ -1,22 +1,21 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::path::Path;
 
 use certificates::{ExemptionTokenGroup, Id, Issued, TokenBundle};
 pub use persistence::{
+    Connection,
     certs::query_certs,
     open_events::{insert_open_event, last_protocol_version_for_client},
     statistics::query_exceedances_per_day_per_client,
-    Connection,
 };
 use persistence::{
-    params,
-    rusqlite::{self, types::ToSqlOutput, ToSql},
+    M, Migrations, OpenError, SqlCertificateId, SqlOffsetDateTime, SqlRegion,
+    SqlSynthesisPermission, params,
+    rusqlite::{self, ToSql, types::ToSqlOutput},
     statistics::TokenLimitRecord,
     tokio_rusqlite::{self, OptionalExtension},
-    Migrations, OpenError, SqlCertificateId, SqlOffsetDateTime, SqlRegion, SqlSynthesisPermission,
-    M,
 };
 use shared_types::{
     et::WithOtps,
@@ -96,10 +95,10 @@ async fn insert_screen_event_at_time(
                     tx.prepare("SELECT der_sha256 FROM elts WHERE issuance_id = ?1")?
                         .query_row(params![id], |row| row.get(0))
                         .optional()?;
-                if let Some(old_hash) = old_hash {
-                    if old_hash != der_sha256 {
-                        warn!("WARNING: Event store contains two exemption tokens with issuance_id {} but different SHA-256 hashes. (issuance_id should be unique; has the token been spoofed?)", id.0);
-                    }
+                if let Some(old_hash) = old_hash
+                    && old_hash != der_sha256
+                {
+                    warn!("WARNING: Event store contains two exemption tokens with issuance_id {} but different SHA-256 hashes. (issuance_id should be unique; has the token been spoofed?)", id.0);
                 }
 
                 tx.execute(
@@ -302,7 +301,7 @@ pub async fn query_token_limits(
 mod tests {
     use super::*;
 
-    use certificates::{key::ecies::EciesKeyPair, Issued, Organism};
+    use certificates::{Issued, Organism, key::ecies::EciesKeyPair};
     use persistence::{open_events::test_utils::make_synth_tokens, statistics::TokenLimitData};
 
     #[tokio::test]

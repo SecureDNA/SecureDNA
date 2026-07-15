@@ -1,25 +1,25 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Tools for implementing [`hyper`] servers
 
 use std::pin::Pin;
-use std::task::{ready, Context, Poll};
+use std::task::{Context, Poll, ready};
 
 use bytes::Bytes;
 use futures::{Stream, TryStream, TryStreamExt};
-use http::header::{HeaderValue, CONTENT_TYPE};
+use http::header::{CONTENT_TYPE, HeaderValue};
 use http_body_util::StreamBody;
 use hyper::body::{Body, Frame};
 use hyper::{Request, Response};
 use pin_project::pin_project;
 
-pub use crate::stream::{
-    check_content_length, HasShortErrorMsg, MessageError, RistrettoError, StreamableRistretto,
-    HASH_SIZE,
-};
-use crate::stream::{check_content_type, decode, encode, ConversionError};
 use crate::HasContentType;
+use crate::stream::{ConversionError, check_content_type, decode, encode};
+pub use crate::stream::{
+    HASH_SIZE, HasShortErrorMsg, MessageError, RistrettoError, StreamableRistretto,
+    check_content_length,
+};
 
 /// Convert a [`Request`] into a fallible stream of `R`
 ///
@@ -110,13 +110,13 @@ mod tests {
 
     use std::convert::Infallible;
 
-    use futures::{executor::block_on, StreamExt};
+    use futures::{StreamExt, executor::block_on};
     use futures::{executor::block_on_stream as stream_to_iter, stream::iter as iter_to_stream};
     use http_body_util::BodyExt;
     use hyper::Request;
 
-    use crate::stream::ShortErrorMsg;
     use crate::HasContentType;
+    use crate::stream::ShortErrorMsg;
 
     #[derive(Debug, PartialEq)]
     struct IdentityHash([u8; HASH_SIZE]);

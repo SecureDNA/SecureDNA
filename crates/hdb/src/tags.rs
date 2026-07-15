@@ -1,11 +1,11 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module implements some tag-related utilities needed to transform the HDB response.
 
 use pipeline_bridge::Tag;
 
-use crate::{hlt::HltLookupError, HazardLookupTable, Metadata, Provenance};
+use crate::{HazardLookupTable, Metadata, Provenance, hlt::HltLookupError};
 
 /// Returns whether the metadata a) is DNA, and b) points to an HLT id_group containing
 /// the `SdnaLowRiskDNA` tag.

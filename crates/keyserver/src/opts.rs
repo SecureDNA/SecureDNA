@@ -1,15 +1,17 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 
-use clap::{crate_version, ArgAction, Args, Parser};
+use clap::{ArgAction, Args, Parser, crate_version};
 use serde::Deserialize;
 
 use doprf::active_security::Commitment;
 use doprf::party::KeyserverId;
 use doprf::prf::KeyShare;
 use minhttp::mpserver::{cli::ServerConfigSource, traits::RelativeConfig};
+use shared_types::FriendlyDuration;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -149,6 +151,27 @@ pub struct Config {
     )]
     #[serde(default = "Config::default_event_store_path")]
     pub event_store_path: PathBuf,
+
+    #[clap(
+        long,
+        help = "The time after which the server will disable keepalive for incoming connections.",
+        env = "SECUREDNA_KEYSERVER_SOFT_TIMEOUT"
+    )]
+    pub soft_timeout: Option<FriendlyDuration>,
+
+    #[clap(
+        long,
+        help = "The time after which the server will kill incoming connections.",
+        env = "SECUREDNA_KEYSERVER_HARD_TIMEOUT"
+    )]
+    pub hard_timeout: Option<FriendlyDuration>,
+
+    #[clap(
+        long,
+        help = "For keyserving requests, how many hashes it takes to extend the timeouts by a second.",
+        env = "SECUREDNA_KEYSERVER_HASHES_PER_SEC_TIMEOUT"
+    )]
+    pub hashes_per_sec_timeout: Option<NonZeroU64>,
 }
 
 // Note: If you change these, remember to update example-config.toml in the crate root
@@ -162,7 +185,7 @@ impl Config {
     }
 
     pub fn default_scep_hash_limit() -> u64 {
-        1_000_000
+        100_000_000
     }
 
     pub fn default_event_store_path() -> PathBuf {

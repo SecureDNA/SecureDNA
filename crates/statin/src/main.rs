@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{collections::HashMap, path::PathBuf};
@@ -6,12 +6,12 @@ use std::{collections::HashMap, path::PathBuf};
 use anyhow::Context;
 use chrono::{Duration, NaiveDate, NaiveTime, TimeZone, Utc};
 use clap::{ArgAction, Parser, ValueEnum};
-use tracing::{debug, info, warn, Level};
+use tracing::{Level, debug, info, warn};
 
 use certificates::{Id, SynthesizerTokenGroup, TokenBundle};
 use hdbserver::event_store as hdb_event_store;
 use keyserver::event_store as ks_event_store;
-use persistence::{statistics::TokenLimitRecord, Connection, OffsetDateTime};
+use persistence::{Connection, OffsetDateTime, statistics::TokenLimitRecord};
 use tracing_subscriber::FmtSubscriber;
 
 #[derive(Parser)]
@@ -339,7 +339,7 @@ impl StatinableConnection {
         &self,
         start_date: OffsetDateTime,
         end_date: OffsetDateTime,
-    ) -> anyhow::Result<impl Iterator<Item = (OffsetDateTime, Id, u64)>> {
+    ) -> anyhow::Result<impl Iterator<Item = (OffsetDateTime, Id, u64)> + use<>> {
         let result = match self {
             StatinableConnection::Keyserver(c) => {
                 ks_event_store::query_bp_per_day_per_client(c, start_date, end_date)
@@ -359,7 +359,7 @@ impl StatinableConnection {
         &self,
         start_date: OffsetDateTime,
         end_date: OffsetDateTime,
-    ) -> anyhow::Result<impl Iterator<Item = (OffsetDateTime, Id, u64)>> {
+    ) -> anyhow::Result<impl Iterator<Item = (OffsetDateTime, Id, u64)> + use<>> {
         let result = match self {
             StatinableConnection::Keyserver(c) => {
                 ks_event_store::query_orders_per_day_per_client(c, start_date, end_date)
@@ -381,7 +381,7 @@ impl StatinableConnection {
         &self,
         start_date: OffsetDateTime,
         end_date: OffsetDateTime,
-    ) -> anyhow::Result<impl Iterator<Item = (OffsetDateTime, Id, u64)>> {
+    ) -> anyhow::Result<impl Iterator<Item = (OffsetDateTime, Id, u64)> + use<>> {
         let result = match self {
             StatinableConnection::Keyserver(c) => {
                 ks_event_store::query_exceedances_per_day_per_client(c, start_date, end_date)

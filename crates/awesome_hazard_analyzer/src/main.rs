@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 mod log;
@@ -9,15 +9,16 @@ use std::fs;
 use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use anyhow::{anyhow, Context, Result};
-use clap::{crate_version, Args, Parser};
+use anyhow::{Context, Result, anyhow};
+use clap::{Args, Parser, crate_version};
 use csv::Writer;
 use itertools::Itertools;
 use rayon::prelude::*;
 use serde::Serialize;
-use shared_types::hash::{HashSpec, HashTypeDescriptor};
+use shared_types::hash::{HashSpec, HashType, HashTypeDescriptor};
 use time::format_description::well_known::Iso8601;
 use tracing::{info, warn};
 
@@ -26,8 +27,8 @@ use doprf_client::windows::Windows;
 use hdb::consolidate_windows::HashId;
 use hdb::response::HdbOrganism;
 use hdb::shims::genhdb::open_file_maybe_gz;
-use hdb::{entry_to_response, Database, HazardLookupTable};
 use hdb::{ConsolidatedHazardResult, DebugSeqHdbResponse};
+use hdb::{Database, HazardLookupTable, entry_to_response};
 use quickdna::{
     BaseSequence, DnaSequence, DnaSequenceAmbiguous, FastaParseSettings, FastaParser, FastaRecord,
     NucleotideAmbiguous, TranslationTable,
@@ -171,7 +172,7 @@ impl Default for AhaCheckerConfiguration<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SummaryLine {
     synthesis_permission: SummaryPermissions,
     true_hits: u32,
@@ -180,6 +181,12 @@ pub struct SummaryLine {
     rs_hits: u32,
     rs_dna_hits: u32,
     rs_aa_hits: u32,
+    true_hits_percentage: f32,
+    true_dna_hits_percentage: f32,
+    true_aa_hits_percentage: f32,
+    rs_hits_percentage: f32,
+    rs_dna_hits_percentage: f32,
+    rs_aa_hits_percentage: f32,
     red_name: String,
     true_likely_organisms: String,
     true_likely_ans: String,
@@ -229,6 +236,12 @@ impl SummaryLine {
             "RS HITS",
             "RS DNA HITS",
             "RS AA HITS",
+            "TRUE HITS %",
+            "TRUE DNA HITS %",
+            "TRUE AA HITS %",
+            "RS HITS %",
+            "RS DNA HITS %",
+            "RS AA HITS %",
             "RED NAME",
             "TAGS FOR PERMISSIONS",
             "TRUE LIKELY ORGANISMS",
@@ -248,6 +261,12 @@ impl SummaryLine {
             self.rs_hits.to_string().as_str(),
             self.rs_dna_hits.to_string().as_str(),
             self.rs_aa_hits.to_string().as_str(),
+            &format!("{:.2}", self.true_hits_percentage),
+            &format!("{:.2}", self.true_dna_hits_percentage),
+            &format!("{:.2}", self.true_aa_hits_percentage),
+            &format!("{:.2}", self.rs_hits_percentage),
+            &format!("{:.2}", self.rs_dna_hits_percentage),
+            &format!("{:.2}", self.rs_aa_hits_percentage),
             self.red_name.as_str(),
             self.tags_for_permissions.as_str(),
             self.true_likely_organisms.as_str(),
@@ -264,6 +283,8 @@ impl SummaryLine {
         synthesis_permission: SummaryPermissions,
         red_name: String,
         doprf_hit_results: &[DebugSeqHdbResponse],
+        total_dna_windows: usize,
+        total_aa_windows: usize,
     ) -> Self {
         let mut true_hits = 0;
         let mut true_dna_hits = 0;
@@ -308,6 +329,21 @@ impl SummaryLine {
             v.iter().join(";")
         }
 
+        let total_windows = total_dna_windows + total_aa_windows;
+        let pct = |n: u32, d: usize| {
+            if d == 0 {
+                0.0
+            } else {
+                (n as f32 / d as f32) * 100.0
+            }
+        };
+        let true_hits_percentage = pct(true_hits, total_windows);
+        let true_dna_hits_percentage = pct(true_dna_hits, total_dna_windows);
+        let true_aa_hits_percentage = pct(true_aa_hits, total_aa_windows);
+        let rs_hits_percentage = pct(rs_hits, total_windows);
+        let rs_dna_hits_percentage = pct(rs_dna_hits, total_dna_windows);
+        let rs_aa_hits_percentage = pct(rs_aa_hits, total_aa_windows);
+
         Self {
             synthesis_permission,
             true_hits,
@@ -316,6 +352,12 @@ impl SummaryLine {
             rs_hits,
             rs_dna_hits,
             rs_aa_hits,
+            true_hits_percentage,
+            true_dna_hits_percentage,
+            true_aa_hits_percentage,
+            rs_hits_percentage,
+            rs_dna_hits_percentage,
+            rs_aa_hits_percentage,
             red_name,
             true_likely_organisms: joined_sorted(true_likely_organisms),
             true_likely_ans: joined_sorted(true_likely_ans),
@@ -441,10 +483,20 @@ fn check_one_record(
         return Ok((Some(record.header), None));
     }
 
-    // query local HDB
+    // query local HDB (and count DNA vs AA windows)
+    let dna_count = AtomicUsize::new(0);
+    let aa_count = AtomicUsize::new(0);
     let hdb_entries = windows
         .par_iter()
         .filter_map(|(hash_id, window)| {
+            if (hash_id.hash_type_index as usize) < hash_spec.htdv.len() {
+                match hash_spec.htdv[hash_id.hash_type_index as usize].hash_type {
+                    HashType::Dna => dna_count.fetch_add(1, Ordering::Relaxed),
+                    HashType::Aa | HashType::Aa0 | HashType::Aa1 | HashType::Aa2 => {
+                        aa_count.fetch_add(1, Ordering::Relaxed)
+                    }
+                };
+            }
             let hash = secret_key.apply(Query::hash_from_string(window));
             let entry = database
                 .query(&hash.into())
@@ -454,6 +506,8 @@ fn check_one_record(
         })
         .collect::<Result<Vec<(HashId, hdb::Entry)>, _>>()
         .context("failed to query hdb")?;
+    let dna_count = dna_count.load(Ordering::Relaxed);
+    let aa_count = aa_count.load(Ordering::Relaxed);
 
     // build hdb responses for consolidated/debug output (with region=None)
     let hdb_responses = hdb_entries
@@ -492,13 +546,13 @@ fn check_one_record(
     let file_id = file_id(&record.header, config.max_filename_len);
 
     // Write all unconsolidated hits
-    if let Some(output_sink) = config.unconsolidated_output_sink {
-        if let Err(e) = output_sink.output(&file_id, unconsolidated_responses.iter()) {
-            warn!(
-                "err on write unconsolidated hits file for {}: {:#}",
-                record.header, e
-            );
-        }
+    if let Some(output_sink) = config.unconsolidated_output_sink
+        && let Err(e) = output_sink.output(&file_id, unconsolidated_responses.iter())
+    {
+        warn!(
+            "err on write unconsolidated hits file for {}: {:#}",
+            record.header, e
+        );
     }
 
     // We write all consolidated hits, even if the hits are completely rs'd.
@@ -564,6 +618,8 @@ fn check_one_record(
             permissions,
             record.header.clone(),
             &unconsolidated_responses,
+            dna_count,
+            aa_count,
         )
     });
 
@@ -937,6 +993,12 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                     rs_hits: 0,
                     rs_dna_hits: 0,
                     rs_aa_hits: 0,
+                    true_hits_percentage: 0.0,
+                    true_dna_hits_percentage: 0.0,
+                    true_aa_hits_percentage: 0.0,
+                    rs_hits_percentage: 0.0,
+                    rs_dna_hits_percentage: 0.0,
+                    rs_aa_hits_percentage: 0.0,
                     true_likely_organisms: "".into(),
                     true_likely_ans: "".into(),
                     rs_likely_organisms: "".into(),
@@ -978,6 +1040,12 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                     rs_hits: 0,
                     rs_dna_hits: 0,
                     rs_aa_hits: 0,
+                    true_hits_percentage: 98.07692,
+                    true_dna_hits_percentage: 100.0,
+                    true_aa_hits_percentage: 50.0,
+                    rs_hits_percentage: 0.0,
+                    rs_dna_hits_percentage: 0.0,
+                    rs_aa_hits_percentage: 0.0,
                     true_likely_organisms: "Minimal organism".into(),
                     true_likely_ans: "AN1000000.1".into(),
                     rs_likely_organisms: "".into(),
@@ -1017,6 +1085,12 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                     rs_hits: 0,
                     rs_dna_hits: 0,
                     rs_aa_hits: 0,
+                    true_hits_percentage: 100.0,
+                    true_dna_hits_percentage: 100.0,
+                    true_aa_hits_percentage: 0.0,
+                    rs_hits_percentage: 0.0,
+                    rs_dna_hits_percentage: 0.0,
+                    rs_aa_hits_percentage: 0.0,
                     true_likely_organisms: "Minimal organism".into(),
                     true_likely_ans: "AN1000000.1".into(),
                     rs_likely_organisms: "".into(),
@@ -1058,6 +1132,12 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
                     rs_hits: 0,
                     rs_dna_hits: 0,
                     rs_aa_hits: 0,
+                    true_hits_percentage: 50.0,
+                    true_dna_hits_percentage: 0.0,
+                    true_aa_hits_percentage: 50.0,
+                    rs_hits_percentage: 0.0,
+                    rs_dna_hits_percentage: 0.0,
+                    rs_aa_hits_percentage: 0.0,
                     true_likely_organisms: "Minimal organism".into(),
                     true_likely_ans: "AN1000000.1".into(),
                     rs_likely_organisms: "".into(),
@@ -1084,6 +1164,12 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
             rs_hits: 78,
             rs_dna_hits: 9,
             rs_aa_hits: 0,
+            true_hits_percentage: 100.0,
+            true_dna_hits_percentage: 100.0,
+            true_aa_hits_percentage: 100.0,
+            rs_hits_percentage: 0.0,
+            rs_dna_hits_percentage: 100.0,
+            rs_aa_hits_percentage: 100.0,
             true_likely_organisms: "true likely;organisms".into(),
             true_likely_ans: "AN_12345".into(),
             rs_likely_organisms: "rs likely".into(),
@@ -1101,7 +1187,7 @@ ACGTAGCTCGAAGCTAGAGATCGATAGCGATAAATCGATAGCTAATGATAGGGCGCGATATATAGCATCG",
 
         assert_eq!(
             csv,
-            "denied,denied,granted,denied,123,4,56,78,9,0,\"red,name\",EuropeanUnion,true likely;organisms,AN_12345,rs likely,AN_56789\n",
+            "denied,denied,granted,denied,123,4,56,78,9,0,100.00,100.00,100.00,0.00,100.00,100.00,\"red,name\",EuropeanUnion,true likely;organisms,AN_12345,rs likely,AN_56789\n",
         );
     }
 }

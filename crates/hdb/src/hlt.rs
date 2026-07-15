@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module implements the Hazard Lookup Table, which metadata entries will
@@ -210,7 +210,7 @@ impl HazardLookupTable {
     /// Finds a random unoccupied index.
     fn new_index(&self) -> u32 {
         loop {
-            let probe = rand::thread_rng().gen();
+            let probe = rand::thread_rng().r#gen();
             if !self.entries.contains_key(&probe) {
                 return probe;
             }

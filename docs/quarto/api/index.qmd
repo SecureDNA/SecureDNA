@@ -1,0 +1,193 @@
+# Screening API
+
+This page provides a user-friendly overview of the SecureDNA screening API. For detailed specifications, advanced features, and implementation requirements, see the [Advanced API documentation](../api-advanced/index.qmd).
+
+## What is the screening API?
+
+The SecureDNA screening API allows you to check DNA sequences for potential biosecurity hazards. You submit a FASTA-formatted sequence to the `/v1/screen` endpoint, and receive a response indicating whether synthesis should proceed.
+
+## Security and privacy
+
+SecureDNA is designed with privacy at its core:
+
+- **Sequences are encrypted locally** before leaving your network. Our system uses cryptographic blinding to ensure unencrypted sequences never reach SecureDNA servers.
+- **Zero-knowledge screening**: SecureDNA cannot see what you're screening. Your encrypted data is compared to encrypted windows of known hazards.
+- **No inbound connections**: Your `synthclient` instance only makes outbound connections to SecureDNA infrastructure.
+
+When you run a local `synthclient` instance, your sequence data never leaves your network unencrypted.
+
+## Quick start examples
+
+### Bash
+
+```bash
+#!/usr/bin/env bash
+
+# Change this to your running instance of synthclient
+BASE_URL='http://localhost'
+
+# Use `curl` to make the request, and `jq` to parse the JSON response.
+curl "$BASE_URL/v1/screen" \
+  --header "Content-Type: application/json" \
+  --no-progress-meter \
+  --data-raw '{
+    "fasta": ">NC_007373.1\nGAATCGCAATTAACAATAACTAAAGAGAAAAAAGAAGAACTC",
+    "region": "all",
+    "provider_reference": "my-order-12345"
+  }' | jq '.'
+```
+
+### Python
+
+```python
+#!/usr/bin/env python3
+
+import json
+import sys
+import urllib.request
+
+base_url = "http://localhost"
+
+# Your FASTA sequence
+fasta = ">NC_007373.1\nGAATCGCAATTAACAATAACTAAAGAGAAAAAAGAAGAACTC"
+
+# Build the request
+data = {
+    "fasta": fasta,
+    "region": "all",
+    "provider_reference": "my-order-12345",
+}
+
+request = urllib.request.Request(
+    base_url + "/v1/screen",
+    method="POST",
+    data=json.dumps(data).encode("utf-8"),
+)
+request.add_header("Content-Type", "application/json")
+
+# Send and print response
+try:
+    response = urllib.request.urlopen(request)
+    print(json.dumps(json.loads(response.read()), indent=2))
+except urllib.error.HTTPError as err:
+    print(f"Error: {err.code} {err.reason}", file=sys.stderr)
+    print(json.dumps(json.loads(err.read()), indent=2), file=sys.stderr)
+    sys.exit(1)
+```
+
+## Request format
+
+Send a POST request to `/v1/screen` with a JSON body containing:
+
+### Required fields
+
+- **`fasta`** (string): Your DNA sequence in FASTA format. Can include headers (lines starting with `>`) or just the raw sequence. Supports standard DNA bases and [IUPAC ambiguity codes](https://en.wikipedia.org/wiki/Nucleic_acid_notation).
+
+- **`region`** (string): The regulatory jurisdiction for screening. Options:
+  - `"us"` - United States (Select Agent lists)
+  - `"eu"` - European Union (EU and Australia Group lists)
+  - `"prc"` - People's Republic of China (PRC export control lists)
+  - `"all"` - All regions (request denied if it would be denied in any region)
+
+### Optional fields
+
+- **`provider_reference`** (string): An arbitrary identifier that will be returned in the response. Useful for tracking orders in your system. Note: may be logged by SecureDNA for debugging purposes.
+
+## Response format
+
+The API returns a JSON response with these key fields:
+
+- **`synthesis_permission`**: Either `"granted"` or `"denied"`. This is the primary field to check.
+- **`provider_reference`**: Your tracking string, if provided.
+- **`hits_by_record`**: If hazards were detected, this contains details about what was found and where.
+- **`warnings`**: Non-fatal warnings (e.g., certificate expiring soon). Synthesis may proceed.
+- **`errors`**: Fatal errors (e.g., malformed input, server issues). Synthesis must not proceed.
+
+### Example response: No hazards
+
+```json
+{
+  "synthesis_permission": "granted"
+}
+```
+
+### Example response: Hazard detected
+
+```json
+{
+  "synthesis_permission": "denied",
+  "hits_by_record": [
+    {
+      "fasta_header": "MERS_segment_2",
+      "line_number_range": [24, 79],
+      "sequence_length": 1234,
+      "hits_by_hazard": [
+        {
+          "type": "nuc",
+          "is_wild_type": null,
+          "hit_regions": [
+            {
+              "seq": "CTTCATCCGCACGTGCCAGACCCTTATTCTAAGGTGGCACTT",
+              "seq_range_start": 0,
+              "seq_range_end": 42
+            }
+          ],
+          "most_likely_organism": {
+            "name": "coronavirus MERS-CoV",
+            "organism_type": "Virus",
+            "ans": ["GCA_000901155.1", "NC_019843.3"],
+            "tags": [
+              "AustraliaGroupHumanAnimalPathogen",
+              "EuropeanUnion",
+              "PotentialPandemicPathogen",
+              "HumanToHuman"
+            ]
+          },
+          "organisms": [...]
+        }
+      ]
+    }
+  ]
+}
+```
+
+The response tells you:
+
+- Which FASTA records had hits
+- The specific sequences that matched
+- The likely organism(s) that were matched
+- Why the organism is flagged (via tags like `"SelectAgentHhs"` or `"PotentialPandemicPathogen"`)
+
+### Example response: Error
+
+```json
+{
+  "synthesis_permission": "denied",
+  "errors": [
+    {
+      "diagnostic": "invalid_input",
+      "additional_info": "Error parsing FASTA: bad nucleotide: '@'",
+      "line_number_range": [103, 103]
+    }
+  ]
+}
+```
+
+## Interpreting the response
+
+**Always check `synthesis_permission`.** Default to denying synthesis unless `synthesis_permission` is exactly `"granted"`.
+
+In particular, if you receive an `errors` field, synthesis must not proceed. Common errors include malformed FASTA, rate limiting, and server issues. In this case, `synthesis_permission` will be `"denied"`.
+
+## Advanced topics
+
+For more information on the following topics, see the [Advanced API documentation](../api-advanced/index.qmd):
+
+- Detailed FASTA parsing rules and edge cases
+- Complete TypeScript type definitions for all request and response fields
+- Exemption tokens for authorized hazard synthesis
+- Verifiable screening with cryptographic signatures
+- Organism tags reference table and regional denial rules
+- Diagnostic codes reference
+- TLS/HTTPS deployment considerations
+- Implementation requirements for fail-closed behavior

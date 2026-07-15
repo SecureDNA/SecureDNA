@@ -1,8 +1,8 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use prometheus::core::{AtomicI64, GenericGauge};
-use prometheus::{register_int_counter, register_int_gauge, Encoder, TextEncoder};
+use prometheus::{Encoder, TextEncoder, register_int_counter, register_int_gauge};
 use prometheus::{IntCounter, IntGauge};
 
 static HASH_COUNTER_NAME: &str = "total_hashes_processed";

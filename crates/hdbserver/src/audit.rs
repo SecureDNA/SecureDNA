@@ -1,10 +1,10 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use anyhow::bail;
 use certificates::{
-    encrypt_for_recipient, key_traits::HasAssociatedSigningKey, AuditRecipient, Issued,
-    SynthesizerTokenGroup, TokenBundle,
+    AuditRecipient, Issued, SynthesizerTokenGroup, TokenBundle, encrypt_for_recipient,
+    key_traits::HasAssociatedSigningKey,
 };
 use hdb_api::HdbScreeningResult;
 use http_client::BaseApiClient;

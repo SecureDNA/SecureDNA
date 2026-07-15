@@ -1,28 +1,28 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! [`Server`]-related things
 
 use std::convert::Infallible;
-use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{FutureExt, Stream, StreamExt};
-use hyper::body::{Body, Incoming};
-use hyper::server::conn::http1;
-use hyper::service::{service_fn, HttpService};
 use hyper::Request;
-use hyper_util::rt::TokioIo;
+use hyper::body::Incoming;
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::select;
-use tokio::sync::{watch, Semaphore};
+use tokio::sync::{Semaphore, watch};
 use tokio::time::sleep;
-use tracing::{error, error_span, info, warn, Instrument, Span};
+use tracing::{Instrument, Span, error, error_span, info, warn};
 
 use crate::nursery::Nursery;
+use crate::peer::Peer;
 use crate::response::GenericResponse;
 
 /// Errors that can occur while serving a connection
@@ -45,6 +45,12 @@ pub enum ConnectionError {
         peer_addr: SocketAddr,
         /// Underlying cause
         source: hyper::Error,
+    },
+    /// Indicates that a connection was killed mid-request/response.
+    #[error("connection from {peer_addr} killed by hard timeout")]
+    HardTimeout {
+        /// Connection's peer IP address and port
+        peer_addr: SocketAddr,
     },
 }
 
@@ -92,7 +98,7 @@ impl Server {
     where
         P: Stream<Item = std::io::Result<(C, SocketAddr)>>,
         C: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-        R: Fn(Request<Incoming>, SocketAddr) -> F + Clone + Send + Sync + 'static,
+        R: Fn(Request<Incoming>, Peer) -> F + Clone + Send + Sync + 'static,
         F: Future<Output = GenericResponse> + Send + Sync,
     {
         self.with_callbacks()
@@ -111,7 +117,7 @@ impl Server {
     /// * [`connected`](Callbacks::connected) is called at the start of new connections.
     /// * [`failed`](Callbacks::failed) is called when a connection fails.
     /// * [`disconnected`](Callbacks::disconnected) is called when a connection ends.
-    pub fn with_callbacks(&self) -> Callbacks {
+    pub fn with_callbacks(&self) -> Callbacks<'_> {
         Callbacks {
             server: self,
             respond: MissingResponder,
@@ -165,31 +171,6 @@ async fn respond_with_temporarily_unavailable(
     }
 }
 
-/// Gracefully terminate `connection` if `want_shutdown` resolves.
-async fn with_graceful_shutdown<I, S, B>(
-    connection: http1::Connection<I, S>,
-    want_shutdown: impl Future,
-) -> Result<(), hyper::Error>
-where
-    I: hyper::rt::Read + hyper::rt::Write + Unpin + 'static,
-    S: HttpService<Incoming, ResBody = B>,
-    S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-    B: Body + 'static,
-    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
-    // Sadly, both polling a connection and gracefully shutting it down require exclusive
-    // access, so we have to manually call them in poll_fn.
-    let mut connection = pin!(connection);
-    let mut want_shutdown = pin!(want_shutdown.fuse());
-    std::future::poll_fn(|cx| {
-        if want_shutdown.as_mut().poll(cx).is_ready() {
-            connection.as_mut().graceful_shutdown();
-        }
-        connection.as_mut().poll(cx)
-    })
-    .await
-}
-
 // Small enough code that I don't want to bother pulling in scopeguard
 struct Guard<F: FnOnce()>(Option<F>);
 
@@ -209,13 +190,7 @@ impl<F: FnOnce()> Drop for Guard<F> {
 pub struct MissingResponder;
 
 /// Holds setup for serving a connection with additional callbacks.
-pub struct Callbacks<
-    'a,
-    R = MissingResponder,
-    C = fn(SocketAddr),
-    F = fn(ConnectionError),
-    D = fn(()),
-> {
+pub struct Callbacks<'a, R = MissingResponder, C = fn(Peer), F = fn(ConnectionError), D = fn(())> {
     server: &'a Server,
     respond: R,
     connected: C,
@@ -227,7 +202,7 @@ impl<'a, R, C, F, D> Callbacks<'a, R, C, F, D> {
     /// Set request handler.
     pub fn respond<NewR, RFut>(self, respond: NewR) -> Callbacks<'a, NewR, C, F, D>
     where
-        NewR: Fn(Request<Incoming>, SocketAddr) -> RFut + Clone + Send + Sync + 'static,
+        NewR: Fn(Request<Incoming>, Peer) -> RFut + Clone + Send + Sync + 'static,
         RFut: Future<Output = GenericResponse> + Send,
     {
         Callbacks {
@@ -248,7 +223,7 @@ impl<'a, R, C, F, D> Callbacks<'a, R, C, F, D> {
     /// *Beware that setting this clears [`disconnected`](Callbacks::disconnected).*
     pub fn connected<NewC, G>(self, connected: NewC) -> Callbacks<'a, R, NewC, F, fn(G)>
     where
-        NewC: FnMut(SocketAddr) -> G,
+        NewC: FnMut(Peer) -> G,
         G: Send + 'static,
     {
         Callbacks {
@@ -286,7 +261,7 @@ impl<'a, R, C, F, D> Callbacks<'a, R, C, F, D> {
     /// *Beware that setting [`connected`](Callbacks::connected) clears this.*
     pub fn disconnected<NewD, G>(self, disconnected: NewD) -> Callbacks<'a, R, C, F, NewD>
     where
-        C: FnMut(SocketAddr) -> G,
+        C: FnMut(Peer) -> G,
         NewD: FnOnce(G) + Clone + Send + 'static,
     {
         Callbacks {
@@ -306,9 +281,9 @@ impl<'a, R, C, F, D> Callbacks<'a, R, C, F, D> {
     where
         ConnS: Stream<Item = std::io::Result<(Conn, SocketAddr)>>,
         Conn: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-        R: Fn(Request<Incoming>, SocketAddr) -> RFut + Clone + Send + Sync + 'static,
+        R: Fn(Request<Incoming>, Peer) -> RFut + Clone + Send + Sync + 'static,
         RFut: Future<Output = GenericResponse> + Send,
-        C: FnMut(SocketAddr) -> G,
+        C: FnMut(Peer) -> G,
         F: FnOnce(ConnectionError) + Clone + Send + 'static,
         D: FnOnce(G) + Clone + Send + 'static,
         G: Send + 'static,
@@ -321,11 +296,11 @@ impl<'a, R, C, F, D> Callbacks<'a, R, C, F, D> {
             disconnected,
         } = self;
 
-        let respond = move |request: Request<_>, peer_addr| {
+        let respond = move |request: Request<_>, peer| {
             let respond = respond.clone();
             async move {
                 info!("Request: {} {}", request.method(), request.uri());
-                let response = respond(request, peer_addr).await;
+                let response = respond(request, peer).await;
                 info!("Response: {}", response.status());
                 response
             }
@@ -344,7 +319,7 @@ impl<'a, R, C, F, D> Callbacks<'a, R, C, F, D> {
             }
         }
 
-        let mut nursery = Nursery::new();
+        let nursery = Nursery::new();
 
         info!("Started serving");
 
@@ -368,7 +343,8 @@ impl<'a, R, C, F, D> Callbacks<'a, R, C, F, D> {
                 async {
                     info!("Connected.");
                     let log_guard = Guard(Some(|| info!("Disconnected.")));
-                    let connection_metric = connected(peer_addr);
+                    let peer = Peer::new(peer_addr);
+                    let connection_metric = connected(peer.clone());
                     let disconnected = disconnected.clone();
                     let metric_guard = Guard(Some(|| disconnected(connection_metric)));
 
@@ -385,28 +361,35 @@ impl<'a, R, C, F, D> Callbacks<'a, R, C, F, D> {
 
                     let failed = failed.clone();
                     let respond = respond.clone();
+                    let peer2 = peer.clone();
                     let service =
-                        service_fn(move |r| respond(r, peer_addr).map(Ok::<_, Infallible>));
+                        service_fn(move |r| respond(r, peer2.clone()).map(Ok::<_, Infallible>));
                     let mut shutdown_receiver = server.shutdown.subscribe();
                     let connection_task = async move {
-                        let wants_shutdown = shutdown_receiver.wait_for(|&done| done);
                         let _permit = permit;
                         let _log_guard = log_guard;
                         let _metric_guard = metric_guard;
 
                         let http_connection = http1::Builder::new()
                             .half_close(true) // Might be useful for streaming stuff?
-                            // TODO: header read timeouts
+                            .timer(TokioTimer::new())
                             .serve_connection(TokioIo::new(connection), service);
-                        let http_connection =
-                            with_graceful_shutdown(http_connection, wants_shutdown);
 
-                        if let Err(err) = http_connection.await {
-                            error!("Error serving: {err}");
-                            let err = ConnectionError::Http {
-                                peer_addr,
-                                source: err,
-                            };
+                        let connection_results = tokio::select! {
+                            results = peer.apply_timeouts(http_connection) => results,
+                            () = async {
+                                let _ = shutdown_receiver.wait_for(|&done| done).await;
+                                peer.graceful_shutdown();
+                                std::future::pending().await
+                            } => unreachable!(),
+                        };
+
+                        if let Err(err) = connection_results {
+                            // `Peer` already does a better job of logging timeouts,
+                            // distinguishing between real timeouts and forced disconnections.
+                            if !matches!(err, ConnectionError::HardTimeout { .. }) {
+                                error!("Error serving: {err}");
+                            }
                             failed(err);
                         }
                     };
@@ -708,12 +691,14 @@ mod tests {
         let service = server
             .with_callbacks()
             .respond(|_, _| futures::future::pending())
-            .connected(|addr| {
-                sender.try_send(("logged connection", addr)).unwrap();
-                addr
+            .connected(|peer| {
+                sender.try_send(("logged connection", peer.addr())).unwrap();
+                peer
             })
-            .disconnected(move |addr| {
-                sender2.try_send(("logged disconnection", addr)).unwrap();
+            .disconnected(move |peer| {
+                sender2
+                    .try_send(("logged disconnection", peer.addr()))
+                    .unwrap();
             })
             .serve(connections);
 

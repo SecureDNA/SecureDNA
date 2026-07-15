@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::sync::Arc;
@@ -15,15 +15,15 @@ use scep::{
     types::VerifiableScreeningRequested,
 };
 use scep_client_helpers::{
-    scep_client::{self, HdbOpenParams},
     ClientCerts, ScepClientOpenCommon,
+    scep_client::{self, HdbOpenParams},
 };
 use scep_integration_tests::{
-    make_certs::{make_certs, MakeCertsOptions},
+    make_certs::{MakeCertsOptions, make_certs},
     mock_screening::{mock_hazard_query, rehash_query},
     server::{Opts, TestServer},
 };
-use shared_types::{hash::HashSpec, requests::RequestId, synthesis_permission::Region};
+use shared_types::{hash::HashSpec, requests::RequestId, synthesis_permission::RawRegion};
 use tracing::info;
 
 async fn open_hdb(
@@ -147,7 +147,7 @@ async fn open_hdb(
                 debug_info: false,
             },
             HdbOpenParams {
-                region: Region::All,
+                region: RawRegion::ALL,
                 with_exemption: false,
                 verifiable,
                 fasta_sha3_256_hex,

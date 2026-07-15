@@ -1,0 +1,16 @@
+# Usage
+
+This page assumes that you have [installed](../installation/index.qmd) synthclient and [signed up](../signup/index.qmd), so that you now have a _synth token_ (.st).
+
+If you have installed the `synthclient` binary locally, you can run these commands:
+
+```sh
+echo "your passphrase here" > token.passphrase
+synthclient --port 8080 \
+    --token-file token.st \
+    --keypair-file token.priv \
+    --keypair-passphrase-file token.passphrase &
+```
+
+Here, _token.st_ and _token.priv_ are the files you downloaded in @sec-generating-synth-tokens and the passphrase is the _passphrase B_ you picked for this synth token.
+

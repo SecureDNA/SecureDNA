@@ -1,8 +1,13 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use vergen::EmitBuilder;
+use vergen_git2::{Emitter, Git2Builder};
 
 fn main() {
-    EmitBuilder::builder().git_sha(true).emit().unwrap();
+    let git2 = Git2Builder::all_git().unwrap();
+    Emitter::default()
+        .add_instructions(&git2)
+        .unwrap()
+        .emit()
+        .unwrap();
 }

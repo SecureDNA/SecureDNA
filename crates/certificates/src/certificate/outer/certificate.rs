@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module defines functionality available for issued certificates.
@@ -369,17 +369,17 @@ impl Certificate<Manufacturer, KeyAvailable> {
 
 #[cfg(all(test, feature = "cert_tests"))]
 mod tests {
+    use crate::SystemClock;
     use crate::key::EncryptableKeypair;
     use crate::test_helpers::create_intermediate_bundle;
-    use crate::SystemClock;
     use crate::{
+        Builder, Certificate, Description, Infrastructure, IssuerAdditionalFields, RequestBuilder,
+        SigningKeyPair,
         asn::{FromASN1DerBytes, ToASN1DerBytes},
         error::DecodeError,
         pem::{PemDecodable, PemEncodable},
         shared_components::role::{Exemption, Manufacturer},
         test_helpers::create_leaf_bundle,
-        Builder, Certificate, Description, Infrastructure, IssuerAdditionalFields, RequestBuilder,
-        SigningKeyPair,
     };
 
     #[test]

@@ -1,10 +1,10 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for creating certificate requests.
 //! Private key can be randomly generated or provided.
 
-use rasn::{types::Constraints, AsnType, Decode, Encoder, Tag};
+use rasn::{AsnType, Decode, Encoder, Tag, types::Constraints};
 use serde::Serialize;
 use std::marker::PhantomData;
 
@@ -13,7 +13,9 @@ use crate::certificate::{
     ExemptionRequestVersion, InfrastructureRequestVersion, ManufacturerRequestVersion,
     RequestVersion,
 };
+use crate::{Attachment, Authenticator};
 use crate::{
+    Exemption, HierarchyKind, Infrastructure, IssuerAdditionalFields, Manufacturer, SigningKeyPair,
     certificate::inner::{Intermediate1, Leaf1, Root1},
     digest::Digestible,
     key::signing::PublicKey,
@@ -23,9 +25,7 @@ use crate::{
         common::{Description, Id},
         role::Role,
     },
-    Exemption, HierarchyKind, Infrastructure, IssuerAdditionalFields, Manufacturer, SigningKeyPair,
 };
-use crate::{Attachment, Authenticator};
 
 use super::{Certificate, IssuanceError, RequestDigest};
 
@@ -378,13 +378,13 @@ impl Builder for RequestBuilder<Manufacturer> {
 #[cfg(all(test, feature = "cert_tests"))]
 mod tests {
     use crate::{
+        Builder, Issued, IssuerAdditionalFields, SigningKeyPair,
         asn::{FromASN1DerBytes, ToASN1DerBytes},
         certificate::outer::{Certificate, CertificateRequest, RequestBuilder},
         error::DecodeError,
         key_state::KeyUnavailable,
         pem::{PemDecodable, PemEncodable},
         shared_components::role::{Exemption, Infrastructure, Manufacturer},
-        Builder, Issued, IssuerAdditionalFields, SigningKeyPair,
     };
 
     #[test]

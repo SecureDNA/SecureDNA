@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt::{Display, Error, Formatter};
@@ -9,17 +9,17 @@ use thiserror::Error;
 use crate::chain::Chain;
 use crate::traversal::ChainValidationError;
 use crate::{
-    asn::{FromASN1DerBytes, ToASN1DerBytes},
-    ChainItem, ChainTraversal, DecodeError, EncodeError, Exemption, ExemptionTokenGroup,
-    MultiItemPemBuilder,
-};
-use crate::{
     Authenticator, ExemptionTokenRequest, Expiration, HierarchyKind, IssuanceError, Role,
     SigningKeyPair, SystemClock,
 };
+use crate::{
+    ChainItem, ChainTraversal, DecodeError, EncodeError, Exemption, ExemptionTokenGroup,
+    MultiItemPemBuilder,
+    asn::{FromASN1DerBytes, ToASN1DerBytes},
+};
 
-use super::exemption::et::EtLoadKeyError;
 use super::TokenGroup;
+use super::exemption::et::EtLoadKeyError;
 
 /// The contents of a token file (for example an .et file). Holds the token,
 /// and the certificate chain showing the provenance of the token.
@@ -158,7 +158,7 @@ impl<R: Role> Display for TokenBundleError<R> {
 
 #[cfg(all(test, feature = "cert_tests"))]
 mod test {
-    use crate::{test_for_all_token_types, PublicKey, TokenBundle, TokenGroup};
+    use crate::{PublicKey, TokenBundle, TokenGroup, test_for_all_token_types};
 
     test_for_all_token_types!(token_bundle_serializable_for_file);
     fn token_bundle_serializable_for_file<F, T>(create_token_bundle_fn: F)

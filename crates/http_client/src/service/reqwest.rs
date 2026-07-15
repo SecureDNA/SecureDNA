@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Utilities for using [`reqwest`] as an [`HttpService`]
@@ -12,8 +12,8 @@ use http_body_util::BodyExt;
 use hyper::body::{Body, Frame, SizeHint};
 use reqwest::RequestBuilder;
 
-use super::util::ServiceFn;
 use super::HttpService;
+use super::util::ServiceFn;
 
 /// From [`reqwest`]:
 pub use reqwest::Client;

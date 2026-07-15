@@ -1,4 +1,4 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Functionality for using a certificate to sign another certificate, or self-signing a root certificate request
@@ -8,8 +8,8 @@ use std::{io::Write, path::PathBuf};
 
 use crate::default_filepath::set_appropriate_filepath_and_create_default_dir_if_required;
 use certificates::file::{
-    load_certificate_bundle_from_file, load_keypair_from_file, load_token_request_from_file,
-    save_token_bundle_to_file, TokenExtension, CERT_EXT, KEY_PRIV_EXT,
+    CERT_EXT, KEY_PRIV_EXT, TokenExtension, load_certificate_bundle_from_file,
+    load_keypair_from_file, load_token_request_from_file, save_token_bundle_to_file,
 };
 use certificates::{
     CertificateBundle, CertificateBundleError, ChainTraversal, DatabaseTokenGroup, Expiration,
@@ -18,7 +18,7 @@ use certificates::{
 };
 use clap::Parser;
 
-use crate::passphrase_reader::{PassphraseReader, PassphraseSource, ENV_PASSPHRASE_WARNING};
+use crate::passphrase_reader::{ENV_PASSPHRASE_WARNING, PassphraseReader, PassphraseSource};
 
 use super::error::CertCliError;
 
@@ -212,17 +212,17 @@ where
 
 #[cfg(all(test, feature = "cert_tests"))]
 mod test {
-    use certificates::file::{TokenExtension, CERT_EXT, KEYSERVER_TOKEN_EXT, KEY_PRIV_EXT};
+    use certificates::file::{CERT_EXT, KEY_PRIV_EXT, KEYSERVER_TOKEN_EXT, TokenExtension};
     use certificates::key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded};
     use certificates::{
+        ChainTraversal, DatabaseTokenGroup, DatabaseTokenRequest, Exemption, HltTokenGroup,
+        HltTokenRequest, Infrastructure, KeyserverTokenGroup, KeyserverTokenRequest, Manufacturer,
+        SigningKeyPair, SynthesizerTokenGroup, SynthesizerTokenRequest, TokenKind,
         file::{
             load_token_bundle_from_file, save_certificate_bundle_to_file, save_keypair_to_file,
             save_token_request_to_file,
         },
         test_helpers::create_leaf_bundle,
-        ChainTraversal, DatabaseTokenGroup, DatabaseTokenRequest, Exemption, HltTokenGroup,
-        HltTokenRequest, Infrastructure, KeyserverTokenGroup, KeyserverTokenRequest, Manufacturer,
-        SigningKeyPair, SynthesizerTokenGroup, SynthesizerTokenRequest, TokenKind,
     };
     use certificates::{Domain, SystemClock};
     use doprf::party::KeyserverId;
@@ -230,8 +230,8 @@ mod test {
 
     use super::TokenIssuanceDetails;
     use crate::passphrase_reader::{
-        EnvVarPassphraseReader, MemoryPassphraseReader, PassphraseReaderError,
-        ENV_PASSPHRASE_WARNING, KEY_ENCRYPTION_PASSPHRASE_ENV_VAR,
+        ENV_PASSPHRASE_WARNING, EnvVarPassphraseReader, KEY_ENCRYPTION_PASSPHRASE_ENV_VAR,
+        MemoryPassphraseReader, PassphraseReaderError,
     };
     use crate::shims::{
         error::CertCliError,

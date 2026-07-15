@@ -1,9 +1,7 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::future::Future;
-
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{Mutex, watch};
 
 /// Uses tokio::sync::watch to coordinate access to a refreshable `T`.
 /// `T` must be clone, and will be cloned relatively often, so it's advisable

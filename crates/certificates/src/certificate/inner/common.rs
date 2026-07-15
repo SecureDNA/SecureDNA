@@ -1,20 +1,20 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Contains fields of the `Common` certificate data struct - these are the  fields held in common by all certificate types.
 //! This includes fields establishing the identity of the certificate and the identity of the issuing certificate.
 
-use rasn::{types::*, Decode, Encode};
+use rasn::{Decode, Encode, types::*};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    Authenticator,
     asn::AsnCompatible,
     key::signing::PublicKey,
     shared_components::common::{
         Attachment, CompatibleIdentity, ComponentVersionGuard, Description, Expiration,
         ExpirationError, Id, VersionedComponent,
     },
-    Authenticator,
 };
 
 /// v1 of fields set by certificate requester

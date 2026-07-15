@@ -1,16 +1,17 @@
-// Copyright 2021-2025 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
+// Copyright 2021-2026 SecureDNA Stiftung (SecureDNA Foundation) <licensing@securedna.org>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module contains functionality for creating an `KeyserverTokenRequest`.
 //! A `Certificate` with the `Infrastructure` role is able to sign a `KeyserverTokenRequest` to issue a `KeyserverToken`.
 //! `KeyserverToken`s will be used to identify keyservers.
 
-use rasn::{types::*, Decode, Encode};
+use rasn::{Decode, Encode, types::*};
 use serde::{Deserialize, Serialize};
 
 use doprf::party::KeyserverId;
 
 use crate::{
+    CertificateChain, Digestible, KeyAvailable, KeyUnavailable, SigningKeyPair, TokenKind,
     asn::ToASN1DerBytes,
     error::EncodeError,
     impl_boilerplate_for_token, impl_boilerplate_for_token_request,
@@ -28,7 +29,6 @@ use crate::{
         role::Infrastructure,
     },
     tokens::{TokenData, TokenGroup},
-    CertificateChain, Digestible, KeyAvailable, KeyUnavailable, SigningKeyPair, TokenKind,
 };
 
 use super::digest::{KeyserverTokenDigest, KeyserverTokenRequestDigest};
@@ -275,8 +275,8 @@ impl_key_boilerplate_for_token! {KeyserverToken}
 mod test {
     use crate::key_traits::{CanLoadSigningKey, HasAssociatedSigningKey, SigningKeyLoaded};
     use crate::{
-        test_helpers::create_leaf_cert, Expiration, Infrastructure, KeyserverTokenRequest,
-        SigningKeyPair,
+        Expiration, Infrastructure, KeyserverTokenRequest, SigningKeyPair,
+        test_helpers::create_leaf_cert,
     };
     use doprf::party::KeyserverId;
 
